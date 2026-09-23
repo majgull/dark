@@ -1,0 +1,35 @@
+# Frozen envelope for RQ3, 2026-09-05: local tiers against cloud tiers,
+# pipeline only, one tier and one think level per cell.
+#
+# Same shape as rq2b-2026-09-05.toml (docs/950-research.md, registry row
+# "envelope"): the seconds cap is the limit shared by every cell, the call
+# ceiling is a stop for a runaway only, high enough that it bound no run in
+# the last measured set (RQ2 set B and the smoke pair of 2026-09-05: pipeline
+# medians of 1 call, maximum 2). The reasoning-character cut is the class
+# budget's own.
+#
+# No think level is pinned here on purpose: RQ3 varies the think level per
+# cell, so it is given on the command line (`dark shift --think <level>`),
+# and dark/shift.py takes the file's level first only when the file has one.
+# Every run.start carries this file's name and sha256, and its think level.
+
+set = "rq3-2026-09-05"
+note = "RQ3: local tiers against cloud tiers, pipeline only, think level per cell on the command line"
+
+[class.additive]
+calls = 24
+seconds = 900
+max_reasoning_chars = 40000
+runs = 1
+
+[class.mechanical]
+calls = 16
+seconds = 300
+max_reasoning_chars = 10000
+runs = 1
+
+[class.repair]
+calls = 24
+seconds = 900
+max_reasoning_chars = 40000
+runs = 1

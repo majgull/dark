@@ -1,0 +1,13 @@
+# The local build binary. `go build ./...` names it after the module
+# (`app`, deliberately identical in every repo generated from this
+# template) — so this one line protects every seed from committing its
+# binary. Release binaries are built and published by CI, never committed.
+/app
+
+# Go well-known
+*.exe
+*.test
+*.out
+*.so
+*.dylib
+vendor/

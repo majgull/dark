@@ -1,0 +1,22 @@
+name: task-ci
+# A dark task repo is gated by its own verify.sh plus the no-binaries rule.
+# Nothing ships from here: the runner's stager is the merge gate, in a VM.
+on:
+  push:
+    branches: ['**']
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no binaries, nothing over 1MB
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' f; do
+            [ -f "$f" ] && [ -s "$f" ] || continue
+            LC_ALL=C grep -Iq . -- "$f" || { echo "binary file tracked: $f"; exit 1; }
+            [ "$(stat -c %s -- "$f")" -le 1048576 ] || { echo "file over 1MB: $f"; exit 1; }
+          done < <(git ls-files -z)
+      - name: verify
+        run: bash .factory/verify.sh

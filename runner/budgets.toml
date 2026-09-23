@@ -1,0 +1,177 @@
+# budgets.toml — every bound the runner enforces, as data (design §4, §5).
+#
+# Hard caps are the one thing a human writes. Soft limits are derived from the
+# ledger: p95 of the class's passes times (1 + headroom), clipped by hard, once
+# the class has [admission].min_runs passes; hard before that. operator, 2026-09-02:
+# "use the placeholders" — they get corrected from the ledger's measured
+# consumption, never from guesses. The runner refuses to start if any class in
+# spec.CLASSES has no hard cap.
+
+[window.ollama-cloud]
+# 200 was spent by noon on the first bench day: a session arm's run charges
+# its tool calls (one request each) to the window, 14-20 per task, and the
+# validator's share of 200 skipped five spec reviews. Placeholder still;
+# the real bound is the subscription's, not measured yet.
+#
+# Measured 2026-09-05 15:50 local: 659 calls and 3.13M tokens spent on this
+# window since 04:00 (the overnight-2 run of twelve RQ2 rounds, round zero,
+# the afternoon smoke and three more rounds). One RQ2 round pair (pipeline
+# plus session, eight tasks, deepseek) is about 70 calls and 470k tokens.
+# Admission reserves the worst case per run, calls x (ctx + max_tokens) =
+# 983040 tokens for a 24-call class, so a run parks as soon as less than that
+# is left, however cheap the run really is. At 4M/day the afternoon relaunch
+# parked six of eight tasks. Raised to hold a full RQ2 set plus the RQ3
+# cloud cells in one calendar day, with the reservation still in front.
+# Still a placeholder for the subscription's real bound; if the provider
+# throttles, the run fails structurally and the ledger shows it.
+# 2026-09-05 16:10, operator: no token or call limit until the weekend's results are
+# delivered. Values that nothing reaches; the reservation arithmetic stays and
+# never binds. The provider's own refusal is the only bound, visible in the ledger.
+daily_calls = 1000000000
+daily_tokens = 1000000000000
+reserve_for_data_runs = 0.6    # validators may consume at most 40% of the window
+
+[window.claude]
+# 60 was spent by the pilot's six session-sonnet runs alone (tool calls
+# charged as calls); a factory round of sonnet over 21 tasks is up to 126
+# single requests. Placeholder; the proxy's real bound is operator's.
+#
+# 2026-09-05: the proxy reports no usage, so every sonnet run is charged its
+# reservation, calls x (ctx + max_tokens) = 40960 a call, never a measured
+# count. The pilot's session-sonnet runs made 14-20 calls a task: one session
+# round of eight tasks charges about 2.3M and one pipeline round about 0.7M,
+# so a five-round RQ2 set on sonnet is about 15M charged and 900 calls, and
+# the 2M/300 window above would have parked it inside the first session
+# round. Raised for the RQ2 sonnet extension; the bound is operator's plan, and a
+# refusal from the proxy ends a run structurally, visible in the ledger.
+# 2026-09-05 16:10, operator: no limit, as above.
+daily_calls = 1000000000
+daily_tokens = 1000000000000
+reserve_for_data_runs = 0.5
+
+[watts]
+# operator, 2026-09-02: no narrow watts cap while benching; hangs are already bounded
+# by the per-call timeout, the class seconds envelope and the watchdog. The
+# watts window is for the stable factory running long real work, so this stays
+# effectively open (a whole day of the high class is ~9 kWh) until phase 3
+# sets it from what the rounds measured. The ledger keeps charging Wh either way.
+# 2026-09-05 16:10, operator: no budget of any kind this weekend; a value nothing reaches.
+daily_wh = 1000000000
+# draw per watts class, W: PLACEHOLDERS, used only for run.end rows that carry
+# no measured `wh` (runs before dark/power.py, 2026-09-03). Every run since is
+# metered (RAPL package + nvidia-smi); no report may present these as watts.
+low = 180
+mid = 250
+high = 380
+
+# ---- per class: hard envelope, headroom for the soft limit, admission
+# threshold, and the provisional tier order used until a (class, tier) pair
+# has min_runs of data. Order = cheapest-first by operator's stated profiles. ------
+
+# think: the level the class runs at when a shift sets none (decision 14);
+# admission and the soft envelope count only runs at that level. Evidence for
+# the caps and the lists: hub reports/949-admission.md (bench of 2026-09-02,
+# 410 valid runs). max_reasoning_chars is per call and is the bound above the
+# level's cut: 40000 sits over medium's 32000 with margin and under high; the
+# uncontrolled runs that parked at 60000-85000 chars were the pre-level regime.
+
+[class.additive]
+# passes at low, local: calls p95 3 (max 5), seconds p95 229 (max 289; every
+# valid run under 664); cloud at medium: seconds max 455. 6 calls is where
+# the local fails land, so it stays the cap and the soft rule sizes below it.
+think = "low"
+hard = { runs = 2, calls = 6, seconds = 900, max_reasoning_chars = 40000 }
+headroom = 0.3
+admit_at = 0.7
+# 35B thinking at low 7/8 (6 Wh per pass), dsf 7/8 low, 8/8 medium, glm 8/9
+# low; sonnet: session arm 5/6, factory NOT MEASURED. Dropped: 35B non-thinking
+# 9/16 (0.56), 9B 4/12 and 4/8, 27B non-thinking 5/8, 3.8-27B 5/8.
+provisional = ["my/qwen-3.6-35b", "deepseek-v4-flash:cloud", "glm-5.3-flash:cloud", "claude-sonnet-5"]
+
+[class.mechanical]
+# one call per pass on every tier at every level (max 2); seconds max 49 at
+# none, 153 at low; reasoning at none is 0, at low p95 7495 per call, and the
+# one 35027-char run (9B, uncontrolled) is what 10000 rules out.
+think = "none"
+hard = { runs = 2, calls = 4, seconds = 300, max_reasoning_chars = 10000 }
+headroom = 0.3
+admit_at = 0.7
+# every local tier 5/6 at none (split-module-python is the miss on all of
+# them), thinking buys nothing here (9B low = 9B none = 5/6); cloud 6/6 at
+# every level. Cheapest first: the 9B non-thinking at 10 Wh per pass.
+provisional = ["my/qwen-3.5-9b-nonthink", "my/qwen-3.6-35b-nonthink", "my/qwen-3.6-27b-nonthink",
+               "deepseek-v4-flash:cloud", "glm-5.3-flash:cloud", "claude-sonnet-5"]
+
+[class.repair]
+# passes at low: calls p95 3 (max 8, one 35B non-thinking run), seconds p95
+# 183 (max 304); the only run past 900 s was a 9B park at 1205 s that never
+# finished. 900 is three times the slowest pass.
+think = "low"
+hard = { runs = 2, calls = 8, seconds = 900, max_reasoning_chars = 40000 }
+headroom = 0.5
+admit_at = 0.5
+# 35B low 5/7 (6 Wh per pass), 3.8-27B low 7/7 (23 Wh), glm low 6/7, dsf low
+# 6/7. Dropped: 35B non-thinking 3/8, 9B 2/7 and 3/7. The 27B non-thinking's
+# 6/7 stands at level none and is not evidence at low.
+provisional = ["my/qwen-3.6-35b", "my/qwen-3.8-27b", "glm-5.3-flash:cloud",
+               "deepseek-v4-flash:cloud", "claude-sonnet-5"]
+
+# spec and review are not benched (operator 2026-09-02 17:18): high is their level,
+# the caps stay placeholders. The claude proxy ignores the level (think_api
+# none), so it documents the intent until a controllable tier serves them.
+[class.spec]
+think = "high"
+hard = { runs = 1, calls = 3, seconds = 600, max_reasoning_chars = 80000 }
+headroom = 0.2
+admit_at = 0.7
+provisional = ["claude-opus-5", "claude-sonnet-5"]
+
+[class.review]
+think = "high"
+hard = { runs = 1, calls = 4, seconds = 1800, max_reasoning_chars = 120000 }
+headroom = 0.2
+admit_at = 0.7
+provisional = ["claude-opus-5"]
+
+[admission]
+min_runs = 10      # below this a (class, tier) pair is admitted only provisionally
+last_runs = 20     # the pass rate is over the last N runs of the pair
+# cheapest first; a tier's rank is "<cost>/<watts>" when local, "<cost>/<speed>"
+# when sub-window. Both watts and window are costs.
+cost_order = ["local/low", "local/mid", "local/high",
+              "sub-window/fast", "sub-window/mid", "sub-window/slow"]
+
+[think]
+# dark's own thinking levels (decision 13, operator 2026-09-02: "we need our own
+# method"): characters of visible thinking per call, cut live from the
+# stream by the executor, the same for every tier. Characters because they
+# are the one unit every provider exposes as it happens; tokens differ per
+# tokenizer and arrive only in the final usage. The provider is told the
+# nearest thing it understands (reasoning_effort, enable_thinking) so the
+# model is aware, but the bound is ours. A run's cumulative budget is the
+# level times the envelope's calls. The response keeps [defaults].max_tokens
+# for itself; the request ceiling is response + level / chars_per_token.
+# Claude via the claude-cli proxy is uncontrolled (nothing reaches the model
+# and the reply is not a stream); its runs carry think_api = none.
+none = 0
+low = 8000
+medium = 32000
+high = 64000
+chars_per_token = 3
+
+[watchdog]
+heartbeat_seconds = 120     # the executor PATCHes its progress comment at least this often
+silent_kill_seconds = 900   # v1's measured incident: the 7h40m unbounded watcher
+max_denials = 15            # v1 incident: 3,970 retries of a refused command
+max_calls_low_variety = 25  # v1 incident: 53 near-identical helper scripts
+poll_seconds = 15
+# a fresh VM must hold an address (guest agent) within this; one that does not
+# is reaped and cloned once more (a staging VM sat 25 min without DHCP, 2026-09-02)
+net_wait_seconds = 180
+
+[shift]
+# 20 parked the 21st task of a full-bench round (wcl-python on the 35B, round 2)
+max_runs = 60
+concurrency = 1             # the local lane is serial by hardware
+vm_template = 9001          # factory-agent-go: git, build-essential, go, python3
+vmid_base = 9500            # executor VMs 9500+slot, staging VMs 9550+slot

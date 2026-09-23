@@ -1,0 +1,23 @@
+name: bench-ci
+on:
+  push:
+    branches: ['**']
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: task records
+        run: python3 tools/check_tasks.py
+      - name: no binaries, nothing over 5MB (the ledger copy grows)
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' f; do
+            [ -f "$f" ] && [ -s "$f" ] || continue
+            # -I makes grep treat a file with NUL bytes as non-matching; the
+            # empty pattern matches every text line, blank ones included, so a
+            # fixture of only newlines (obs-01-parse's empty.txt) is text
+            LC_ALL=C grep -Iq '' -- "$f" || { echo "binary file tracked: $f"; exit 1; }
+            [ "$(stat -c %s -- "$f")" -le 5242880 ] || { echo "file over 5MB: $f"; exit 1; }
+          done < <(git ls-files -z)

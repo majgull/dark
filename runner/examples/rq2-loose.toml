@@ -1,0 +1,34 @@
+name = "rq2-loose-2026-09-06"
+question = "RQ2: pipeline against session, deepseek-v4-flash, loose envelope"
+tasks = ["csvstat-python", "semver-go", "hello-go", "split-module-python",
+         "rename-package-go", "duration-python", "roman-python", "intervals-go"]
+judge = "acceptance-v4"                     # tag; refused if the checkout's tests_version differs
+envelope = "frozen/rq2b-2026-09-05.toml"    # seconds shared, call ceiling non-binding
+rounds = 5
+order = "alternate"                         # arm A round 1, arm B round 1, A 2, B 2 ...
+
+[[arm]]
+name = "pipeline"
+executor = "agent"
+tier = "deepseek-v4-flash:cloud"
+think = "low"
+
+[[arm]]
+name = "session"
+executor = "session"
+tier = "deepseek-v4-flash:cloud"
+think = "low"
+
+[orgs]
+work = "dark-runs-rq2-loose"                # created by bootstrap, must be empty at launch
+archive = "dark-archive-rq2-loose"          # created by bootstrap, receives the work repos at the end
+records = "dark-records"                    # streams and review reports, one repo per shift
+results = "dark-experiments"                # one repo per experiment name
+
+[smoke]
+tasks = ["hello-go", "split-module-python", "duration-python"]   # one per class
+rounds = 1
+
+[stop]
+calls_left_min = 200                        # do not start a round below this many cloud calls
+deadline = "07:30"

@@ -1,0 +1,63 @@
+# arms.toml — the bench's arms as data (design §7b). Factory arms run on the
+# runner host (`python3 -m dark shift --arm <name> [--tier <id>]`); session
+# arms run from the hub (`tools/arm.sh <arm> <task>`): one bouncer session,
+# one model, the spec and the starting tree, no planner, no validator, no
+# ladder. Every arm's result is staged by the same hidden acceptance in the
+# same fresh VM (`python3 -m dark stage`).
+#
+# tier: the model id the ledger files the run under (must be in the runner's
+# models.toml). cell: a bouncer cell that can reach the model (probed
+# 2026-09-02: `:cloud` models are reachable from box-cloud and cloud only;
+# box-local refuses them by policy).
+
+[arm.factory-local]
+mode = "factory"
+executor = "admitted"        # the first open admitted tier per class
+
+[arm.factory-cloud]
+mode = "factory"
+executor = "deepseek-v4-flash:cloud"
+
+[arm.session-dsf]
+mode = "session"
+brain = "pi"
+tier = "deepseek-v4-flash:cloud"
+cell = "box-cloud"
+
+[arm.session-glm]
+mode = "session"
+brain = "pi"
+tier = "glm-5.3-flash:cloud"
+cell = "box-cloud"
+
+[arm.session-sonnet]
+mode = "session"
+brain = "claude"
+tier = "claude-sonnet-5"
+cell = "box-cloud"
+
+# RQ2 arms of 2026-09-05 (docs/950-research.md RQ2): both run on the runner
+# host, both inside the same throwaway VM. The session arm is dark/session.py,
+# a plain pi session with no bouncer; its rows carry calls and tool_calls
+# counted from its own stream. Registered so ops/verify-round.py checks the
+# session rows as session rows (the smoke pair of 2026-09-05 was checked as
+# cloud rows because the names were not here).
+[arm.rq2c-pipeline]
+mode = "factory"
+executor = "deepseek-v4-flash:cloud"
+
+[arm.rq2c-session]
+mode = "session"
+executor = "session"
+tier = "deepseek-v4-flash:cloud"
+
+# RQ2 sonnet extension (2026-09-05): the same two arms on claude-sonnet-5,
+# through the claude proxy (no token usage reported, think not steerable).
+[arm.rq2s-pipeline]
+mode = "factory"
+executor = "claude-sonnet-5"
+
+[arm.rq2s-session]
+mode = "session"
+executor = "session"
+tier = "claude-sonnet-5"

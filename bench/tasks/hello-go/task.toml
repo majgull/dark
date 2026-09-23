@@ -1,0 +1,10 @@
+id = "hello-go"
+title = "hello-go: a Greet function in a new file, plus its test"
+class = "additive"
+lang = "go"
+may_edit = []
+spec = """Add a new file `greet.go` in package main with an exported function:
+
+    func Greet(name string) string
+
+It returns the string "hello, " followed by name, e.g. Greet("dark") == "hello, dark". An empty name returns "hello, stranger". Also add `greet_test.go` with a `go test` test covering both cases. Do not change main.go or any other existing file; `go vet` and `go test ./...` must stay green."""

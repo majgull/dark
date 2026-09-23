@@ -1,0 +1,16 @@
+name: runner-ci
+# dark/runner is gated by its own verify.sh: unit tests, config validation,
+# no binaries. Nothing here ships or releases; the runner is deployed by
+# `ops/deploy.sh` (a git pull on the runner host), never by CI.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: verify
+        run: bash verify.sh

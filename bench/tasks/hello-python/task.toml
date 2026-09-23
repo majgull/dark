@@ -1,0 +1,10 @@
+id = "hello-python"
+title = "hello-python: a script with one exact line of output, plus its test"
+class = "additive"
+lang = "python"
+may_edit = []
+spec = """Add a script `hello.py` at the repo root. Running `python3 hello.py` must print exactly one line to stdout:
+
+hello, dark
+
+and exit with status 0. Also add `test_hello.py` at the repo root: a stdlib `unittest` test that runs `hello.py` with `subprocess` and asserts the output is exactly `hello, dark` followed by a newline. Both files are new; do not change any existing file."""
