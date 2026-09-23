@@ -1,8 +1,8 @@
 # dark
 
-A pipeline that lets a language model write code on its own, inside a virtual machine that exists for one task and is deleted when the task ends, judged by tests it never sees. Two things live here. The **runner** is the pipeline: a task with hidden acceptance tests goes through preflight, execution in a throwaway machine, verification, a push, and a second fresh machine that runs the hidden tests; the run ends as exactly one outcome in an append-only log. The **bench** is the runner's measuring instrument: the rules a task must satisfy, the tools that validate a task set against reference solutions and deliberately broken copies, frozen limits, and the arms. The task set itself, 31 tasks with hidden tests, is the repository [github.com/majgull/dark-tasks](https://github.com/majgull/dark-tasks); two example tasks stay here for reference.
+A pipeline that lets a language model write code on its own, inside a virtual machine that exists for one task and is deleted when the task ends, judged by tests it never sees. Two things live here. The **runner** is the pipeline: a task with hidden acceptance tests goes through preflight, execution in a throwaway machine, verification, a push, and a second fresh machine that runs the hidden tests; the run ends as exactly one outcome in an append-only log. The **bench** is the runner's measuring instrument: the rules a task must satisfy, the tools that validate a task set against reference solutions and deliberately broken copies, frozen limits, and the arms. The task set itself, 31 tasks with hidden tests, is the repository [dark-tasks](https://github.com/majgull/dark-tasks); two example tasks stay here for reference.
 
-The first study run on them is the paper [github.com/majgull/dark-paper](https://github.com/majgull/dark-paper): 8 small tasks, 6 models, 368 runs. The hidden tests were validated before they judged anything; a shell and file tools changed no verdict and cost three and a half times the model calls; every model solved more with a thinking budget, and a model with no budget spends its calls repeating itself. Every number in it re-derives from the run log with one command, and the tag `v0.1.0` of this repository is the tree that produced that log.
+The first study run on them is the paper [dark-paper](https://github.com/majgull/dark-paper): 8 small tasks, 6 models, 368 runs. The hidden tests were validated before they judged anything; a shell and file tools changed no verdict and cost three and a half times the model calls; every model solved more with a thinking budget, and a model with no budget spends its calls repeating itself. Every number in it re-derives from the run log with one command, and the tag `v0.1.0` of this repository is the tree that produced that log.
 
 ## Two commands check the code
 
@@ -11,7 +11,7 @@ cd runner && python3 -m pytest -q tests      # 362 tests
 cd bench && python3 tools/check_tasks.py ../../dark-tasks   # 31 tasks, 0 problems, with dark-tasks cloned beside this checkout
 ```
 
-They need Python 3, `pytest`, `jq`, `bash`, coreutils and `git`, and the second needs the task set [github.com/majgull/dark-tasks](https://github.com/majgull/dark-tasks) cloned next to this repository (without it, the same command with no argument checks the two example tasks kept here); nothing else is installed for them, and `docs/fresh-container.md` is the transcript of a bare Debian container running them.
+They need Python 3, `pytest`, `jq`, `bash`, coreutils and `git`, and the second needs the task set [dark-tasks](https://github.com/majgull/dark-tasks) cloned next to this repository (without it, the same command with no argument checks the two example tasks kept here); nothing else is installed for them, and `docs/fresh-container.md` is the transcript of a bare Debian container running them.
 
 ## How this was made
 
@@ -44,7 +44,7 @@ templates/   the Go and Python starting trees a task is laid over
 docs/        the fresh-container transcript
 ```
 
-This repository holds code and configuration only. Run logs, launcher logs, transcripts and figures never enter it: a test in `runner/tests` fails on any tracked file over 200 KB, or over 20 KB for a file of those kinds, and the evidence of a study goes to a dataset the study's repository pins by revision and hash, as the paper's does at [huggingface.co/datasets/majgull/dark-evidence](https://huggingface.co/datasets/majgull/dark-evidence).
+This repository holds code and configuration only. Run logs, launcher logs, transcripts and figures never enter it: a test in `runner/tests` fails on any tracked file over 200 KB, or over 20 KB for a file of those kinds, and the evidence of a study goes to a dataset the study's repository pins by revision and hash, as the paper's does at [dark-evidence](https://huggingface.co/datasets/majgull/dark-evidence).
 
 ## Provenance
 
@@ -52,7 +52,7 @@ The runner and bench were developed in a private Git server and imported here at
 
 ## How to cite
 
-Cite the paper, whose citation target is the tagged release `v1.0` of [github.com/majgull/dark-paper](https://github.com/majgull/dark-paper/releases/tag/v1.0). The code it describes is the tag `v0.1.0` here.
+Cite the paper, whose citation target is the tagged release `v1.0` of [dark-paper](https://github.com/majgull/dark-paper/releases/tag/v1.0). The code it describes is the tag `v0.1.0` here.
 
 ## License
 
