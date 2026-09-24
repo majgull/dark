@@ -1,189 +1,60 @@
-# models.toml — the catalog as data (design §3). Human-written fields only.
-# Measured numbers live in the ledger and the digest renders them; nobody
-# edits this file to record a measurement (one writer per file).
+# models.toml - the model catalog as data. Human-written fields only; measured
+# numbers live in the ledger and the digest renders them.
+#
+# This file is a working example. It names one OpenAI-compatible endpoint and
+# two placeholder model ids. Point `url` at your own endpoint and replace the
+# ids with ones it serves.
 #
 # provider  which endpoint serves the id (see [provider.*] below)
 # cost      "local": charged in watts, never in a window
 #           "sub-window": subscription, capped by the provider's daily window
-#           in budgets.toml — the window is the scarce thing, not money
+#           in budgets.toml; the window is the scarce thing, not money
 # speed     fast | mid | slow   sub-window tiers rank by this in cost_order
 # watts     low | mid | high    local tiers rank by this; required when local
 # role      optional list. "validator": the default tier for validation, smoke
-#           and re-check calls; never a data-producing executor unless it is
-#           the admitted tier for the class. "planner", "planner-light",
-#           "reviewer": control-plane classes.
+#           and re-check calls. "planner", "planner-light", "reviewer":
+#           control-plane classes.
 # ctx       context the tier is trusted with (prompt budget), optional
 # timeout   seconds per chat call inside the VM (default from [defaults])
 # rate_limit_signature  substring marking the window as exhausted -> cooldown
 #
 # Every id here is validated against its provider's live catalog at preflight;
-# an id that is not served refuses the shift (the v1 `-coding` rename lesson).
+# an id that is not served refuses the shift.
 
 [defaults]
 timeout = 600
 max_tokens = 8192
 temperature = 0.2
 
-# think_presets  per model: the router preset to request at a level (VM 101
-#   llama-router.ini, --reasoning-budget = level chars / 4.5, added 2026-09-02:
-#   measured 4.07 chars per reasoning token on the 35B, so a budget of chars / 3
-#   sat above dark's cut and the cut fired first on every long-thinking call);
-#   the model ends its own thinking in one request, dark's cut stays the bound.
-# think_api  how dark's thinking level reaches the provider (budgets [think]):
-#           reasoning_effort (OpenAI-style field, ollama honours it: probed
-#           2026-09-02), chat_template (llama.cpp enable_thinking on/off, no
-#           level), none (claude-cli proxy: nothing reaches the model)
-# stream    SSE replies; the live thinking cut needs it (default: wake)
+# think_api  how dark's thinking level reaches the provider:
+#            reasoning_effort (OpenAI-style field), chat_template (llama.cpp
+#            enable_thinking on/off, no level), none (nothing reaches the model)
+# stream     SSE replies; the live thinking cut needs it (default: wake)
 
-[provider.gate]
-url = "http://git-host:4100/v1"
-catalog = "models"          # GET <url>/models lists served ids (answers while asleep)
-wake = true                 # a real chat request WOL-wakes the llm server
-window = ""                 # local: no window
+[provider.local]
+url = "http://localhost:11434/v1"   # an OpenAI-compatible endpoint (ollama's default)
+catalog = "models"                  # GET <url>/models lists served ids (answers while asleep)
+window = ""                         # local: no window
 think_api = "chat_template"
 stream = true
 
-[provider.ollama-cloud]
-url = "http://git-host:11434/v1"
-catalog = "models"
-window = "ollama-cloud"
-think_api = "reasoning_effort"
-stream = true
+# ---- placeholder tiers: replace each id with one your endpoint serves -------
 
-[provider.claude]
-url = "http://git-host:4300/v1"
-health = "http://git-host:4300/healthz"   # lists models, reports token presence
-window = "claude"
-# the proxy runs `claude -p` (Claude Code CLI, print mode) and returns text
-# with zero usage: thinking is the CLI's own, tokens NOT MEASURED, no stream
-think_api = "none"
-stream = false
-
-# thinking_tokens  budget for thinking on top of max_tokens (the response
-#           budget). Every provider counts thinking inside max_tokens, so the
-#           request carries the sum; a tier without it does not think (or is
-#           not expected to). 16384 tokens is about the 60000-char class cap.
-# think     off | on | low | medium | high, passed to the provider; unset =
-#           the provider's default. Verified per provider by probe first.
-
-# ---- local tiers (operator, 2026-09-02): 35B cheap and fast, dsf-like; 27B solid
-# but slow, more watts; 9B in the middle. Encoded once, here. ----------------
-
-[model."my/qwen-3.6-35b-nonthink"]
-provider = "gate"
+[model."example-small"]
+provider = "local"
 cost = "local"
 speed = "fast"
 watts = "low"
-ctx = 32768
-timeout = 600
-note = "first local choice for additive; 4/4 real ships in v1 when the stack delivered"
-
-[model."my/qwen-3.5-9b"]
-provider = "gate"
-think_presets = { low = "my/qwen-3.5-9b-low", medium = "my/qwen-3.5-9b-medium" }
-cost = "local"
-speed = "fast"
-watts = "mid"
-ctx = 32768
-timeout = 600
-thinking_tokens = 16384
-note = "mechanical work; shipped every doc task in v1; thinks by default"
-
-[model."my/qwen-3.6-27b-nonthink"]
-provider = "gate"
-cost = "local"
-speed = "slow"
-watts = "high"
-ctx = 32768
-timeout = 900
-note = "only where 35b measurably fails and the class is worth the watts"
-
-[model."my/qwen-3.8-27b-nonthink"]
-provider = "gate"
-cost = "local"
-speed = "slow"
-watts = "high"
-ctx = 32768
-timeout = 900
-note = "the none cell of the newer 27B for RQ3 (2026-09-05); the router preset answers, reports/950-prep-b.md"
-
-# ---- subscription tiers: charged against a daily window ---------------------
-
-# --- thinking variants of the local tiers (operator, 2026-09-02: "are local models
-# fairly benched?"): the cloud tiers think up to the class reasoning cap, the
-# local presets above are the non-thinking ones. These get their own rounds;
-# none is in a provisional list until the data says where it belongs.
-[model."my/qwen-3.6-35b"]
-provider = "gate"
-think_presets = { low = "my/qwen-3.6-35b-low", medium = "my/qwen-3.6-35b-medium" }
-cost = "local"
-speed = "fast"
-watts = "low"
-ctx = 32768
-timeout = 900
-thinking_tokens = 16384
-note = "thinking variant of the 35B (A3B active), same quant"
-
-[model."my/qwen-3.6-27b"]
-provider = "gate"
-think_presets = { low = "my/qwen-3.6-27b-low", medium = "my/qwen-3.6-27b-medium" }
-cost = "local"
-speed = "slow"
-watts = "high"
-ctx = 32768
-timeout = 900
-thinking_tokens = 16384
-note = "thinking variant of the 27B"
-
-[model."my/qwen-3.8-27b"]
-provider = "gate"
-think_presets = { low = "my/qwen-3.8-27b-low", medium = "my/qwen-3.8-27b-medium" }
-cost = "local"
-speed = "slow"
-watts = "high"
-ctx = 32768
-timeout = 900
-thinking_tokens = 16384
-note = "newer 27B, thinking"
-
-[model."my/qwen-3.5-9b-nonthink"]
-provider = "gate"
-cost = "local"
-speed = "fast"
-watts = "mid"
-ctx = 32768
-timeout = 600
-note = "non-thinking 9B: does the 9B's thinking buy anything on mechanical tasks?"
-
-[model."deepseek-v4-flash:cloud"]
-provider = "ollama-cloud"
-cost = "sub-window"
-speed = "fast"
 role = ["validator"]
-timeout = 300
-thinking_tokens = 16384
-rate_limit_signature = "429"
-note = "cheap tier: validation, smoke, re-checks, and the repair class until local data says otherwise; thinks by default"
-
-[model."glm-5.3-flash:cloud"]
-provider = "ollama-cloud"
-cost = "sub-window"
-speed = "mid"
+ctx = 32768
 timeout = 600
-thinking_tokens = 16384
-rate_limit_signature = "429"
-note = "v1: 29 min and 626K reasoning chars on one repair; the class reasoning cap is the guard; thinks by default"
+note = "placeholder; replace with an id your endpoint serves"
 
-[model."claude-sonnet-5"]
-provider = "claude"
-cost = "sub-window"
-speed = "mid"
-role = ["planner-light"]
-timeout = 600
-
-[model."claude-opus-5"]
-provider = "claude"
-cost = "sub-window"
+[model."example-large"]
+provider = "local"
+cost = "local"
 speed = "slow"
-role = ["planner", "reviewer"]
+watts = "high"
+ctx = 32768
 timeout = 900
+note = "placeholder; replace with an id your endpoint serves"

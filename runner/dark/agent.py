@@ -556,7 +556,7 @@ def _main():
     if r.returncode != 0:
         return fail("env", "clone failed: " + scrub(r.stderr[-300:]))
     sh("git", "config", "user.name", "dark-agent")
-    sh("git", "config", "user.email", "dark-agent@git-host.local")
+    sh("git", "config", "user.email", "dark-agent@localhost")
     sh("git", "switch", "-qc", TASK["branch"])
 
     PROGRESS.start(f"AGENT-ALIVE run {TASK.get('run')} model {TASK['llm_model']} "

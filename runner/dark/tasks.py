@@ -310,7 +310,7 @@ def materialize(task, tree, push_url, scratch, branch="main", base=None):
     # the step before it delivered, so the commit on top of the base is
     # empty (the first chain run, 2026-09-03 14:05, lost every delivered
     # base to "nothing to commit")
-    _git("-c", "user.name=dark-runner", "-c", "user.email=dark-runner@git-host.local",
+    _git("-c", "user.name=dark-runner", "-c", "user.email=dark-runner@localhost",
          "commit", "-q", "--allow-empty", "-m",
          f"task {task.id}: starting tree" + (f" (after {task.after})" if task.after else ""), cwd=work)
     try:

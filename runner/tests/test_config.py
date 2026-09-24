@@ -163,8 +163,8 @@ class LoadsFixture(Fixture):
         cat, bud = config.load(HERE)
         for cls in spec.CLASSES:
             self.assertIn(cls, bud.classes)
-        self.assertIn("my/qwen-3.6-35b-nonthink", cat.models)
-        self.assertEqual(cat.with_role("validator"), ["deepseek-v4-flash:cloud"])
+        self.assertIn("example-small", cat.models)
+        self.assertEqual(cat.with_role("validator"), ["example-small"])
 
 
 class Refusals(Fixture):

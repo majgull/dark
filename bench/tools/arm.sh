@@ -35,9 +35,10 @@ ARM=${1:?usage: arm.sh <arm> <task-id> [shift-id]}
 TASK=${2:?usage: arm.sh <arm> <task-id> [shift-id]}
 SHIFT=${3:-$(date +%Y%m%d-%H%M)-$ARM}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-GITEA=${DARK_GITEA:-http://git-host:3400}
+GITEA=${DARK_GITEA:-http://localhost:3400}   # example endpoint; set DARK_GITEA
 ORG=${DARK_ORG:-dark}
-RUNNER_HOST=${DARK_RUNNER_HOST:-git-host}
+RUNNER_HOST=${DARK_RUNNER_HOST:-localhost}   # example host; set DARK_RUNNER_HOST
+RUNNER_DIR=${DARK_RUNNER_DIR:-$HOME/dark-runner}   # runner checkout on the deployment host
 SCRATCH=${DARK_ARM_SCRATCH:-$HERE/.arms}
 SLOT=${DARK_ARM_SLOT:-1}   # staging VM slot; two arm loops in parallel need two slots (a shift uses 0)
 PREFIX=${DARK_REPO_PREFIX:-t-}   # work repo = <prefix><task>; an arm beside a shift names its own (chain.sh)
@@ -45,7 +46,7 @@ mkdir -p "$SCRATCH"
 # DARK_WORK_ORG travels with every runner command: an arm run against a
 # separate work organisation (the smoke suite) must materialize and stage
 # in the same one it clones from
-on_runner() { ssh -o BatchMode=yes "$RUNNER_HOST" "cd ~/dark-runner && ${DARK_WORK_ORG:+DARK_WORK_ORG=$DARK_WORK_ORG} $*"; }
+on_runner() { ssh -o BatchMode=yes "$RUNNER_HOST" "cd $RUNNER_DIR && ${DARK_WORK_ORG:+DARK_WORK_ORG=$DARK_WORK_ORG} $*"; }
 
 read_arm() { python3 - "$HERE/arms.toml" "$ARM" "$1" <<'EOF'
 import sys, tomllib
@@ -158,7 +159,7 @@ say "session done in ${SECONDS_}s, tool calls $CALLS, denials $DENIALS, capped $
 cd "$WORK"
 rm -f .dark-brief.md
 git add -A
-git -c user.name="bench-$ARM" -c user.email="bench@hub" commit -qm "bench: $TASK via $ARM ($NAME)" || true
+git -c user.name="bench-$ARM" -c user.email="bench@localhost" commit -qm "bench: $TASK via $ARM ($NAME)" || true
 git switch -qc "$BRANCH" 2>/dev/null || git switch -q "$BRANCH"
 dark-push "$WORK" "HEAD:$BRANCH" 2>&1 | tail -1
 say "pushed $BRANCH; staging on $RUNNER_HOST"

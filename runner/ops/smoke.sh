@@ -21,7 +21,8 @@
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-RUNNER_HOST=${DARK_RUNNER_HOST:-git-host}
+RUNNER_HOST=${DARK_RUNNER_HOST:-localhost}   # example host; set DARK_RUNNER_HOST
+RUNNER_DIR=${DARK_RUNNER_DIR:-$HOME/dark-runner}   # runner checkout on the deployment host
 WORK_ORG=${DARK_SMOKE_WORK_ORG:-dark-runs}
 LOCAL_TIER=${DARK_SMOKE_LOCAL_TIER:-my/qwen-3.5-9b-nonthink}
 CLOUD_TIER=${DARK_SMOKE_CLOUD_TIER:-deepseek-v4-flash:cloud}
@@ -48,7 +49,7 @@ PASSED=0; FAILED=0
 say() { printf '%s\n' "$*" | tee -a "$OUT/smoke.log"; }
 ok()  { PASSED=$((PASSED + 1)); say "PASS $1: $2"; }
 no()  { FAILED=$((FAILED + 1)); say "FAIL $1: $2"; }
-on_runner() { ssh -o BatchMode=yes "$RUNNER_HOST" "cd ~/dark-runner && DARK_WORK_ORG=$WORK_ORG $*" </dev/null; }
+on_runner() { ssh -o BatchMode=yes "$RUNNER_HOST" "cd $RUNNER_DIR && DARK_WORK_ORG=$WORK_ORG $*" </dev/null; }
 led() { on_runner "python3 ops/led.py $*"; }
 # fld <dotted.path> reads a JSON record on stdin; an absent value prints empty
 fld() { python3 -c '

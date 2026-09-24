@@ -22,7 +22,7 @@ By one person and several language models, and the split is stated so a reader c
 - **What it is.** A working pipeline that ran the paper's 368 unattended runs, one of which is recorded as a failure of the machinery (a model endpoint refused a request; section 5.4 of the paper).
 - **What it is not.** Not a benchmark for ranking models: 8 tasks and 6 models are the instrument's first calibration, not a leaderboard. Not a security result: isolation is the premise and the paper says it was not tested.
 - **What is proven.** The bench's hidden tests are validated (section 5.1 of the paper). The runner's tests and the bench's task check pass.
-- **What a stranger can run.** The two commands above, on any machine. The runner itself needs what `runner/host.toml` names: a Proxmox host with a VM template, a Gitea instance, and an OpenAI-compatible model endpoint. The role names in that file (`git-host`, `cpu-host`, `gpu-host`) are where private addresses were before this copy was made.
+- **What a stranger can run.** The two commands above, on any machine. The runner itself needs what `runner/host.toml` names: a Proxmox host with a VM template, a Gitea instance, and an OpenAI-compatible model endpoint. Every value in that file is an example for a local machine; replace it with your own.
 - **What is next.** The runner and the bench become one package with subcommands. On the measurement side: the no-reasoning cells run through the same deployment as the other budgets, so one variable moves; sampling parameters and a timestamp per call in every record; more rounds per cell for a variance; a tools comparison that holds reasoning spent level, not only the cap. Section 7 of the paper gives the list in order.
 
 ## The trust boundary

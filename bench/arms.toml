@@ -6,9 +6,8 @@
 # same fresh VM (`python3 -m dark stage`).
 #
 # tier: the model id the ledger files the run under (must be in the runner's
-# models.toml). cell: a bouncer cell that can reach the model (probed
-# 2026-09-02: `:cloud` models are reachable from box-cloud and cloud only;
-# box-local refuses them by policy).
+# models.toml). cell: a bouncer cell that can reach the model; the name below
+# is an example (a remote tier must be reachable from the cell that runs the arm).
 
 [arm.dark-local]
 mode = "factory"
@@ -22,19 +21,19 @@ executor = "deepseek-v4-flash:cloud"
 mode = "session"
 brain = "pi"
 tier = "deepseek-v4-flash:cloud"
-cell = "box-cloud"
+cell = "example-cloud"
 
 [arm.session-glm]
 mode = "session"
 brain = "pi"
 tier = "glm-5.3-flash:cloud"
-cell = "box-cloud"
+cell = "example-cloud"
 
 [arm.session-sonnet]
 mode = "session"
 brain = "claude"
 tier = "claude-sonnet-5"
-cell = "box-cloud"
+cell = "example-cloud"
 
 # RQ2 arms of 2026-09-05 (docs/950-research.md RQ2): both run on the runner
 # host, both inside the same throwaway VM. The session arm is dark/session.py,

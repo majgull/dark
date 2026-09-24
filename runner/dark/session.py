@@ -223,7 +223,7 @@ def push_records(extra_files=None):
         return subprocess.run(["git", *cmd], cwd=RECORDS_WORK, capture_output=True, text=True)
 
     rsh("config", "user.name", "dark-session")
-    rsh("config", "user.email", "dark-session@git-host.local")
+    rsh("config", "user.email", "dark-session@localhost")
     rsh("checkout", "-q", "-B", "main")  # a repo created empty has no branch to land on yet
     run_dir = os.path.join(RECORDS_WORK, RUN_ID)
     os.makedirs(run_dir, exist_ok=True)
@@ -421,7 +421,7 @@ def _main_task():
     if r.returncode != 0:
         return fail("env", "clone failed: " + scrub(r.stderr[-300:]))
     sh("git", "config", "user.name", "dark-session")
-    sh("git", "config", "user.email", "dark-session@git-host.local")
+    sh("git", "config", "user.email", "dark-session@localhost")
     sh("git", "switch", "-qc", TASK["branch"])
     base_sha = sh("git", "rev-parse", "HEAD").stdout.strip()
 

@@ -1,22 +1,25 @@
-# host.toml — deployment facts for the runner host (git-host). Not budgets,
-# not the catalog: where things are. Every value can be overridden by the
-# environment variable named in the comment.
+# host.toml - deployment facts for the runner host. Not budgets, not the
+# catalog: where things are. Every value can be overridden by the environment
+# variable named in the comment. The values below are examples for a single
+# local machine; replace them with your own.
 
 [host]
 org = "dark"                                        # DARK_ORG         (code repos: runner, bench, templates)
 work_org = "dark-runs"                              # DARK_WORK_ORG    (task work repos t-*, tl-*, session-*; a fresh experiment gets its own)
 records_org = "dark-records"                        # DARK_RECORDS_ORG (session-arm and review-mode transcripts, one repo per shift)
 gitea_url = "http://localhost:3400"                 # DARK_GITEA_URL   (the runner's own calls)
-gitea_lan_url = "http://git-host:3400"         # DARK_GITEA_LAN   (what VMs reach)
-admin_token_file = "~/.dark/dark-admin.token" # DARK_ADMIN_TOKEN_FILE
-agent_token_file = "~/.dark/dark-agent.token" # DARK_AGENT_TOKEN_FILE
-proxmox = "cpu-host"                      # DARK_PROXMOX
-ntfy_url = "http://localhost:8083/factory"          # DARK_NTFY        ("" = no push)
+gitea_lan_url = "http://localhost:3400"             # DARK_GITEA_LAN   (what VMs reach; example value)
+git_lan_url = ""                                    # DARK_GIT_LAN     (where VMs clone/push from; "" = gitea_lan_url)
+admin_token_file = "~/.dark/dark-admin.token"       # DARK_ADMIN_TOKEN_FILE
+agent_token_file = "~/.dark/dark-agent.token"       # DARK_AGENT_TOKEN_FILE
+agent_user = "dark-agent"                           # DARK_AGENT_USER  (the Gitea user executor VMs push as)
+proxmox = "cpu-host"                                # DARK_PROXMOX     (example role name for the Proxmox host)
+ntfy_url = ""                                       # DARK_NTFY        (optional; "" = no push)
 state_dir = "~/.dark"                               # DARK_STATE       (ledger, abort markers, scratch)
 templates_dir = "~/dark-templates"                  # DARK_TEMPLATES   (a checkout of dark/templates)
 bench_dir = "~/dark-bench"                          # DARK_BENCH       (a checkout of dark/bench)
-wake_timeout = 420
+wake_timeout = 420                                  # DARK_WAKE_TIMEOUT (seconds a real wake request may take)
 # energy sensors (dark/power.py): the RAPL package counter lives on the Proxmox
 # host; the GPUs are passed through to the model VM, so nvidia-smi runs there
-power_cpu_host = "cpu-host"               # DARK_POWER_CPU   ("" = no CPU metering)
-power_gpu_host = "gpu-host"                # DARK_POWER_GPU   ("" = no GPU metering)                                  # seconds a real wake request may take (cold cpu-host + model load)
+power_cpu_host = "cpu-host"                         # DARK_POWER_CPU   (example role name; "" = no CPU metering)
+power_gpu_host = "gpu-host"                         # DARK_POWER_GPU   (example role name; "" = no GPU metering)

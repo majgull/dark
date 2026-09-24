@@ -385,7 +385,7 @@ class Host:
     org: str = "dark"
     work_org: str = ""        # where task work repos (t-*, tl-*, session-*) are created; "" = org
     gitea_url: str = "http://localhost:3400"
-    gitea_lan_url: str = "http://git-host:3400"
+    gitea_lan_url: str = "http://localhost:3400"
     git_lan_url: str = ""     # where VMs clone/push from; "" = gitea_lan_url
     admin_token_file: str = "~/.dark/dark-admin.token"
     agent_token_file: str = "~/.dark/dark-agent.token"

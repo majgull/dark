@@ -10,7 +10,7 @@ A task with a class, a spec and hidden acceptance tests goes through preflight, 
 
 Nothing else carries a number. Measured values live in `~/.dark/ledger.jsonl` and the digest renders them.
 
-## Commands (on the runner host, `cd ~/dark-runner`)
+## Commands (on the runner host, from the runner checkout root)
 
 ```
 python3 -m dark check-config

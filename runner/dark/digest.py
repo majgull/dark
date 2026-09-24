@@ -123,7 +123,7 @@ def publish(text, shift_id, ledger_path, bench_dir, push_url=None, log=print):
         try:
             _git("add", "-A", "digest", "ledger", cwd=bench_dir)
             if _git("status", "--porcelain", "--", "digest", "ledger", cwd=bench_dir).strip():
-                _git("-c", "user.name=dark-runner", "-c", "user.email=dark-runner@git-host.local",
+                _git("-c", "user.name=dark-runner", "-c", "user.email=dark-runner@localhost",
                      "commit", "-qm", f"digest: shift {shift_id}", cwd=bench_dir)
             if push_url:
                 _git("push", "-q", push_url, "HEAD:main", cwd=bench_dir)
