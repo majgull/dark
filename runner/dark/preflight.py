@@ -1,7 +1,8 @@
 """dark/preflight.py - refuse the shift with one line on any miss.
 Every configured model id served, tokens valid, Gitea and
-the org reachable, ledger writable, templates present, Proxmox reachable
-(waking it through the gate if it sleeps) and the VM template present.
+the org reachable, ledger writable, templates present, the compute plane
+reachable (waking a sleeping Proxmox through the gate if needed) and the
+sandbox image present.
 Windows and watts are reported, never refused on: which of them a shift
 needs depends on the tiers its tasks land on, and the shift already parks
 a task whose class has no open tier. Cheap local checks run first, the
@@ -114,14 +115,21 @@ class Preflight:
             add(f"admission {cls}", bool(adm), ", ".join(adm) if adm else "no admitted tier")
         if not need_vm:
             return out
-        # 8. proxmox reachable, waking the local-model host through the gate if needed
+        # 8. the compute plane is reachable. A docker plane never sleeps, so
+        # only a Proxmox miss is worth waking the local-model host for.
+        is_docker = self.host.backend == "docker"
+        plane = "docker" if is_docker else "proxmox"
+        target = self.host.sandbox_image if is_docker else self.host.proxmox
         up = self.px.reachable()
-        if not up:
+        if not up and not is_docker:
             up = self.wake()
-        add("proxmox", up, self.host.proxmox if up else f"{self.host.proxmox}: unreachable after wake")
+        add(plane, up, target if up else f"{target}: unreachable after wake")
         if up:
             ok, why = self.px.template_ok()
-            add("vm template", ok, why or f"VM {self.budgets.shift['vm_template']} is a template")
+            if is_docker:
+                add("sandbox image", ok, why or f"image {self.host.sandbox_image} present")
+            else:
+                add("vm template", ok, why or f"VM {self.budgets.shift['vm_template']} is a template")
         return out
 
     def wake(self):

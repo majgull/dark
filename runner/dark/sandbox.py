@@ -3,7 +3,8 @@
 A sandbox is one throwaway machine the runner injects a script into and
 discards afterwards: today a Proxmox VM, later also a container. The runner
 uses only the five methods below, so a new backend implements them and the
-callers do not change. `vm.Proxmox` is the only backend today.
+callers do not change. `vm.Proxmox` and `docker.Docker` are the backends
+today.
 
 `spawn` takes the files to write and the command to run, not a rendered
 cloud-init document: rendering is Proxmox's business, and a backend without
@@ -13,6 +14,7 @@ cloud-init would have no use for one.
 from typing import Protocol
 
 from . import config
+from . import docker
 from . import vm
 
 
@@ -45,7 +47,11 @@ class Sandbox(Protocol):
 def make(host, template):
     """The one place the runner builds a backend object, chosen by
     host.backend. A name this build does not implement is refused by
-    config.check_backend, never guessed. `template` names the image a
-    sandbox is cloned from."""
+    config.check_backend, never guessed. `template` names the VM a Proxmox
+    sandbox is cloned from; docker sandboxes come from host.sandbox_image."""
     config.check_backend(host.backend)
+    if host.backend == "docker":
+        return docker.Docker(host.sandbox_image, network=host.sandbox_network,
+                             cpus=host.sandbox_cpus, memory=host.sandbox_memory,
+                             pids=host.sandbox_pids)
     return vm.Proxmox(host.proxmox, template)

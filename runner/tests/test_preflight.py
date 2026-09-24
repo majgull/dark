@@ -182,6 +182,17 @@ class Preflight(unittest.TestCase):
         checks = self.pre(FakePx(template=(False, "VM 9001 exists but is not a template"))).run()
         self.assertIn("vm template", self.misses(checks))
 
+    def test_docker_preflight_names_the_image(self):
+        self.host.backend = "docker"
+        self.host.sandbox_image = "sandbox-img"
+        checks = self.pre().run()
+        by = {c.name: c for c in checks}
+        self.assertIn("docker", by)
+        self.assertIn("sandbox-img", by["docker"].detail)
+        self.assertIn("sandbox image", by)
+        self.assertIn("sandbox-img", by["sandbox image"].detail)
+        self.assertNotIn("vm template", by)
+
     def test_no_admitted_tier(self):
         for i in range(3):
             self.led.emit("run.end", **run_end(run=f"m{i}", cls="mechanical", tier="local-a", outcome="fail:capability"))

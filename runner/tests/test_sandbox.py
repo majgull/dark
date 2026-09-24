@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from dark import config, sandbox, vm
+from dark import docker as docker_mod
 
 METHODS = ("reachable", "template_ok", "spawn", "guest_ip", "reap")
 
@@ -25,6 +26,14 @@ class ProtocolConformance(unittest.TestCase):
         self.assertIsInstance(px, vm.Proxmox)
         self.assertEqual(px.template, 9001)
 
+    def test_make_builds_docker_from_the_host(self):
+        host = config.Host(backend="docker", sandbox_image="sandbox-img", sandbox_network="sandbox-net",
+                           sandbox_cpus="2", sandbox_memory="1g", sandbox_pids=256)
+        d = sandbox.make(host, 9001)
+        self.assertIsInstance(d, docker_mod.Docker)
+        self.assertEqual((d.image, d.network, d.cpus, d.memory, d.pids),
+                         ("sandbox-img", "sandbox-net", "2", "1g", 256))
+
 
 class BackendRefusal(unittest.TestCase):
     def load_host(self, body, environ=None):
@@ -41,22 +50,23 @@ class BackendRefusal(unittest.TestCase):
         self.assertEqual(self.load_host('[host]\nbackend = "proxmox"\n').backend, "proxmox")
 
     def test_unknown_backend_is_refused_at_load(self):
-        for where, loader in (("file", lambda: self.load_host('[host]\nbackend = "docker"\n')),
+        for where, loader in (("file", lambda: self.load_host('[host]\nbackend = "nomad"\n')),
                               ("env", lambda: self.load_host("[host]\n",
-                                                             environ={"DARK_BACKEND": "docker"}))):
+                                                             environ={"DARK_BACKEND": "nomad"}))):
             with self.subTest(where=where):
                 with self.assertRaises(config.ConfigError) as cm:
                     loader()
-                self.assertIn("docker", str(cm.exception))
+                self.assertIn("nomad", str(cm.exception))
                 self.assertIn("proxmox", str(cm.exception))
+                self.assertIn("docker", str(cm.exception))
                 self.assertNotIn("\n", str(cm.exception))
 
     def test_factory_refuses_an_unknown_backend(self):
         host = config.Host()
-        host.backend = "docker"
+        host.backend = "nomad"
         with self.assertRaises(config.ConfigError) as cm:
             sandbox.make(host, 9001)
-        self.assertIn("docker", str(cm.exception))
+        self.assertIn("nomad", str(cm.exception))
 
 
 if __name__ == "__main__":

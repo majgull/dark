@@ -373,6 +373,9 @@ HOST_ENV = {
     "git_lan_url": "DARK_GIT_LAN",
     "admin_token_file": "DARK_ADMIN_TOKEN_FILE", "agent_token_file": "DARK_AGENT_TOKEN_FILE",
     "proxmox": "DARK_PROXMOX", "backend": "DARK_BACKEND", "ntfy_url": "DARK_NTFY", "state_dir": "DARK_STATE",
+    "sandbox_image": "DARK_SANDBOX_IMAGE", "sandbox_network": "DARK_SANDBOX_NETWORK",
+    "sandbox_cpus": "DARK_SANDBOX_CPUS", "sandbox_memory": "DARK_SANDBOX_MEMORY",
+    "sandbox_pids": "DARK_SANDBOX_PIDS",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "wake_timeout": "DARK_WAKE_TIMEOUT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
     "agent_user": "DARK_AGENT_USER", "records_org": "DARK_RECORDS_ORG",
@@ -388,8 +391,15 @@ class Host:
     git_lan_url: str = ""     # where VMs clone/push from; "" = gitea_lan_url
     admin_token_file: str = "~/.dark/dark-admin.token"
     agent_token_file: str = "~/.dark/dark-agent.token"
-    backend: str = "proxmox"  # the compute plane; "proxmox" is the only value this build supports
+    backend: str = "proxmox"  # the compute plane: "proxmox" or "docker"
     proxmox: str = "cpu-host"
+    # docker backend (dark/docker.py): the image a sandbox is created from,
+    # the network it joins, and the limits its container gets. "" = no limit.
+    sandbox_image: str = "dark-sandbox"
+    sandbox_network: str = "dark"
+    sandbox_cpus: str = "2"
+    sandbox_memory: str = "2g"
+    sandbox_pids: int = 512
     ntfy_url: str = ""
     state_dir: str = "~/.dark"
     templates_dir: str = "~/dark-templates"
@@ -407,6 +417,12 @@ class Host:
             setattr(self, f, os.path.expanduser(getattr(self, f)))
         self.wake_timeout = int(self.wake_timeout)
         self.work_org = self.work_org or self.org
+        self.sandbox_cpus = "" if self.sandbox_cpus in (None, "") else str(self.sandbox_cpus)
+        self.sandbox_memory = "" if self.sandbox_memory in (None, "") else str(self.sandbox_memory)
+        try:
+            self.sandbox_pids = int(self.sandbox_pids or 0)
+        except (TypeError, ValueError):
+            self.sandbox_pids = 0
 
     @property
     def ledger_path(self):
@@ -421,14 +437,14 @@ class Host:
         return os.path.join(self.state_dir, "scratch")
 
 
-BACKENDS = ("proxmox",)  # implementations of the dark/sandbox.Sandbox protocol
+BACKENDS = ("proxmox", "docker")  # implementations of the dark/sandbox.Sandbox protocol
 
 
 def check_backend(name):
     """Refuse a compute-plane backend this build does not implement, naming
     it in one line. dark/sandbox.Sandbox is the seam every backend fills."""
     if name not in BACKENDS:
-        raise ConfigError(f'host backend {name!r}: the only supported value is "proxmox"')
+        raise ConfigError(f'host backend {name!r}: supported values are {", ".join(BACKENDS)}')
 
 
 def load_host(path, environ=os.environ):
