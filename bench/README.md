@@ -33,4 +33,4 @@ python3 tools/refwork.py              the spec-only workspace a second reference
 tools/arm.sh <arm> <id> <shift>       one session arm on one task; tools/chain.sh runs a chain of them
 ```
 
-`frozen/` holds the limits the paper's runs were held to, `arms.toml` the arms, `admission/` the admission rule, `probes/` the thinking-budget probe and its one sample.
+`frozen/` holds the limits a comparison set is held to (one worked example), `arms.toml` the arms, `probes/` the thinking-budget probe.

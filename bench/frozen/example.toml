@@ -1,0 +1,30 @@
+# A frozen envelope is the limit a comparison set runs under: model calls,
+# wall seconds and visible reasoning characters, pinned per task class. The
+# runner reads it instead of recomputing, so every round shares one basis.
+#
+# Classes not listed are refused by name, so the sections below must match
+# the classes of the tasks a set names.
+
+set = "example"
+note = "an example: the hard caps budgets.toml gives each class"
+
+[class.additive]
+calls = 6
+seconds = 900
+max_reasoning_chars = 40000
+think = "low"
+runs = 1
+
+[class.mechanical]
+calls = 4
+seconds = 300
+max_reasoning_chars = 10000
+think = "none"
+runs = 1
+
+[class.repair]
+calls = 8
+seconds = 900
+max_reasoning_chars = 40000
+think = "low"
+runs = 1

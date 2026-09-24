@@ -1,11 +1,20 @@
 # probes: what the providers actually do
 
-Raw replies to one fixed prompt, kept so the reports' statements about thinking and tokens rest on a measurement, not on the provider's documentation.
+`thinking_probe.py` sends one fixed prompt to an OpenAI-compatible chat
+completions endpoint and prints one JSON line per call, so a claim about a
+model's thinking rests on a measurement rather than the provider's
+documentation.
 
-- `thinking-2026-09-03.jsonl`: `thinking_probe.py` against the ollama-cloud endpoint the executor uses (`http://git-host:11434/v1`), both cloud tiers, `reasoning_effort` none / low / medium, non-streaming and streaming. Fields: `usage` as returned, `reasoning_chars` = length of the `reasoning` field, `content_chars` = length of the answer.
+    python3 thinking_probe.py <model>[,<model>...] <api>
 
-Read on 2026-09-03:
+`<api>` is `reasoning_effort`, which sends the level in a `reasoning_effort`
+field, or any other value, which sends it in `chat_template_kwargs.enable_thinking`.
+For each model the script tries the levels none, low and medium, each
+non-streaming and then streaming.
 
-- deepseek-v4-flash:cloud: at `none` no `reasoning` field and the answer alone accounts for `completion_tokens`; at `low` and `medium` the reasoning comes back in the reply and `completion_tokens` includes it (558 tokens for 1575 + 305 chars). So the ledger's `reasoning_chars` for this tier is the thinking that happened, and `tokens_out` bills it.
-- glm-5.3-flash:cloud: at `none` no `reasoning` field but a long answer (3536 to 5821 chars); at `low` 22 chars of reasoning, effectively none; at `medium` 4848 to 10643 chars. "low" on this tier is not a thinking level in any useful sense; a report must show the measured `reasoning_chars` per run, never the level's name.
-- Streaming and non-streaming replies to the same prompt differ in length (sampling); the level's effect is visible in both.
+The endpoint is the `GATE` constant in the script; point it at the endpoint
+being probed. Each line carries the model, the level, `usage` as returned,
+`reasoning_chars` (length of the `reasoning` or `reasoning_content` field,
+summed over a stream) and `content_chars` (length of the answer). Read
+`reasoning_chars` before trusting a level's name: a provider may accept a
+level and still return no reasoning.

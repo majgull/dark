@@ -4,7 +4,7 @@
 # The rule is read out of arm.sh itself, not copied, so the test proves
 # the deployed script.
 set -uo pipefail
-ARM=${1:?usage: test-armsh-calls.sh <path to arm.sh>}
+ARM=${1:?usage: test-arm-calls.sh <path to arm.sh>}
 
 BLOCK=$(awk '/^CALL_ARGS=\(\)$/,/^fi$/' "$ARM")
 [ -n "$BLOCK" ] || { echo "FAIL: no decision block found in $ARM"; exit 1; }

@@ -3,7 +3,7 @@ question = "RQ2: pipeline against session, deepseek-v4-flash, loose envelope"
 tasks = ["csvstat-python", "semver-go", "hello-go", "split-module-python",
          "rename-package-go", "duration-python", "roman-python", "intervals-go"]
 judge = "acceptance-v4"                     # tag; refused if the checkout's tests_version differs
-envelope = "frozen/rq2b-2026-09-05.toml"    # seconds shared, call ceiling non-binding
+envelope = "bench/frozen/example.toml"      # the shipped example envelope
 rounds = 5
 order = "alternate"                         # arm A round 1, arm B round 1, A 2, B 2 ...
 

@@ -39,7 +39,7 @@ What the model could touch, what it could not, and how that is known.
 
 ```
 runner/      the pipeline: dark/ package, models.toml, budgets.toml, host.toml, ops/, tests/
-bench/       tools/ that validate a task set, frozen/ limits, admission/, arms.toml; tasks/ and mutants/ hold two examples
+bench/       tools/ that validate a task set, frozen/ limits, arms.toml; tasks/ and mutants/ hold two examples
 templates/   the Go and Python starting trees a task is laid over
 docs/        the fresh-container transcript
 ```
