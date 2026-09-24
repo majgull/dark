@@ -29,15 +29,15 @@ under `bench/tasks/` let every tool run without a second checkout:
 python3 bench/tools/check_tasks.py
 ```
 
-For the full set, put a dark-tasks checkout beside this repository at
-`../dark-tasks` and point the tools at it with `DARK_TASKS`. The task path may
-name several task sets at once, `:` separated, so a public set and a private
-one are checked in one run; a task name in two task sets is refused, naming
-both:
+For the full set, clone dark-tasks anywhere and point the tools at it with
+`DARK_TASKS`. The task path may name several task sets at once, `:` separated,
+so a public set and a private one are checked in one run; a task name in two
+task sets is refused, naming both:
 
 ```
-DARK_TASKS=../dark-tasks:$HOME/private-tasks python3 bench/tools/check_tasks.py
-DARK_TASKS=../dark-tasks:$HOME/private-tasks python3 bench/tools/validate.py
+export DARK_TASKS=$HOME/src/dark-tasks:$HOME/src/my-tasks
+python3 bench/tools/check_tasks.py
+python3 bench/tools/validate.py
 ```
 
 `check_tasks.py` validates every task record. `validate.py` builds each

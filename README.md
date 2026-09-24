@@ -1,7 +1,5 @@
 <p align="center"><img src="docs/banner.svg" alt="dark factory" width="480"></p>
 
-# dark factory
-
 dark factory is a pipeline that lets a language model write code on its own, inside a
 virtual machine that exists for one task and is deleted when the task ends, judged by
 tests it never sees. A task with hidden acceptance tests goes through preflight,
@@ -36,18 +34,20 @@ without it, the same command with no argument checks the two example tasks kept 
 python3 -m venv .venv && . .venv/bin/activate
 pip install .                                # installs the dark console script
 dark --help                                  # the commands the runner offers
-cd runner && bash verify.sh                  # tests, config check, no binaries
-cd bench && python3 tools/check_tasks.py     # the two example tasks: 0 problems
+(cd runner && bash verify.sh)                # tests, config check, no binaries
+python3 bench/tools/check_tasks.py           # the two example tasks: 0 problems
 ```
 
-With the full task set cloned beside the repository, `python3 tools/check_tasks.py
-../../dark-tasks` checks all 31 tasks. The task path (`DARK_TASKS`) may name
-several task sets at once, `:` separated, so a public set and a private one are
-checked in one run; a task name in two task sets is refused, naming both,
-rather than one silently winning:
+For real use, point `DARK_TASKS` at a task set, such as a clone of
+[dark-tasks](https://github.com/majgull/dark-tasks). It takes several task sets
+at once, `:` separated, so a public set and a private one are checked in one
+run; a task name found in two sets is refused, naming both, rather than one
+silently winning:
 
 ```
-DARK_TASKS=../../dark-tasks:$HOME/private-tasks python3 tools/check_tasks.py
+export DARK_TASKS=$HOME/src/dark-tasks:$HOME/src/my-tasks
+python3 bench/tools/check_tasks.py           # every task in both sets
+python3 bench/tools/validate.py              # reference solutions pass, starting trees fail
 ```
 
 `docs/fresh-container.md` records a bare container
