@@ -22,7 +22,9 @@ template, a Gitea instance, and an OpenAI-compatible model endpoint. Every value
 file is an example for a local machine; replace it with your own. A container backend is
 available: [docs/docker.md](docs/docker.md) builds the runner image, starts Gitea and the
 runner on one internal network with `compose.yaml`, and spawns each sandbox as a sibling
-container, so the runner can be deployed without Proxmox.
+container, so the runner can be deployed without Proxmox. A sandbox reaches Gitea and one
+model gate, and `DARK_CONF_DIR` keeps the three toml files, with your own endpoints and
+model ids, outside the checkout.
 
 The bench tools need Python 3, `bash`, coreutils and `git`. The task check needs the task
 set [dark-tasks](https://github.com/majgull/dark-tasks) cloned beside this checkout;

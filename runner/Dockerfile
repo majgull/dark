@@ -1,8 +1,8 @@
 # The runner container: debian stable slim plus the tools the runner shells
 # out to. The package imports only the standard library, so it runs from
-# source; the `dark` command is a thin wrapper that keeps --conf pointing at
-# the toml files beside the package. The docker CLI talks to the host daemon
-# through the socket compose mounts in.
+# source; the `dark` command is a thin wrapper that runs the package, whose
+# config directory is --conf, else $DARK_CONF, else the toml files beside it.
+# The docker CLI talks to the host daemon through the socket compose mounts in.
 #
 # Build from the repository root:
 #   docker build -f runner/Dockerfile -t dark-runner .
@@ -18,7 +18,7 @@ COPY templates /root/dark-runner/templates
 COPY bench /root/dark-runner/bench
 COPY pyproject.toml README.md LICENSE /root/dark-runner/
 
-RUN printf '#!/bin/sh\nPYTHONPATH=/root/dark-runner/runner exec python3 -m dark --conf /root/dark-runner/runner "$@"\n' \
+RUN printf '#!/bin/sh\nPYTHONPATH=/root/dark-runner/runner exec python3 -m dark "$@"\n' \
       > /usr/local/bin/dark \
     && chmod 0755 /usr/local/bin/dark
 

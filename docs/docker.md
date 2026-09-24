@@ -1,11 +1,12 @@
 # The docker deployment
 
-`compose.yaml` runs the runner without Proxmox. Gitea, the runner and an
-optional local model are services on one internal network; each sandbox, the
-throwaway container a run executes or judges in, is created as a sibling
-container on that same network through the docker socket the runner mounts.
-The pipeline is the same: a branch is cloned into a fresh sandbox, the hidden
-acceptance runs there, and the outcome lands in the same append-only ledger.
+`compose.yaml` runs the runner without Proxmox. Gitea, the runner, a model
+gate and an optional local model are services on one internal network; each
+sandbox, the throwaway container a run executes or judges in, is created as a
+sibling container on that same network through the docker socket the runner
+mounts. The pipeline is the same: a branch is cloned into a fresh sandbox, the
+hidden acceptance runs there, and the outcome lands in the same append-only
+ledger.
 
 ## What it needs
 
@@ -18,7 +19,7 @@ the runner image from `runner/Dockerfile`, and the sandbox image from
 From the repository root:
 
 ```
-docker compose -p dark up -d gitea runner        # build the runner image and start Gitea and the runner
+docker compose -p dark up -d gitea runner        # build the runner image and start Gitea, the runner and the gate
 bash runner/ops/docker-bootstrap.sh dark         # users, tokens, orgs, repos, sandbox image (once)
 docker compose -p dark exec runner dark check-config
 docker compose -p dark exec runner dark preflight --no-model
@@ -32,8 +33,22 @@ provider. `--no-model` skips that check and the wake, for a deployment with
 no model endpoint configured. It is never implied; a run that needs a model
 must pass the real check.
 
-The runner image bakes this checkout in, so rebuild it after editing code or
-the toml files: `docker compose -p dark build runner`.
+## Where the config lives
+
+`models.toml`, `budgets.toml` and `host.toml` are read from a directory
+outside the image. Compose mounts `${DARK_CONF_DIR:-./runner}` read-only at
+`/root/dark-conf` in the runner and sets `DARK_CONF=/root/dark-conf`. With
+`DARK_CONF_DIR` unset that is this checkout's `runner/` directory, which
+holds example values only. Point it at a directory outside the checkout to
+keep real endpoints and model ids out of the repository:
+
+```
+DARK_CONF_DIR=$HOME/.config/dark docker compose -p dark up -d gitea runner
+```
+
+Inside the container, `dark` takes its config directory from `--conf`, else
+`$DARK_CONF`, else the toml files beside the package. Editing a toml needs a
+runner restart (`docker compose -p dark restart runner`), never a rebuild.
 
 ### The two verdicts, with no model
 
@@ -87,26 +102,80 @@ behind:
 docker ps -a --filter label=dark.vmid
 ```
 
-### With a model
+## The model gate
 
-Point the local provider at the ollama service and set the model ids to ones
-it serves. `models.toml` is the file a human edits for this:
+A sandbox on `back` reaches exactly two things: Gitea and the model gate.
+The gate is a pinned reverse proxy that listens on `http://model-gate:11434`
+and forwards to `DARK_MODEL_UPSTREAM`. The runner and every sandbox use
+`http://model-gate:11434/v1`; they never name a provider directly. The
+bundled `ollama` service is on `front` only, so it can pull models and no
+sandbox can reach it without the gate.
+
+`DARK_MODEL_UPSTREAM` is a scheme, host and port, `http://ollama:11434` by
+default. Caddy does not accept a path in the upstream address, and the
+request path is passed through unchanged, so `https://api.example.com` serves
+`https://api.example.com/v1/models` when dark asks the gate for
+`/v1/models`.
+
+### The bundled ollama
+
+Start it with the model profile and pull one small model:
+
+```
+docker compose -p dark --profile model up -d
+docker compose -p dark exec ollama ollama pull qwen2.5-coder:1.5b
+```
+
+In the config directory, point the provider at the gate and give the tier the
+id the endpoint serves:
 
 ```
 [provider.local]
-url = "http://localhost:11434/v1"     # change to http://ollama:11434/v1
+url = "http://model-gate:11434/v1"
+catalog = "models"
+window = ""
+think_api = "chat_template"
+stream = true
+
+[model."qwen2.5-coder:1.5b"]
+provider = "local"
+cost = "local"
+speed = "fast"
+watts = "low"
+ctx = 32768
 ```
 
+`budgets.toml` must name the same id: every class's `provisional` list, and
+`[admission].cost_order` if the tier's rank (`local/low` here) is not already
+in it. The runner refuses a provisional id that is not in `models.toml`.
+Then:
+
 ```
-docker compose -p dark --profile model up -d ollama
-docker compose -p dark exec ollama ollama pull <id>
 docker compose -p dark exec runner dark preflight
-docker compose -p dark exec runner dark shift --tasks hello-python --tier <id>
+docker compose -p dark exec runner dark shift --tasks hello-python --tier qwen2.5-coder:1.5b
 ```
 
-The model is a service on the internal network, reached by name, which is the
-one hop a sandbox is allowed. `wake` stays off: the docker plane does not
-sleep, so the keep-awake lease is a logged no-op.
+`preflight` passes the model check only when the endpoint serves every id in
+`models.toml`, so it is the check that the gate and the pull both work.
+
+## Your own endpoint
+
+The gate is the only model URL a sandbox sees, so the endpoint itself never
+enters the checkout. Keep the three toml files in a directory outside the
+checkout (for example in your own private config repository), point
+`models.toml` at `http://model-gate:11434/v1` as above, and set the model ids
+and the `provisional` lists to ids the endpoint serves. Then start compose
+with that directory and the endpoint's origin:
+
+```
+DARK_CONF_DIR=$HOME/.config/dark \
+DARK_MODEL_UPSTREAM=https://api.example.com \
+docker compose -p dark --profile model up -d
+```
+
+Nothing in the checkout changes; `git status --short` stays clean. The
+bundled `ollama` is not started unless the `model` profile is asked for, and
+it is never used when `DARK_MODEL_UPSTREAM` names somewhere else.
 
 ## What containers keep, weaken and lose against VMs
 
@@ -114,7 +183,7 @@ sleep, so the keep-awake lease is a logged no-op.
 |---|---|
 | A fresh disk per run, discarded at the end | Kept: a fresh writable layer per container, removed with force afterwards |
 | A second fresh sandbox for staging | Kept: a second container |
-| Egress denied, the service host only | Kept: the internal network has no route off the host; Gitea and the model are reachable by name |
+| Egress denied, the service host only | Kept: the internal network has no route off the host; Gitea and the model gate are reachable by name, and the gate is the only model URL |
 | DNS and DHCP inside the sandbox | Kept, mechanism changed: docker's own DNS, no DHCP |
 | Ingress denied | Weakened: any container on the network can open a port to another; a Proxmox firewall dropped inbound |
 | Kernel isolation from the runner host | Weakened, the largest difference: the container shares the host kernel, so an escape is a host compromise, not a guest one |
@@ -135,5 +204,5 @@ sleep, so the keep-awake lease is a logged no-op.
 docker compose -p dark down -v
 ```
 
-This removes the containers, the two networks and the named volumes (Gitea
-data, the runner state with tokens and ledger, the pulled models).
+This removes the containers, the networks and the named volumes (Gitea data,
+the runner state with tokens and ledger, the pulled models).

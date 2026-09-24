@@ -1,7 +1,11 @@
+import io
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from unittest import mock
 
+from dark import __main__ as M
 from dark import config, spec
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -233,3 +237,50 @@ class ClassThink(unittest.TestCase):
         with self.assertRaises(config.ConfigError):
             config.load(write_conf(self.tmp, MODELS, BUDGETS.replace(
                 "[class.additive]\n", '[class.additive]\nthink = "lots"\n')))
+
+
+class ConfDirDefault(unittest.TestCase):
+    """--conf, else $DARK_CONF, else beside the package (the runner's checked-in
+    toml files). DARK_CONF lets a deployment keep its real endpoints outside the
+    checkout; the flag still wins when both are set."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conf = write_conf(self.tmp)
+        with open(os.path.join(self.conf, "host.toml"), "w") as f:
+            f.write("[host]\n")
+
+    def run_cli(self, argv, dark_conf):
+        env = {} if dark_conf is None else {"DARK_CONF": dark_conf}
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("DARK_CONF", None)
+            if dark_conf is not None:
+                os.environ["DARK_CONF"] = dark_conf
+            with redirect_stdout(buf):
+                rc = M.main(argv)
+        return rc, buf.getvalue()
+
+    def test_dark_conf_is_read_when_the_flag_is_absent(self):
+        rc, out = self.run_cli(["check-config"], dark_conf=self.conf)
+        self.assertEqual(rc, 0)
+        self.assertIn("config OK", out)
+
+    def test_without_dark_conf_the_directory_beside_the_package_is_used(self):
+        rc, out = self.run_cli(["check-config"], dark_conf=None)
+        self.assertEqual(rc, 0)
+        self.assertIn("config OK", out)
+
+    def test_a_missing_dark_conf_dir_is_the_one_loaded(self):
+        # the package's own directory is a valid config, so a refusal here can
+        # only mean DARK_CONF, not the default, was used
+        missing = os.path.join(self.tmp, "nowhere")
+        rc, out = self.run_cli(["check-config"], dark_conf=missing)
+        self.assertEqual(rc, 2)
+        self.assertIn(missing, out)
+
+    def test_the_flag_beats_dark_conf(self):
+        missing = os.path.join(self.tmp, "nowhere")
+        rc, out = self.run_cli(["--conf", self.conf, "check-config"], dark_conf=missing)
+        self.assertEqual(rc, 0)
+        self.assertIn("config OK", out)

@@ -481,7 +481,9 @@ def cmd_abort(args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="dark")
-    ap.add_argument("--conf", default=HERE, help="directory holding models.toml, budgets.toml, host.toml")
+    ap.add_argument("--conf", default=os.environ.get("DARK_CONF", HERE),
+                    help="directory holding models.toml, budgets.toml, host.toml "
+                         "(default: $DARK_CONF, else beside the package)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check-config", help="load and validate the three config files")
     p = sub.add_parser("preflight", help="every check a shift needs, one line each")

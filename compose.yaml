@@ -1,16 +1,21 @@
-# The docker deployment of dark factory: Gitea, the runner, and an optional
-# local model, on one internal network. The runner spawns each sandbox as a
-# sibling container on that network through the mounted docker socket, so a
-# sandbox reaches Gitea and the model by service name and has no other egress.
+# The docker deployment of dark factory: Gitea, the runner, a model gate and
+# an optional local model, on one internal network. The runner spawns each
+# sandbox as a sibling container on that network through the mounted docker
+# socket, so a sandbox reaches Gitea and the model gate by service name and has
+# no other egress. The gate is the one model hop: sandboxes and the runner
+# speak to it only, and it forwards to the configured endpoint, bundled or
+# external, so no sandbox holds a real endpoint or token.
 #
 #   docker compose up -d gitea runner          # the pipeline
 #   bash runner/ops/docker-bootstrap.sh        # users, orgs, tokens (once)
-#   docker compose --profile model up -d ollama
+#   DARK_MODEL_UPSTREAM=http://host:11434 docker compose --profile model up -d
 #
 # `back` is internal: no container on it has a route off the host. Gitea and
-# ollama also join `front`, which is a normal compose network: Gitea needs it
-# to publish its host port, and ollama needs it to pull models. Sandboxes are
-# created on `back` only, so the runner's own containers never get `front`.
+# the gate also join `front`, a normal compose network: Gitea needs it to
+# publish its host port and the gate needs it to reach an upstream elsewhere.
+# ollama, the bundled endpoint, is on `front` only so a sandbox cannot reach it
+# directly. Sandboxes are created on `back` only, so the runner's own
+# containers never get `front`.
 
 services:
   gitea:
@@ -50,6 +55,9 @@ services:
       DARK_TEMPLATES: /root/dark-runner/templates
       DARK_BENCH: /root/dark-runner/bench
       DARK_SANDBOX_IMAGE: dark-sandbox
+      # where dark reads models.toml, budgets.toml and host.toml: the mounted
+      # config directory, not the copy baked into the image
+      DARK_CONF: /root/dark-conf
       # the network docker compose names for `back`, so a spawned sandbox
       # joins the same one the runner and Gitea are on
       DARK_SANDBOX_NETWORK: ${COMPOSE_PROJECT_NAME:-dark}_back
@@ -65,22 +73,41 @@ services:
       # themselves never get this socket
       - /var/run/docker.sock:/var/run/docker.sock
       - runner-state:/root/.dark
+      # the config directory: the examples in this checkout by default, a
+      # private directory outside the checkout when DARK_CONF_DIR is set.
+      # Read-only; dark never writes a config file.
+      - ${DARK_CONF_DIR:-./runner}:/root/dark-conf:ro
     networks:
       - back
     depends_on:
       - gitea
+      - model-gate
 
-  # The model endpoint as a service on `back`, so executor and staging
-  # containers reach it by name. Point [provider.<name>] url in models.toml
-  # at http://ollama:11434/v1 and set the model ids to ones this instance
-  # serves (see docs/docker.md). Not started unless the profile is asked for.
+  # The one model hop reachable from `back`. A pinned reverse proxy whose
+  # command is built from the environment at start: it listens on 11434 and
+  # forwards to DARK_MODEL_UPSTREAM, `http://ollama:11434` (the bundled
+  # service) by default. Point the catalog's providers at
+  # http://model-gate:11434/v1; nothing else changes when the upstream is an
+  # endpoint elsewhere.
+  model-gate:
+    image: caddy:2.11.4-alpine
+    environment:
+      DARK_MODEL_UPSTREAM: ${DARK_MODEL_UPSTREAM:-http://ollama:11434}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec caddy reverse-proxy --from :11434 --to \"$$DARK_MODEL_UPSTREAM\""]
+    networks:
+      - back
+      - front
+
+  # The bundled model endpoint, on `front` only: it can pull models, and a
+  # sandbox reaches it only through the gate. Not started unless the profile
+  # is asked for.
   ollama:
     image: ollama/ollama:0.34.3
     profiles: ["model"]
     volumes:
       - ollama-models:/root/.ollama
     networks:
-      - back
       - front
 
 networks:
