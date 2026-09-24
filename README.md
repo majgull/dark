@@ -53,6 +53,7 @@ docs/        concepts.md (the terms the code uses), history.md (where it came fr
 
 - `docs/concepts.md` defines every term the code uses.
 - `docs/history.md` says where the code came from.
+- [Contributing](CONTRIBUTING.md) says how to run the tests and the task checks.
 - [dark-tasks](https://github.com/majgull/dark-tasks) is the 31-task set with its hidden tests.
 - [dark-paper](https://github.com/majgull/dark-paper) is a frozen study of the tool on its first task set.
 
