@@ -1,6 +1,6 @@
 name: task-ci
 # A dark task repo is gated by its own verify.sh plus the no-binaries rule.
-# Nothing ships from here: the runner's stager is the merge gate, in a VM.
+# Nothing ships from here: the runner's judging step is the merge gate, in a VM.
 on:
   push:
     branches: ['**']

@@ -139,8 +139,8 @@ class Parse(unittest.TestCase):
         self.assertEqual(m.smoke, {"tasks": ("t1",), "rounds": 1})
 
     def test_the_docs_example_manifest_parses(self):
-        m = B.parse(os.path.join(HERE, "examples", "rq2-loose.toml"))
-        self.assertEqual(m.name, "rq2-loose-2026-09-06")
+        m = B.parse(os.path.join(HERE, "examples", "example-loose.toml"))
+        self.assertEqual(m.name, "example-loose")
         self.assertEqual(len(m.arms), 2)
         self.assertEqual(m.stop, {"calls_left_min": 200, "deadline": "07:30"})
         self.assertEqual(m.smoke, {"tasks": ("hello-go", "split-module-python", "duration-python"), "rounds": 1})

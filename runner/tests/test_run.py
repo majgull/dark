@@ -167,8 +167,8 @@ class Outcomes(Base):
         self.assertIn("hello.txt", fakes.branch_files(self.repos, self.full, res.branch))
 
     def test_delete_plus_file_of_one_path_is_a_rewrite(self):
-        # qwen-3.6-35b (949 bench, csvstat-python) emitted "DELETE: x" right
-        # before "FILE: x"; the delete must not un-stage the write
+        # a reply can emit "DELETE: x" right before "FILE: x"; the delete
+        # must not un-stage the write
         r = self.runner([{"content": "DELETE: hello.txt\n" + FILE_HELLO}])
         res = r.run(self.task, "local-a", self.env())
         self.assertEqual(res.outcome, "pass", res.detail)
@@ -370,8 +370,7 @@ class SessionArm(Base):
 
 class ThinkingBudget(Base):
     """The request carries response + thinking budget, and a reply that hit
-    the ceiling is counted in the ledger (v1's shared budget, found again on
-    2026-09-02: glm's six parks all sat at 8192)."""
+    the ceiling is counted in the ledger."""
 
     def test_budget_and_truncation_count(self):
         import dataclasses
@@ -404,9 +403,9 @@ class ThinkingBudget(Base):
         return r
 
     def test_level_cuts_thinking_and_asks_for_the_answer(self):
-        # decision 13: the executor cuts the visible thinking at dark's level
-        # and asks for the answer with the thinking so far; one call in the
-        # envelope, two provider requests, the same for every provider
+        # the executor cuts the visible thinking at dark's level and asks for
+        # the answer with the thinking so far; one call in the envelope, two
+        # provider requests, the same for every provider
         r = self.with_api(self.runner([{"content": "", "reasoning": "think " * 60},
                                        {"content": FILE_HELLO, "reasoning": "brief"}]), "chat_template")
         r.budgets.think["levels"]["low"] = 100
@@ -467,8 +466,7 @@ class ThinkingBudget(Base):
 
 
 class Network(Base):
-    """A VM that boots without an address (one staging VM in about forty on
-    2026-09-02 sat 25 minutes unreachable) is reaped and cloned once more."""
+    """A VM that boots without an address is reaped and cloned once more."""
 
     def net_runner(self, ips):
         r = self.runner([{"content": FILE_HELLO}])
@@ -499,8 +497,8 @@ class Tags(unittest.TestCase):
 
 
 class ReviewMode(Base):
-    """design item 5b: a session-arm run with a brief and files in, judged
-    only by whether report.md landed. The VM is stood in for: launch()
+    """A session-arm run with a brief and files in, judged only by whether
+    report.md landed. The VM is stood in for: launch()
     posts the AGENT-ALIVE/AGENT-DONE comments a real session.py would have
     posted, straight onto the issue review() opened."""
 
@@ -547,9 +545,8 @@ class ReviewMode(Base):
 
 
 class KeepAwake(Base):
-    """The gate shut the Proxmox host down under running executor and staging
-    VMs twice on 2026-09-02; every run and staging now takes a lease that
-    outlives its own envelope (dark/gate.py)."""
+    """Every run and staging takes a lease that outlives its own envelope, so
+    the VM host is not put to sleep under running work (dark/gate.py)."""
 
     def test_run_and_stage_take_a_lease_that_covers_them(self):
         r = self.runner([{"content": FILE_HELLO}])
@@ -577,9 +574,9 @@ if __name__ == "__main__":
 
 
 class ClassLevel(Base):
-    """Decision 14: a shift that sets no level runs each class at the level
-    budgets.toml gives it; the run records that level, and the tier's own
-    default is only the fallback when the class has none."""
+    """A shift that sets no level runs each class at the level budgets.toml
+    gives it; the run records that level, and the tier's own default is only
+    the fallback when the class has none."""
 
     def test_class_level_reaches_the_run(self):
         import dataclasses
@@ -593,7 +590,7 @@ class ClassLevel(Base):
 
 
 class ChainBase(SessionArm):
-    """Decision 17: the run.end says what a chained step started from."""
+    """The run.end says what a chained step started from."""
 
     def test_base_reaches_the_record(self):
         r = self.runner([{"content": FILE_HELLO}])
@@ -608,7 +605,7 @@ class ChainBase(SessionArm):
         self.assertIsNone(self.led.last("run.end")["base"])
 
     def test_stage_only_never_returns_without_its_record(self):
-        # review 2.1: the LedgerError clause was on run() only
+        # the LedgerError clause was on run() only
         from dark import ledger as L
         r = self.runner([])
         self.push_solution("run/session-9", {"hello.txt": "hello\n"})
@@ -623,7 +620,7 @@ class ChainBase(SessionArm):
             r.stage_only(self.task, "run/session-9", "cloud-x", "session-x", base="delivered")
 
     def test_a_chained_stage_needs_a_base_and_records_the_chain(self):
-        # review 2.4: session-arm runs carried `after` with no base and no chain.base
+        # a chained session-arm run must carry a base and a chain.base
         make_task(os.path.join(self.tmp, "bench"), "aaa", oracle={"hello.txt": "hello\n"})
         r = self.runner([], task_kw={"extra": 'after = "aaa"\n'})
         self.push_solution("run/session-8", {"hello.txt": "hello\n"})
@@ -641,9 +638,8 @@ class ChainBase(SessionArm):
         self.assertEqual((end["after"], end["base"], end["repo"]), ("aaa", "delivered", "dark/t-hello"))
 
     def test_a_refused_run_end_is_never_swallowed(self):
-        # before 2026-09-03 a run.end the ledger refused (an unregistered
-        # field) was caught by run()'s catch-all after `ended` was set: the
-        # run returned "pass" with no record behind it
+        # a run.end the ledger refuses (an unregistered field) must not be
+        # swallowed: run() would return "pass" with no record behind it
         from dark import ledger as L
         r = self.runner([{"content": FILE_HELLO}])
         real = r.ledger.emit

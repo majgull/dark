@@ -1,12 +1,11 @@
-"""dark/gate.py — the compute plane's keep-awake lease.
+"""dark/gate.py - the local-model host's keep-awake lease.
 
 The gate that fronts the local models (the provider with `wake = true` in
 models.toml) also powers the LLM VM and the Proxmox host down when no
 model request has arrived for a while. It knows nothing about the runner's
-own VMs on that host: on 2026-09-02 it shut cpu-host down twice under
-running executor and staging VMs (03:49 after the first pilot shift, 11:37
-under three session-arm stagings), because the cloud tiers had been the
-only ones talking to a model. The gate offers a lease for exactly this
+own VMs on that host, so it can power the host down under running executor
+and staging VMs when the cloud tiers are the only ones talking to a model.
+The gate offers a lease for exactly this
 (`POST /gate/hold {"seconds": N}`: neither tier powers anything down while
 it is held; it expires on its own). Every run and every staging takes one
 long enough to cover its own envelope plus the staging timeout and a

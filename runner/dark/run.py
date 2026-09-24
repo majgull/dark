@@ -1,5 +1,5 @@
 """dark/run.py — one run of one task on one tier, driven through the state
-table (design §2) from evidence.
+table from evidence.
 
 The executor and the stager report WHAT happened (DARK: tags on the run's
 issue); this module decides the outcome, and only through spec's tables:
@@ -7,9 +7,9 @@ every state change the table allows emits one run.transition, every run
 ends in exactly one run.end, whatever arrives over the wire. Deadlines and
 the watchdog are the runner's, never the VM's: a run over its envelope with
 a live heartbeat is fail:budget; a silent run is fail:structural; an
-operator marker is abort.
+abort marker file is abort.
 
-Trust boundary (948/949 reviews): the executor VM runs model-written code
+Trust boundary: the executor VM runs model-written code
 with the agent token, so anything it can post is untrusted. The stager's
 verdict is accepted only with the nonce the runner gave the staging VM (the
 executor never sees it) and only from a comment created after the staging
@@ -69,7 +69,7 @@ class RunResult:
     transitions: list = field(default_factory=list)
     # records: the records-repo path the session's stream, brief and task.json
     # were pushed to, or "PUSH FAILED: <error>"; records_sha256: sha256 of
-    # stream.jsonl, set only when the push landed (design item 5a)
+    # stream.jsonl, set only when the push landed
     records: str | None = None
     records_sha256: str | None = None
 
@@ -152,7 +152,7 @@ class _Run:
         pw = self.meter.stop() if getattr(self, "meter", None) else {}
         # a run.end the ledger refuses is a runner defect and must surface: with
         # `ended` already set, run()'s catch-all would otherwise return the result
-        # with no record behind it (found 2026-09-03 adding the chain fields)
+        # with no record behind it
         self.r.ledger.emit(
             "run.end", task=self.task.id, run=res.run, cls=self.task.cls, tier=self.tier, outcome=to,
             seconds=res.seconds, calls=res.calls, tokens_in=res.tokens_in, tokens_out=res.tokens_out,
@@ -232,8 +232,8 @@ class Runner:
         self.session_src = _script("session.py")
         self.stager_src = _script("stager.py")
         # "agent": the pipeline's FILE:/DELETE: executor. "session": pi in the
-        # same VM with its own tools (dark/session.py). RQ2 varies this and
-        # nothing else, so both go through this same run driver.
+        # same VM with its own tools (dark/session.py). The two are the one
+        # variable of a comparison, so both go through this same run driver.
         self.executor = "agent"
         # where session.py fetches node and pi: a file in a Gitea repo on the
         # service host, which is the one host a VM's egress group allows
@@ -261,12 +261,11 @@ class Runner:
         return self.px.guest_ip(vmid)
 
     def _launch_networked(self, st, vmid, name, files, runcmd):
-        """Spawn, then wait until the guest holds an address. One VM in about
-        forty (staging dark-s1, 15:12 on 2026-09-02) booted, ran cloud-init
-        and sat 25 minutes without ever reaching Gitea, holding no DHCP
-        address; a silent VM costs the whole stage timeout and a data point,
-        a fresh clone fixes it. Returns the ip, or None after two silent
-        boots. VMError from the spawn propagates to the caller."""
+        """Spawn, then wait until the guest holds an address. A VM can boot,
+        run cloud-init and never reach Gitea, holding no DHCP address; a
+        silent VM costs the whole stage timeout and a data point, and a fresh
+        clone fixes it. Returns the ip, or None after two silent boots.
+        VMError from the spawn propagates to the caller."""
         wait = self.budgets.watchdog.get("net_wait_seconds", 180)
         for attempt in (1, 2):
             st.launched[name] = vmid
@@ -300,7 +299,7 @@ class Runner:
         return self.host.git_lan_url or self.host.gitea_lan_url
 
     def _ensure_records_repo(self, shift=None):
-        """dark-records/<shift>, created if absent (design item 5): where a
+        """dark-records/<shift>, created if absent: where a
         session-arm run of this shift pushes its kept stream. One repo per
         shift, so every run of it lands under its own <run-id>/ directory."""
         full = f"{self.host.records_org}/{shift or self.shift}"
@@ -308,14 +307,14 @@ class Runner:
             self.gitea.create_repo(self.host.records_org, shift or self.shift)
         return full
 
-    # --- one factory run ---------------------------------------------------------
+    # --- one run -----------------------------------------------------------------
     def run(self, task, tier, env, slot=0, think=None, base=None):
         t_queued = self.clock()
         run_id = f"{task.id}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
         branch = f"run/{run_id}"
         st = _Run(self, task, tier, self.arm, run_id, branch, t_queued)
         st.think = think  # dark's thinking level for this run, None = provider default
-        st.base = base    # a chained task's starting tree: delivered | oracle (decision 17)
+        st.base = base    # a chained task's starting tree: delivered | oracle
         self.hold(env.seconds + task.stage_timeout + gate.MARGIN_SECONDS)
         st.meter = self.meter().start()  # energy over the whole window, executor to verdict
         try:
@@ -346,7 +345,7 @@ class Runner:
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}", reserved=reserved)
         st.go("ready", "issue and branch ready")
-        # the shift's level, else the class's (decision 14), else the tier's own
+        # the shift's level, else the class's, else the tier's own
         think = getattr(st, "think", None) or self.budgets.cls(task.cls).think or model.think
         st.think = think  # the run.end records the level the run actually ran at
         prov = self.catalog.provider_of(tier)
@@ -370,9 +369,9 @@ class Runner:
             "chars_per_token": self.budgets.think["chars_per_token"],
             "llm_timeout": model.timeout, "temperature": self.catalog.defaults.get("temperature"),
             # streaming: the live thinking cut needs it, and through the gate
-            # a non-streaming call sat silent for its whole generation and the
-            # VM-to-gate connection was found closed when the reply was ready
-            # (35B round, 13:06 and 13:15). Streaming keeps bytes moving.
+            # a non-streaming call can sit silent for its whole generation and
+            # the VM-to-gate connection is found closed when the reply is
+            # ready. Streaming keeps bytes moving.
             "llm_stream": bool(prov.stream or prov.wake),
             "may_edit": list(task.may_edit), "spec": task.spec,
             "heartbeat_seconds": wd["heartbeat_seconds"], "run": res.run, "task": task.id, "class": task.cls,
@@ -381,8 +380,8 @@ class Runner:
             # cut off from outside instead, by the runner's watcher)
             "runtime_url": self.runtime_url, "max_seconds": env.seconds, "lang": getattr(task, "lang", None),
             "ctx": model.ctx,
-            # where the session arm pushes its kept stream (design item 5a);
-            # only the session executor implements this, so only it gets a repo
+            # where the session arm pushes its kept stream; only the session
+            # executor implements this, so only it gets a repo
             "records_repo": self._ensure_records_repo() if self.executor == "session" else None}
         xvmid = self.budgets.shift["vmid_base"] + slot
         xname = f"dark-x{slot}"
@@ -446,7 +445,7 @@ class Runner:
         st.go("staging", "branch pushed; staging VM started")
         return self._stage(st, task, slot, usage=usage, reserved=reserved)
 
-    # --- staging (shared by factory runs and session arms) -----------------------
+    # --- staging (shared by pipeline runs and session arms) -----------------------
     def _stage(self, st, task, slot, usage, reserved=None):
         res, full = st.res, st.full
         wd = self.budgets.watchdog
@@ -480,7 +479,7 @@ class Runner:
             return st.end("fail:structural", "stage", detail, usage=usage, reserved=reserved)
         return st.end("fail:capability", None, detail, usage=usage, reserved=reserved)
 
-    # --- a session arm's result, staged like a factory run ---------------------
+    # --- a session arm's result, staged like a pipeline run ---------------------
     def stage_only(self, task, branch, tier, arm, usage=None, slot=0, base=None,  # noqa: PLR0913
                    after_branch=None, capped=False, env=None):
         """Design §7b: a single session solved the task outside the runner and
@@ -497,7 +496,7 @@ class Runner:
         run_id = f"{task.id}-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
         st = _Run(self, task, tier, arm, run_id, branch, t_queued)
         st.base = base
-        st.capped = capped or None  # the session was stopped at the pipeline's wall cap, it did not finish
+        st.capped = capped or None  # the session was stopped at the default executor's wall cap, it did not finish
         # a re-judgement of a branch an earlier run delivered: the acceptance is
         # new, the run facts are not. Copy usage and level from that run.end
         # (found by branch) when the caller gave none, and name the run.
@@ -533,7 +532,7 @@ class Runner:
             st.go("staging", "staging VM started")
             return self._stage(st, task, slot, usage=usage)
         except L.LedgerError:
-            raise  # as in run(): never a result without its record (review 2.1)
+            raise  # as in run(): never a result without its record
         except Exception as e:  # noqa: BLE001
             self.log(f"ERROR {run_id}: runner exception {e!r}")
             st.reap_all()
@@ -543,7 +542,7 @@ class Runner:
         finally:
             st.reap_all()
 
-    # --- review mode (design item 5b): brief and files in, report.md out -------
+    # --- review mode: brief and files in, report.md out -------------------------
     def review(self, brief_text, files, tier, arm, shift=None, think=None, env=None, slot=0):
         """A session-arm run whose input is a brief and a set of files to
         read and whose deliverable is report.md; no hidden acceptance, no
@@ -695,7 +694,7 @@ class Runner:
             if self._abort_requested(res.run):
                 self._clear_abort(res.run)
                 self.ledger.emit("abort", task=task.id, run=res.run)
-                return None, ("abort", "abort", "operator marker"), calls_seen
+                return None, ("abort", "abort", "abort marker file"), calls_seen
             try:
                 comments = self.gitea.comments(st.full, res.issue)
             except G.GiteaError as e:

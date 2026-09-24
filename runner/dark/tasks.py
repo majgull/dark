@@ -1,5 +1,5 @@
 """dark/tasks.py — task records on disk and their materialisation as a
-work repo (design §2, §7).
+work repo.
 
     tasks/<id>/task.toml        id, title, class, lang, spec, may_edit
     tasks/<id>/start/           overlay on the language template (optional)
@@ -10,7 +10,7 @@ The work repo for a task is dark/t-<id>: the template for its language plus
 start/, force-pushed to main before every run so each run starts from the
 same tree. Run branches are run/<run id>.
 
-Chains (decision 17, 950): a task may name the task it follows (`after`).
+Chains: a task may name the task it follows (`after`).
 Its starting tree is then the tree that task delivered (a run branch, when
 the shift has a pass for it) or that task's oracle tree, plus its own
 start/. The chain's order is the sorted order of ids, so `after` must sort
@@ -34,7 +34,7 @@ LANGS = ("go", "python")
 # the work repo of task <id> is <REPO_PREFIX><id>. Two arms on the same
 # task at once force-push each other's starting tree (the bench's session
 # arms and a shift share dark/t-<id>), so an arm that runs beside a shift
-# names its own prefix: DARK_REPO_PREFIX=session-dsf- (chain.sh does).
+# names its own prefix: DARK_REPO_PREFIX=session-.
 REPO_PREFIX = os.environ.get("DARK_REPO_PREFIX", "t-")
 
 
@@ -140,9 +140,8 @@ def predecessors(task):
 def tests_version(bench_dir):
     """The bench checkout's commit, which is the version of the hidden
     acceptance that judges a run. Recorded on every run.end so a table can
-    name the test version of each row instead of the reader assuming one
-    (950: the September rows were judged by an earlier version and nothing
-    in the ledger said so). None when the bench is not a git checkout."""
+    name the test version of each row instead of the reader assuming one.
+    None when the bench is not a git checkout."""
     # the last commit that touched tasks/, not HEAD: the runner host's bench
     # checkout carries a digest commit per shift on top of the pushed head,
     # and a digest is not a test version
@@ -173,8 +172,7 @@ def load_tasks(bench_dir, only=None):
 def _tree(root):
     """{relative path: bytes} of every file under root (no .git). A symlink
     anywhere is refused: a delivered branch is model-written, and open() on
-    a link would read the runner host's own files into the next step's tree
-    (opus review 1.1, 2026-09-03)."""
+    a link would read the runner host's own files into the next step's tree."""
     out = {}
     for dp, dns, fns in os.walk(root):
         dns[:] = [d for d in dns if d != ".git"]
@@ -270,9 +268,8 @@ _CRED = re.compile(r"://[^/@\s]+@")
 
 
 def redact(text):
-    """Credentials out of any URL in an error: a failed materialize push on
-    2026-09-02 put the admin token into the shift log, the ledger's block
-    event and, had the shift ended, the digest committed to the bench."""
+    """Credentials out of any URL in an error, so a failed push cannot put the
+    admin token into the shift log, the ledger's block event or the digest."""
     return _CRED.sub("://***@", text)
 
 
@@ -289,7 +286,7 @@ def materialize(task, tree, push_url, scratch, branch="main", base=None):
     clone from fetch(), so a follow-up carries the earlier steps' history).
     Returns the commit sha. The caller made sure the repo exists."""
     # named by the repo, not the task: two arms materialising the same task
-    # at once (two chains, 2026-09-03 14:04) wiped each other's work dir
+    # at once would otherwise wipe each other's work dir
     work = os.path.join(scratch, f"mat-{task.repo_name}-{os.getpid()}")  # and by pid: two default-prefix shifts
     shutil.rmtree(work, ignore_errors=True)
     if base:
@@ -304,12 +301,11 @@ def materialize(task, tree, push_url, scratch, branch="main", base=None):
         _git("init", "-q", "-b", branch, cwd=work)
     write_tree(tree, work)
     # -f: a .gitignore in the base (model-written on the chained path) must
-    # not decide which of the follow-up's own files reach main (review 1.3)
+    # not decide which of the follow-up's own files reach main
     _git("add", "-A", "-f", cwd=work)
     # --allow-empty: a follow-up without start/ starts from exactly the tree
-    # the step before it delivered, so the commit on top of the base is
-    # empty (the first chain run, 2026-09-03 14:05, lost every delivered
-    # base to "nothing to commit")
+    # the step before it delivered, so the commit on top of the base is empty
+    # and must still be made
     _git("-c", "user.name=dark-runner", "-c", "user.email=dark-runner@localhost",
          "commit", "-q", "--allow-empty", "-m",
          f"task {task.id}: starting tree" + (f" (after {task.after})" if task.after else ""), cwd=work)
@@ -324,5 +320,5 @@ def materialize(task, tree, push_url, scratch, branch="main", base=None):
     sha = _git("rev-parse", "HEAD", cwd=work).strip()
     shutil.rmtree(work, ignore_errors=True)
     if base:
-        shutil.rmtree(base, ignore_errors=True)  # the fetched clone is consumed here (review 3.3)
+        shutil.rmtree(base, ignore_errors=True)  # the fetched clone is consumed here
     return sha

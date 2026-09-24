@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""refwork — build a spec-only workspace for a second reference (L1).
+"""refwork — build a spec-only workspace for a second reference.
 
 The hidden acceptance of a task is validated against one reference, its
 `oracle/`. A single reference cannot say whether the tests agree with the
-specification or only with that one solution, so L1 asks a different model
+specification or only with that one solution, so a second model is asked
 for a second reference, written from the specification text alone.
 
 This tool lays out what that writer sees: one directory per task holding

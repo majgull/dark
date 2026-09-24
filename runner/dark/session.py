@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""dark session — the session arm's executor. Runs INSIDE the same throwaway
-VM the pipeline uses, injected alone via cloud-init with /opt/task.json.
-Stdlib only, like dark/agent.py, and self-contained for the same reason.
+"""dark session - the executor for a session arm (a coding-agent CLI solving
+the task as a free session). Runs INSIDE the same throwaway VM the pipeline
+uses, injected alone via cloud-init with /opt/task.json. Stdlib only, like
+dark/agent.py, and self-contained for the same reason.
 
 What differs from dark/agent.py is one thing: instead of the FILE:/DELETE:
-protocol loop, the model runs as a free agent session (pi) with its own
-tools, in the work tree, and hands in whatever it ends with. Everything else
-is held the same on purpose, because RQ2 varies the arm and nothing else:
-same VM image, same starting tree, same envelope, same model endpoint, same
-progress and verdict comments on the same issue, same branch push, and the
-hidden acceptance judged afterwards in the same fresh staging VM.
+protocol loop, the model runs as a free agent session driven by pi (a
+coding-agent CLI) with its own tools, in the work tree, and hands in
+whatever it ends with. Everything else is held the same on purpose, because
+the arm is the one variable of a comparison: same VM image, same starting
+tree, same envelope, same model endpoint, same progress and verdict comments
+on the same issue, same branch push, and the hidden acceptance judged
+afterwards in the same fresh staging VM.
 
 The VM has no node and its egress reaches the service host only, so the
 runtime (node plus the pi package) is fetched from Gitea like everything
@@ -22,7 +24,7 @@ not scraped from an audit trail afterwards. The call envelope is enforced
 the same way the pipeline enforces it: when the count of model calls passes
 the envelope, the session is killed and the run ends fail:budget on calls.
 
-The stream is also kept, not just counted (design item 5a): every line pi
+The stream is also kept, not just counted: every line pi
 emits is written to stream.jsonl, and at the end of the run — pass, fail or
 killed at the envelope alike — it is pushed together with the brief and the
 (token-scrubbed) task.json to a records repository, so a session-arm run
@@ -73,7 +75,7 @@ TASK:
 {spec}
 """
 
-# review mode (design item 5b): no repo, no branch, no verify.sh — the files
+# review mode: no repo, no branch, no verify.sh - the files
 # to read are already staged under {work}, and the only deliverable is
 # report.md there.
 REVIEW_BRIEF = """You are reviewing material in the directory {work}. Read the files listed below, already present in that directory, and write your findings to report.md in {work}. That file is your only deliverable: do not modify any other file, and do not create a git repository.
@@ -114,8 +116,7 @@ def tag(ev, **kw):
 
 # tool_calls counts tool calls that RAN (pi's tool_execution_start); asked
 # counts the ones the model produced. They are the same number unless
-# something refused one, which is the distinction that made last night's
-# session counts unreadable, so both are counted and a difference is said out
+# something refused one, so both are counted and a difference is said out
 # loud rather than averaged away.
 STATS = {"calls": 0, "tool_calls": 0, "asked": 0, "tokens_in": 0, "tokens_out": 0,
          "reasoning_chars": 0, "requests": 0}
@@ -196,7 +197,7 @@ def clone_url(repo=None):
     return f"{base}/{repo or REPO}.git"
 
 
-# --- records (design item 5a): pi's stream, the brief and task.json, kept ----
+# --- records: pi's stream, the brief and task.json, kept ----------------------
 def sha256_file(path):
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -315,7 +316,7 @@ THINK = {"none": "off", "low": "low", "medium": "medium", "high": "high"}
 def read_stream(proc, deadline, stream_path=None):
     """Count what pi reports as it reports it, and stop the session when it
     passes the call envelope. Every raw line is written to `stream_path` as
-    it arrives (design item 5a), so a kill at the envelope loses nothing
+    it arrives, so a kill at the envelope loses nothing
     already emitted. Returns (killed_for, tail)."""
     killed_for = None
     tail = []
@@ -477,7 +478,7 @@ def _main_task():
 
 def read_report():
     """report.md from the work tree, or "" if it was never written. Review
-    mode has no other deliverable (design item 5b)."""
+    mode has no other deliverable."""
     path = os.path.join(WORK, "report.md")
     if not os.path.exists(path):
         return ""

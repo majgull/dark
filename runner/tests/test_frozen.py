@@ -1,12 +1,9 @@
 """dark/frozen.py: the pinned envelope, and the flag that turns the
 ledger-derived adaptations off.
 
-Both exist for one measured failure. On 2026-09-04 three rounds of one tier
-on one task set were reported as the same configuration; they were not,
-because the soft envelope is computed from the ledger's own recent passes
-and the ledger grew between the rounds. The third round was cut off at 450
-seconds where the first had 900 and produced three budget failures that read
-as the model getting worse.
+A frozen file exists so that rounds compared as the same configuration really
+are the same configuration: the soft envelope is otherwise computed from the
+ledger's own recent passes, and the ledger grows between rounds.
 """
 
 import os
@@ -19,8 +16,8 @@ from dark import ledger as L
 from tests.test_config import BUDGETS, MODELS, write_conf
 
 GOOD = """
-set = "rq2-dsf"
-note = "RQ2, deepseek both arms, 2026-09-05"
+set = "example-set"
+note = "example set, both arms, one tier"
 
 [class.additive]
 calls = 6
@@ -55,7 +52,7 @@ class File(unittest.TestCase):
         self.assertEqual(env.basis, "frozen")
         self.assertEqual(env.runs, 1)          # one tier per task unless the file says otherwise
         self.assertEqual(fr.think("additive"), "low")
-        self.assertEqual(fr.set_name, "rq2-dsf")
+        self.assertEqual(fr.set_name, "example-set")
 
     def test_the_recorded_hash_is_of_the_file_bytes(self):
         import hashlib
@@ -64,7 +61,7 @@ class File(unittest.TestCase):
         with open(path, "rb") as f:
             self.assertEqual(fr.sha256, hashlib.sha256(f.read()).hexdigest())
         d = fr.as_dict()
-        self.assertEqual((d["set"], d["file"], d["sha256"]), ("rq2-dsf", "f.toml", fr.sha256))
+        self.assertEqual((d["set"], d["file"], d["sha256"]), ("example-set", "f.toml", fr.sha256))
 
     def test_one_byte_changed_is_a_different_hash(self):
         a = frozen.load(write(self.tmp, GOOD, "a.toml"))
@@ -98,7 +95,7 @@ class File(unittest.TestCase):
 
     def test_refusals_name_the_file_and_the_field(self):
         for text, want in [
-            (GOOD.replace('set = "rq2-dsf"', ""), "set"),
+            (GOOD.replace('set = "example-set"', ""), "set"),
             (GOOD.replace("calls = 6", "calls = 0"), "calls"),
             (GOOD.replace("calls = 6", 'calls = "six"'), "calls"),
             (GOOD.replace("seconds = 900", "second = 900"), "seconds"),
@@ -186,7 +183,7 @@ class InAShift(unittest.TestCase):
     def test_the_runner_carries_the_file_name_and_hash_for_every_run_start(self):
         fr = self.frozen_file()
         sh = self.make(frozen=fr)
-        self.assertEqual(sh.runner.frozen, {"set": "rq2-dsf", "file": "f.toml", "sha256": fr.sha256})
+        self.assertEqual(sh.runner.frozen, {"set": "example-set", "file": "f.toml", "sha256": fr.sha256})
 
     def test_without_a_frozen_file_the_runner_records_none(self):
         self.assertIsNone(self.make().runner.frozen)
@@ -196,7 +193,7 @@ class InAShift(unittest.TestCase):
         self.make(frozen=fr).run(self.tasks, tier="local-a")
         line = [x for x in self.log if "frozen envelope" in x]
         self.assertTrue(line)
-        self.assertIn("rq2-dsf", line[0])
+        self.assertIn("example-set", line[0])
         self.assertIn(fr.sha256[:12], line[0])
 
     def test_no_adapt_without_a_tier_is_refused_before_anything_runs(self):

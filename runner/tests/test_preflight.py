@@ -101,8 +101,8 @@ class Preflight(unittest.TestCase):
         self.led.emit("window.exhausted", provider="cloud", day=L.day_of(self.led.clock()))
         self.led.emit("run.end", **run_end(tier="local-b", watts_class="high", seconds=3600))
         checks = self.pre().run(need_vm=False)
-        # reported, never refused on: the second pilot shift (local tiers only)
-        # was refused for a claude window the session arms had spent
+        # windows and watts are reported, never refused on: a spent window
+        # still lets the shift start
         self.assertEqual(self.misses(checks), [])
         by = {c.name: c for c in checks}
         self.assertIn("exhausted", by["window cloud"].detail)
@@ -111,7 +111,7 @@ class Preflight(unittest.TestCase):
     def test_an_org_the_agent_cannot_push_into_is_refused(self):
         # the org exists and every other check is green, but the executor's
         # token has no write on the repos the runs create: every run would
-        # get through its model calls and die on the push (dark-runs, 2026-09-03)
+        # get through its model calls and die on the push
         self.gfake.teams["dark"] = [{"id": 2, "name": "readers", "permission": "read",
                                      "includes_all_repositories": True, "members": ["dark-agent"]}]
         try:

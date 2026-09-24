@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """refcheck — run a task's hidden acceptance against a reference other than
-its oracle (L1: the second reference, and the mutation variants).
+its oracle (the second reference, and the mutation variants).
 
 Given a directory holding a solved copy of a task's starting tree (what
 tools/refwork.py laid out and a writer then edited), this rebuilds the

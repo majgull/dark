@@ -1,5 +1,5 @@
-name = "rq2-loose-2026-09-06"
-question = "RQ2: pipeline against session, deepseek-v4-flash, loose envelope"
+name = "example-loose"
+question = "the pipeline against a session arm on one cloud tier, loose envelope"
 tasks = ["csvstat-python", "semver-go", "hello-go", "split-module-python",
          "rename-package-go", "duration-python", "roman-python", "intervals-go"]
 judge = "acceptance-v4"                     # tag; refused if the checkout's tests_version differs
@@ -20,8 +20,8 @@ tier = "deepseek-v4-flash:cloud"
 think = "low"
 
 [orgs]
-work = "dark-runs-rq2-loose"                # created by bootstrap, must be empty at launch
-archive = "dark-archive-rq2-loose"          # created by bootstrap, receives the work repos at the end
+work = "dark-runs-example-loose"              # created by bootstrap, must be empty at launch
+archive = "dark-archive-example-loose"        # created by bootstrap, receives the work repos at the end
 records = "dark-records"                    # streams and review reports, one repo per shift
 results = "dark-experiments"                # one repo per experiment name
 

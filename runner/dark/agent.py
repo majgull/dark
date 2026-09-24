@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""dark agent — the executor. Runs INSIDE a throwaway VM, injected alone via
-cloud-init with /opt/task.json. Stdlib only, self-contained by design.
+"""dark agent - the executor: the program injected into the task VM, which
+clones the repo, asks the model for whole-file replacements and pushes a
+branch. Runs INSIDE a throwaway VM, injected alone via cloud-init with
+/opt/task.json. Stdlib only, self-contained by design.
 
 Loop: clone the work repo, ask an OpenAI-compatible model for complete
 replacement files (FILE:/DELETE: protocol), run the repo's own verify
@@ -11,8 +13,8 @@ from a background thread); the verdict is ONE final AGENT-DONE comment
 whose DARK: done tag the runner classifies. This script never decides an
 outcome: it reports what happened and a failure kind.
 
-The executor contract (v1 agent.py, two adversarial reviews in thread 948)
-is kept verbatim where it matters: _clean_path, parse_files/parse_deletes,
+The executor contract is kept verbatim where it matters: _clean_path,
+parse_files/parse_deletes,
 guard_writes with the realpath check, tracked() via ls-files -z,
 side_effects() and reply-only staging.
 """
@@ -74,7 +76,7 @@ behavior and tests passing. Never modify anything under .gitea/ or .git/,
 and never edit .dark/verify.sh. If you add a file, include it in full.
 Never DELETE anything the task did not ask you to remove.
 You may add NEW files freely. You may rewrite an EXISTING file only when
-the task names it on a `may edit:` line — the harness refuses every
+the task names it on a `may edit:` line; the runner refuses every
 other existing-file rewrite or delete, and your attempt is sent back."""
 
 
@@ -196,7 +198,7 @@ STATS = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "reasoning_chars": 0, "tru
 _sent = 0
 # stall tracking (independent of MAX_STALL: always computed, whatever the cap):
 # a reply is a repeat when its hash was already seen anywhere earlier in this
-# run — the harness has already written that exact file set and fed back its
+# run: the runner has already written that exact file set and fed back its
 # verify result, so nothing new can reach the model from a call identical to it.
 _STALL = {"seen": set(), "last_hash": None, "streak": 0}
 
@@ -230,8 +232,8 @@ def _read_stream(r, cut_at=0):
     """Reassemble an SSE chat stream into the non-streaming reply shape.
     Through the gate the executor streams (task.json llm_stream): a call that
     sits silent for its whole generation came back to a connection the gate
-    found closed, twice in one run (35B round, 2026-09-02 13:06 and 13:15),
-    while bytes that keep moving do not. Reasoning arrives in its own delta
+    found closed, while bytes that keep moving do not. Reasoning arrives in
+    its own delta
     field on llama.cpp and ollama; usage in a final chunk when asked for.
 
     `cut_at` (characters, 0 = never) is dark's thinking level: once the
@@ -239,7 +241,7 @@ def _read_stream(r, cut_at=0):
     closed connection cancels the generation upstream) and the reply is
     marked cut; the caller then asks for the answer with the thinking so
     far. The same cut for every provider is what makes the levels
-    comparable (decision 13)."""
+    comparable."""
     content, reasoning, finish, usage, cut = [], [], None, {}, False
     n_reasoning = 0
     for raw in r:
@@ -294,8 +296,7 @@ def _llm_call(messages):
     response = int(TASK.get("max_tokens", 8192))
     # max_tokens is the response budget; thinking gets its own budget on top
     # because every provider counts thinking inside max_tokens and one shared
-    # number starved the answer (v1's mistake, repeated until 2026-09-02: the
-    # 9B's pilot replies all ended on "length")
+    # number starves the answer
     # a level may name its own provider model (llama.cpp preset with a native
     # reasoning budget); the re-ask uses the same one so nothing reloads
     model_id = (TASK.get("think_presets") or {}).get(level) or TASK.get("llm_model")
@@ -338,12 +339,10 @@ def _post(body, cut_at):
         data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
     tmo = int(TASK.get("llm_timeout", 600))
     last = None
-    # Never open the next request within a second of closing the last one.
-    # Three times on 2026-09-02 (03:28, 12:28, 12:38) the gate in front of
-    # the local models answered a request that arrived milliseconds after
-    # the previous response with "client gone mid-response -> cancelling",
-    # llama-swap saw the upstream connection drop (502, context canceled)
-    # and this executor sat in urlopen until its timeout.
+    # Never open the next request within a second of closing the last one:
+    # the gate in front of the local models answers a request that arrives
+    # milliseconds after the previous response with "client gone mid-response
+    # -> cancelling" and this executor sits in urlopen until its timeout.
     since = time.time() - LAST_RESPONSE[0]
     if since < 1.0:
         time.sleep(1.0 - since)
@@ -357,9 +356,8 @@ def _post(body, cut_at):
             break
         except urllib.error.HTTPError as e:
             detail = e.read().decode(errors="replace")[:300]
-            # one retry on a 5xx: ollama-cloud answered a third of the
-            # afternoon's requests with 502 on 2026-09-02, each one a run
-            # lost as fail:structural (llm)
+            # one retry on a 5xx: an endpoint that answers 502 turns one run
+            # into fail:structural (llm) without it
             if e.code >= 500 and attempt == 1:
                 print(f"llm HTTP {e.code}, retrying once in 5s: {detail[:120]}", file=sys.stderr)
                 time.sleep(5)
@@ -390,7 +388,7 @@ def _account(d):
     STATS["reasoning_chars"] += len(m.get("reasoning") or m.get("reasoning_content") or "")
     PROGRESS.calls = STATS["calls"]
     # the cap is an envelope, checked at the call that breaches it, not after a
-    # continuation chain (949 review 2.1)
+    # continuation chain
     if MAX_REASONING and STATS["reasoning_chars"] > MAX_REASONING:
         raise ReasoningOver(f"{STATS['reasoning_chars']} reasoning chars > cap {MAX_REASONING}")
     if choice.get("finish_reason") == "length":
@@ -434,7 +432,7 @@ def llm(messages):
     return _LAST_REPLY
 
 
-# --- the executor contract (v1, reviewed) -------------------------------------
+# --- the executor contract ----------------------------------------------------
 def sh(*cmd, **kw):
     return subprocess.run(cmd, cwd=WORK, capture_output=True, text=True, **kw)
 
@@ -573,9 +571,8 @@ def _main():
     last_fail = "no verify run"
     parsed_any = False
     # every path written or deleted over ALL iterations: the reply that turns
-    # verify.sh green names only what it changed last (semver-go on dsf, 949
-    # pilot: iteration 2 sent semver_test.go alone, semver.go from iteration 1
-    # never reached the branch and staging saw "undefined: CompareSemver")
+    # verify.sh green names only what it changed last, so a file from an
+    # earlier iteration would otherwise stay off the branch
     written, deleted = {}, set()
     while STATS["calls"] < MAX_CALLS:
         it += 1
@@ -609,9 +606,9 @@ def _main():
             last_fail = "reply had no FILE blocks"
             continue
         # deletes first, and never of a path the same reply also writes: a
-        # "DELETE: x" + "FILE: x" pair is a rewrite (qwen-3.6-35b on
-        # csvstat-python, 949 bench: the delete ran after the write, popped
-        # the path from `written`, and the commit found nothing staged)
+        # "DELETE: x" + "FILE: x" pair is a rewrite, and running the delete
+        # after the write would pop the path from `written` and leave the
+        # commit with nothing staged
         for path in deletes:
             if path in files:
                 continue

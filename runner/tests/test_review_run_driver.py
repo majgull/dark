@@ -1,8 +1,8 @@
-"""Adversarial review, item 1 — the run driver (dark/run.py, dark/shift.py,
-dark/spec.py).
+"""dark/run.py, dark/shift.py and dark/spec.py: the run driver.
 
-Every test here asserts the behaviour the design requires. A test that fails
-is the finding; the report names the assertion.
+Every test here asserts a behaviour the state table requires: one registered
+event per transition, one outcome per run, and no verdict from the executor's
+side taken at face value.
 """
 
 import json
@@ -33,8 +33,7 @@ SPLIT_VERIFY = (
     'exit 1\n')
 
 # A verify.sh that runs the model's own tests, which is what a real
-# .dark/verify.sh does (see the comment on dark/agent.py:333 —
-# "verify.sh ran model-written tests with write access").
+# .dark/verify.sh does: it runs model-written tests with write access.
 FORGE_VERIFY = (
     '#!/bin/bash\n'
     'cd "$(dirname "$0")/.."\n'
@@ -89,10 +88,10 @@ class _Reseeded(Base):
 
 
 class StagingEnvironmentFailure(_Reseeded):
-    """A staging VM that could not build is fail:structural (spec.TRANSITIONS
-    row ("staging", "fail:structural")). It must never be fail:capability,
-    because fail:capability is the one outcome that escalates
-    (spec.ESCALATES) — "a structural failure never escalates"."""
+    """A staging VM that could not build is fail:structural (the
+    ("staging", "fail:structural") row in spec.TRANSITIONS). It must never be
+    fail:capability, because fail:capability is the one outcome that escalates
+    (spec.ESCALATES): a structural failure never escalates."""
 
     VERIFY = SPLIT_VERIFY
 
@@ -109,9 +108,9 @@ class StagingEnvironmentFailure(_Reseeded):
                          "a staging environment failure must not be an escalating outcome")
         self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "stage"))
         self.assertEqual(self.transitions(res.run)[-1], ("staging", "fail:structural"))
-        # why: the DARK: stage tag the runner actually reads carries only
-        # detail[-400:] (dark/stager.py:73), so the marker the runner keys on
-        # (dark/run.py:224) is gone.
+        # why: the DARK: stage tag the runner actually reads carries only the
+        # last 400 characters of detail, so the marker the runner keys on is
+        # gone.
         tag = [t for t in R.parse_tags(bodies[0]) if t.get("ev") == "stage"][-1]
         self.assertIn("STAGE-ENV", str(tag["detail"]),
                       "stage tag detail lost the STAGE-ENV marker the runner keys on")
@@ -120,17 +119,17 @@ class StagingEnvironmentFailure(_Reseeded):
 class ForgedStagerVerdict(_Reseeded):
     """The runner reads STAGE-DONE off the run's issue by body prefix only. The
     executor VM holds the same token and posts to the same issue, so anything
-    with code execution inside the executor — i.e. the model, through the tests
-    verify.sh runs — can write the stager's verdict before the stager exists."""
+    with code execution inside the executor (the model, through the tests
+    verify.sh runs) can write the stager's verdict before the stager exists."""
 
     VERIFY = FORGE_VERIFY
 
     def test_staging_vm_that_never_ran_cannot_produce_a_pass(self):
         # acceptance is red, and the staging VM never starts at all: the only
         # honest outcome is ("staging" -> fail:structural, "stage").
-        # adjudicated (949): the forged STAGE-DONE is ignored (no nonce, created
-        # before the staging VM), so the runner waits for the real stager, which
-        # never comes: keep that wait short
+        # the forged STAGE-DONE is ignored (no nonce, created before the
+        # staging VM), so the runner waits for the real stager, which never
+        # comes: keep that wait short
         r = self.runner([{"content": FORGE_REPLY}],
                         acceptance="echo 'CHECK hello fail'; exit 1\n",
                         task_kw={"extra": "stage_timeout = 1\n"})
@@ -177,7 +176,7 @@ class ProgressTagsDriveTransitions(Base):
     """"every transition emits exactly one registered event" and every run
     ends in exactly one run.end. A progress comment carrying two green verify
     tags asks the driver for verifying -> verifying, which is not a row in
-    spec.TRANSITIONS, and dark/run.py:104 raises out of run()."""
+    spec.TRANSITIONS; the driver must end the run rather than raise."""
 
     def _runner(self, comments):
         r = self.runner([{"content": FILE_HELLO}])

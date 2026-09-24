@@ -1,8 +1,9 @@
-"""dark/llm.py — the control plane's model client: OpenAI-compatible chat,
-served-model listing, and the failure taxonomy the runner classifies
-from. The executor inside the VM has its own copy of the chat call
-(agent.py is injected alone); this one is for preflight probes and the
-spec/review/validator classes.
+"""dark/llm.py - the control plane's model client, the calls the runner
+makes itself outside a task VM. OpenAI-compatible chat, served-model
+listing, and the failure taxonomy the runner classifies from. The executor
+inside the VM has its own copy of the chat call (agent.py is injected
+alone); this one is for preflight probes and the spec/review/validator
+classes.
 """
 
 import json

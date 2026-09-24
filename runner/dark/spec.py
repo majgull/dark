@@ -1,4 +1,4 @@
-"""dark/spec.py — the runner's spec as data (design §2).
+"""dark/spec.py - the runner's spec as data.
 
 Everything the runtime ENFORCES about classes, states, outcomes and the
 ledger's wire format lives in this one module, as tables. Tests pin the
@@ -10,13 +10,13 @@ agent-side tag vocabulary can be pinned against agent.py and stager.py
 (which are cloud-init-injected alone into VMs and stay self-contained).
 """
 
-# --- classes (design §2): the kind of work, declared at intake, immutable ---
+# --- classes: the kind of work, declared at intake, immutable ----------------
 EXEC_CLASSES = ("additive", "mechanical", "repair")  # run in a VM: execute, verify, stage
 CALL_CLASSES = ("spec", "review")                    # single budgeted control-plane calls
 CLASSES = EXEC_CLASSES + CALL_CLASSES
 
 # --- outcomes: the only terminal states of a run, decided by the runner ----
-# delivered: the review class's pass (design item 5b) — no hidden acceptance,
+# delivered: the review class's pass - no hidden acceptance,
 # just report.md landed non-empty; kept distinct from "pass" because nothing
 # judged it.
 OUTCOMES = ("pass", "delivered", "fail:capability", "fail:structural", "fail:budget", "abort")
@@ -50,7 +50,7 @@ TRANSITIONS = (
     ("staging", "fail:structural", "staging VM never reported or could not build", "runner"),
     ("preflight", "fail:structural", "the work repo, issue or branch could not be prepared", "runner"),
     ("executing", "delivered", "review mode: report.md landed non-empty", "runner"),
-    ("*", "abort", "operator marker", "runner"),
+    ("*", "abort", "abort marker file", "runner"),
 )
 
 
@@ -95,7 +95,7 @@ EVENTS = {
                  "tool_calls",
                  # tests: the bench commit whose acceptance judged this run
                  "tests",
-                 # chains (decision 17): after = the task this one follows; base =
+                 # chains: after = the task this one follows; base =
                  # what it started from, delivered | oracle
                  "after", "base",
                  # measured energy over the run window (dark/power.py): wh_cpu = RAPL
@@ -118,7 +118,7 @@ EVENTS = {
                  # brief and task.json were pushed to (dark-records/<shift>/
                  # <run>), or "PUSH FAILED: <error>" when the push did not
                  # land; records_sha256: sha256 of stream.jsonl, present only
-                 # when the push succeeded (design item 5a)
+                 # when the push succeeded
                  "records", "records_sha256",
                  # asserts: what the runner checked about its own machinery on
                  # this run — every energy sensor produced a reading, every VM
@@ -135,7 +135,7 @@ EVENTS = {
     # follows (a pass in this shift) or that step's oracle tree
     "chain.base": (("task", "after", "base"), ("branch", "shift", "repo")),
     "guard.refused": (("task", "run", "paths"), ()),
-    # a run whose outcome was the harness's fault, not the tier's: the record
+    # a run whose outcome was the deployment's fault, not the tier's: the record
     # stays, the queries skip it, the digest lists it
     "run.void": (("task", "run", "reason"), ()),
     "stage.result": (("task", "run", "ok", "checks_ok", "checks_total"), ("detail",)),
@@ -151,7 +151,7 @@ EVENTS = {
     # the window, never in a class's statistics).
     "call": (("shift", "cls", "tier", "seconds", "tokens_in", "tokens_out",
               "reasoning_chars", "paid"), ("task", "run", "purpose", "ok")),
-    # dark bench (docs/950-bench-e2e.md): one manifest, five phases. bench.start
+    # dark bench: one manifest, five phases. bench.start
     # is written once per (name, manifest sha256); bench.round once per shift
     # the run phase launches; bench.pause/bench.resume are the only state a
     # pause or resume writes, read back before every shift of the run phase.
@@ -233,13 +233,12 @@ FAIL_KIND_OUTCOME = {
     "no_report": "fail:structural",   # review mode: report.md missing or empty
     "abort": "abort",
 }
-# Outcomes that may escalate once to the next admitted tier (design §5).
-# fail:budget too (decision 10, 2026-09-02): a run's budget failure (seconds
-# or reasoning over the envelope) says this tier could not do the task
-# inside its envelope, which is the same signal as calls exhausted; parking
-# the task on it left errwrap-go untried on every other local tier after the
-# 9B thought 35027 chars against a 20000 cap. Windows and watts still park
-# before a run starts (tier_open), never through an outcome.
+# Outcomes that may escalate once to the next admitted tier.
+# fail:budget too: a run's budget failure (seconds or reasoning over the
+# envelope) says this tier could not do the task inside its envelope, which
+# is the same signal as calls exhausted, so it deserves the same one retry.
+# Windows and watts still park before a run starts (tier_open), never
+# through an outcome.
 ESCALATES = frozenset({"fail:capability", "fail:budget"})
 
 # Structural = a failure that is not the model's doing: everything before

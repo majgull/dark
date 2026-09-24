@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """validate — prove each task's acceptance set agrees with its oracle and
-rejects its starting tree (design §7: the oracle exists only to validate
-the hidden tests). Runs locally, no VM: template + start (+ oracle) in a
+rejects its starting tree (the oracle exists only to validate the hidden
+tests). Runs locally, no VM: template + start (+ oracle) in a
 temp dir, the tree's own verify.sh, then acceptance/run.sh at the root.
 
   python3 tools/validate.py [--templates DIR] [--tasks a,b] [--keep]
@@ -63,7 +63,7 @@ def task_after(task_dir):
 
 
 def build_start(task_dir, lang, templates, dest):
-    """The tree a run starts from: the template, then (chains, decision 17)
+    """The tree a run starts from: the template, then (chains)
     every earlier step's start/ and oracle/ in order, then this task's
     start/. This task's own oracle and acceptance are not in it, which is
     what makes it usable as a spec-only workspace (tools/refwork.py)."""
@@ -84,12 +84,12 @@ def build_start(task_dir, lang, templates, dest):
 def build(task_dir, lang, templates, with_oracle, dest):
     """The starting tree as a git repository with an origin, then this task's
     oracle/ on top when asked, then its acceptance in .acceptance.
-    What the runner does with tasks.oracle_tree."""
+    This mirrors what the runner builds."""
     build_start(task_dir, lang, templates, dest)
     # the starting tree is main on an origin, as the runner materialises it,
     # so the acceptance's git-dependent checks (files touched, moved
-    # unchanged, bodies unchanged) run here too instead of self-skipping
-    # (opus review S2, 2026-09-03); the oracle is a commit on top of it
+    # unchanged, bodies unchanged) run here too instead of self-skipping;
+    # the oracle is a commit on top of it
     def git(*args):
         subprocess.run(["git", "-c", "user.name=validate", "-c", "user.email=validate@bench", *args], cwd=dest, check=True,
                        capture_output=True)
@@ -112,7 +112,7 @@ GOCACHE = tempfile.mkdtemp(prefix="val-gocache-")
 
 def run(cmd, cwd, timeout=600):
     # the acceptance scripts default GOCACHE to /root/... (they run as root in
-    # the staging VM); locally we are not root
+    # the fresh judging VM); locally we are not root
     env = dict(os.environ)
     env["GOCACHE"] = GOCACHE
     r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, env=env)

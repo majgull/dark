@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# ops/smoke.sh — the seven checks of feasibility B1 plus three kill points.
+# ops/smoke.sh — a smoke run of the runner over a task set, with three kill
+# points. It drives the runner over ssh on the deployment host, so the runs,
+# the VMs, the sensors and the ledger are all there, and it runs the one
+# check that needs a chat session on this machine.
 #
-# Run from the hub: every runner command goes to the runner host over ssh
-# (so the runs, the VMs, the sensors and the ledger are all there), and the
-# one check that needs a chat session runs here, because that is where
-# bouncer is.
+#   ops/smoke.sh --tasks <comma list> --chain <step1>,<step2>
+#                [--task <one task>] [--bench <bench checkout>]
 #
-#   ops/smoke.sh [--bench <bench checkout on this machine>]
-#
-# Words used below. A *shift* is one launch of the runner over a list of
-# tasks, named by a shift id. A *run* is one task on one tier inside a
-# shift. An *arm* is one way of solving a task: the runner's pipeline, or
-# one chat session. The *work org* is the git organisation the task
-# repositories are created in. A *trail* is the audit record bouncer keeps
-# for a session.
+# The task list has no default: point the suite at the task set it should
+# cover. This repository ships only two example tasks, which are not enough
+# for the chained and kill-point checks.
 #
 # Each check prints one PASS or FAIL line with its evidence; the exit code
 # is 0 only if every check passed. Nothing here measures a model: a check
@@ -24,26 +20,32 @@ HERE=$(cd "$(dirname "$0")/.." && pwd)
 RUNNER_HOST=${DARK_RUNNER_HOST:-localhost}   # example host; set DARK_RUNNER_HOST
 RUNNER_DIR=${DARK_RUNNER_DIR:-$HOME/dark-runner}   # runner checkout on the deployment host
 WORK_ORG=${DARK_SMOKE_WORK_ORG:-dark-runs}
-LOCAL_TIER=${DARK_SMOKE_LOCAL_TIER:-my/qwen-3.5-9b-nonthink}
+LOCAL_TIER=${DARK_SMOKE_LOCAL_TIER:-example-small}
 CLOUD_TIER=${DARK_SMOKE_CLOUD_TIER:-deepseek-v4-flash:cloud}
 TASK=${DARK_SMOKE_TASK:-hello-python}
-# checks 4 and 5 need step 1 to pass, so they use a pair any tier passes:
-# what they report is the machinery, not the model (obs-01-parse failed on
-# the cheap cloud tier on the first smoke run and took both checks with it)
-STEP1=${DARK_SMOKE_STEP1:-smoke-chain-a}
-STEP2=${DARK_SMOKE_STEP2:-smoke-chain-b}
+# checks 4 and 5 need step 1 to pass, so they use a pair that any tier can
+# pass: what they report is the machinery, not the model
+STEP1=${DARK_SMOKE_STEP1:-}
+STEP2=${DARK_SMOKE_STEP2:-}
 SESSION_ARM=${DARK_SMOKE_ARM:-session-dsf}
-BENCH=${DARK_BENCH_HUB:-}
-CHAIN_TASKS=${DARK_SMOKE_CHAIN:-obs-01-parse,obs-02-count,obs-03-package,obs-04-tzfix,obs-05-report,obs-06-typehints,smoke-chain-a,smoke-chain-b}
+BENCH=${DARK_SMOKE_BENCH:-}
+CHAIN_TASKS=${DARK_SMOKE_TASKS:-}
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT=${DARK_SMOKE_OUT:-/tmp/dark-smoke-$STAMP}
 mkdir -p "$OUT"
 while [ $# -gt 0 ]; do
   case "$1" in
     --bench) BENCH=$2; shift 2;;
+    --tasks) CHAIN_TASKS=$2; shift 2;;
+    --chain) IFS=, read -r STEP1 STEP2 <<< "$2"; shift 2;;
+    --task) TASK=$2; shift 2;;
     *) echo "unknown argument: $1" >&2; exit 2;;
   esac
 done
+if [ -z "$CHAIN_TASKS" ] || [ -z "$STEP1" ] || [ -z "$STEP2" ]; then
+  echo "usage: ops/smoke.sh --tasks <comma list> --chain <step1>,<step2> [--task <one task>] [--bench <dir>]" >&2
+  exit 2
+fi
 
 PASSED=0; FAILED=0
 say() { printf '%s\n' "$*" | tee -a "$OUT/smoke.log"; }
@@ -67,13 +69,10 @@ say "== tiers: local $LOCAL_TIER, cloud $CLOUD_TIER; tasks $TASK, $STEP1 -> $STE
 # (first, because the checks below create repositories in it)
 # --------------------------------------------------------------------------
 # strict: the org must be empty, full stop. Exempting this round's own task
-# names lets a go-launch push into last round's repositories, so strict is
-# the default whenever the round runs the obs chain (a real launch);
-# DARK_SMOKE_STRICT_ORG=1 or =0 says so outright.
-STRICT_ORG=${DARK_SMOKE_STRICT_ORG:-auto}
-if [ "$STRICT_ORG" = auto ]; then
-  case "$TASK" in obs-*) STRICT_ORG=1;; *) STRICT_ORG=0;; esac
-fi
+# names lets a launch push into last round's repositories, so strict=0
+# exempts only the tasks this round is about; DARK_SMOKE_STRICT_ORG=1 says
+# the org must be empty outright.
+STRICT_ORG=${DARK_SMOKE_STRICT_ORG:-0}
 ROUND_TASKS=" $TASK $STEP1 $STEP2 "
 LEFTOVER=""
 REPOS=$(on_runner "python3 -m dark archive-work --src $WORK_ORG" 2>&1 | sed -n 's|^ *'"$WORK_ORG"'/\([^ ]*\) ->.*|\1|p')
@@ -142,9 +141,7 @@ metered() {  # metered <name> <tier> <think>
   chars=$(printf '%s' "$rec" | fld reasoning_chars); outcome=$(printf '%s' "$rec" | fld outcome)
   alive=$(printf '%s' "$rec" | fld asserts.sensors_alive); vms=$(printf '%s' "$rec" | fld asserts.vms_destroyed)
   # a capability failure is the model's and leaves the meter intact; a
-  # structural one is the instrument's and is what this check exists to
-  # catch (the first round printed PASS on the push death that motivated
-  # the work-org team check)
+  # structural one is the instrument's and is what this check exists to catch
   if [ "$outcome" = "fail:structural" ] || [ "$outcome" = "abort" ]; then
     no "3 metered $name" "$outcome on $tier ($(printf '%s' "$rec" | fld reason)): the run never reached or never left the model; see $OUT/metered-$name.txt"
   elif [ -n "$wh" ] && [ -n "$think_at" ] && [ -n "$chars" ] && [ "$alive" = "True" ] && [ "$vms" = "True" ]; then
@@ -159,10 +156,9 @@ metered cloud "$CLOUD_TIER" low
 # --------------------------------------------------------------------------
 # resuming a shift that was broken on purpose
 # --------------------------------------------------------------------------
-# --resume names the shift and nothing else: the runner repeats the launch
-# it recorded. Naming the tasks and tier here is what made every resumed
-# kill-point run of the first two rounds run at think=low against a
-# think=none launch.
+# --resume names the shift and nothing else: the runner repeats the launch it
+# recorded, so a resumed kill-point run keeps the think level and tier the
+# original launch used.
 resume_shift() {  # resume_shift <label for the log> <shift>
   on_runner "python3 -m dark shift --resume $2 --no-push" >"$OUT/resume-$1.txt" 2>&1
 }
@@ -249,7 +245,7 @@ kill_point mid-judging staging 3
 # 6. one session step judged through the arm script, with its trail count
 # --------------------------------------------------------------------------
 if [ -z "$BENCH" ] || [ ! -x "$BENCH/tools/arm.sh" ]; then
-  no "6 session arm" "no bench checkout on this machine (--bench <dir>); the arm script needs bouncer, which lives here"
+  no "6 session arm" "no bench checkout on this machine (--bench <dir>); the arm script is in the bench checkout"
 else
   ARM_SHIFT="$STAMP-smoke-arm"
   ( cd "$BENCH" && DARK_ORG=$WORK_ORG DARK_WORK_ORG=$WORK_ORG DARK_RUNNER_HOST=$RUNNER_HOST \

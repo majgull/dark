@@ -74,12 +74,12 @@ def main():
             f"{len(starts)} run.start against {len(ends)} run.end: an interrupted run leaves a start alone")
 
     # 1b. the round covers its task list
-    # a step can fail before it reaches the ledger at all: Gitea answering
-    # `500 database is locked` on materialize did it twice tonight, and the
-    # step left no run.start and no run.end. A round two tasks short then
-    # looks whole to every check that compares one ledger row against
-    # another. The list comes from the shift's own launch record; a session
-    # round writes no shift.start, so there --tasks has to say it.
+    # a step can fail before it reaches the ledger at all (for example Gitea
+    # answering `500 database is locked` on materialize), and then it leaves
+    # no run.start and no run.end. A round two tasks short then looks whole
+    # to every check that compares one ledger row against another. The list
+    # comes from the shift's own launch record; a session round writes no
+    # shift.start, so there --tasks has to say it.
     tasks = None
     for s_ev in led.events("shift.start"):
         if s_ev.get("shift") == args.shift:
@@ -185,11 +185,9 @@ def main():
     # a factory-mode row is metered only when its model ran on hardware this
     # host reads, which the runner marks with watts_class (dark/run.py sets it
     # for local tiers only). A cloud tier's model runs outside the meter, so
-    # its rows carry no Wh to publish (docs/950-research.md: cloud rows never
-    # carry Wh) and the GPU sensor is not required to be alive for them: the
-    # model VM sleeps when no local model is asked, and 2026-09-05's RQ2 smoke
-    # pair had every cloud row flagged MISMATCH for a sensor that had nothing
-    # to measure.
+    # its rows carry no Wh to publish and the GPU sensor is not required to be
+    # alive for them: the model VM sleeps when no local model is asked, so a
+    # cloud row has nothing to measure.
     factory = [r for r in live if modes.get(r.get("arm"), "factory") != "session"]
     metered = [r for r in factory if r.get("watts_class")]
     cloudrows = [r for r in factory if not r.get("watts_class")]

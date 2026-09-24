@@ -109,7 +109,7 @@ class ShiftFlow(_Flow):
         self.assertEqual(self.kinds("escalate"), [])
 
     def test_budget_escalates_once_then_parks(self):
-        # decision 10: a run's budget failure escalates like a capability one;
+        # a run's budget failure escalates like a capability one;
         # the task parks only when the escalation fails on budget too
         sh = self.make({("add-1", "local-a"): ("fail:budget", "seconds"),
                         ("add-1", "local-b"): ("fail:budget", "reasoning")})
@@ -195,7 +195,7 @@ class ShiftFlow(_Flow):
 
 
 class Chain(_Flow):
-    """Decision 17: a follower starts from the delivered tree of a pass in
+    """A follower starts from the delivered tree of a pass in
     this shift, else from the oracle; the base is in the ledger."""
 
     def setUp(self):
@@ -234,7 +234,8 @@ class Chain(_Flow):
         self.assertEqual(self.led.last("run.end")["base"], "oracle")
 
     def test_chain_base_is_recorded_once_after_the_base_is_in_place(self):
-        # review 2.3 (twice on escalation) and 2.5 (no repo on the record)
+        # exactly one chain.base, written after the base is in place, with the
+        # repo on the record
         sh = self.make({("obs-02", "local-a"): ("fail:capability", None)})
         sh.run(self.chain)
         self.assertEqual([t for t, _ in sh.calls], ["obs-01", "obs-02", "obs-02"])
@@ -243,7 +244,8 @@ class Chain(_Flow):
         self.assertEqual((ev[0]["task"], ev[0]["base"], ev[0]["repo"]), ("obs-02", "delivered", "dark/t-obs-01"))
 
     def test_no_chain_base_for_a_step_that_never_ran_and_an_oserror_blocks_only_that_task(self):
-        # review 2.2 and 1.2 / 3.1: chain.base came before the work; an OSError killed the shift
+        # chain.base must come after the work; an OSError blocks only its own
+        # task
         sh = self.make({})
 
         def bad(task, base=("none", None)):
@@ -265,9 +267,8 @@ class Chain(_Flow):
 
 class ArchivedWorkRepo(_Flow):
     """After `dark archive-work` the old path is a redirect, and the API
-    answers on it. The runner read that as "the repo is there", pushed the
-    starting tree into the archived copy, and every task of the next round
-    was blocked with a 403 (2026-09-03)."""
+    answers on it; the runner must not read that as "the repo is there" and
+    push the starting tree into the archived copy."""
 
     def task_for(self, tid):
         from dark import tasks

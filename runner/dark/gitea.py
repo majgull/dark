@@ -80,10 +80,7 @@ class Gitea:
 
         The executor VM pushes its run branch with the agent token, and the
         work repos are created per run, so without such a team every run of
-        a fresh work org gets through the model call and dies on the push.
-        That is what happened on the first smoke run against the new
-        `dark-runs` org (2026-09-03): "User permission denied for writing"
-        after a green verify."""
+        a fresh work org gets through the model call and dies on the push."""
         try:
             teams = self.api(f"/orgs/{org}/teams")
         except GiteaError as e:
@@ -118,12 +115,12 @@ class Gitea:
         """(ok, why): is `full` a live repository of that org right now?
 
         Not the same question as "does the API answer on this path". A repo
-        moved out by `dark archive-work` leaves a redirect behind, the API
-        follows it, and the runner read that as "the repo is there": the next
-        round materialized nothing and pushed into the archived copy, so
-        every task was blocked with a 403 (2026-09-03). `why` is missing,
-        moved, or archived; creating over a redirect is allowed and drops
-        it, creating over an archived repo of the same name is not."""
+        moved out by `dark archive-work` leaves a redirect behind and the API
+        follows it, so "the API answered" is not "the repo is here": the
+        runner would then push into the archived copy and every task would be
+        blocked with a 403. `why` is missing, moved, or archived; creating
+        over a redirect is allowed and drops it, creating over an archived
+        repo of the same name is not."""
         try:
             r = self.api(f"/repos/{full}")
         except GiteaError as e:

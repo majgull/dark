@@ -1,8 +1,8 @@
-"""dark/vm.py — throwaway Proxmox VMs over ssh (v1's proven mechanics).
+"""dark/vm.py - throwaway Proxmox VMs over ssh.
 
 One VM per executor run and one per staging run, cloned from the template,
 configured by a cloud-init snippet that carries the task and the injected
-script, fenced by the `agentfw` egress group (the service host only), and
+script, fenced by a firewall rule that allows the service host only, and
 destroyed with --purge afterwards. Every ssh call is bounded; a reap that
 leaves the VM behind is reported, never assumed.
 """
@@ -38,13 +38,11 @@ def user_data(hostname, files, runcmd):
     """A #cloud-config document: `files` is {path: (content, mode)}."""
     ind = lambda s: textwrap.indent(s, "      ")  # noqa: E731
     # Every clone of the template boots with the template's /etc/machine-id,
-    # and systemd-networkd derives its DHCP identifier from it: on
-    # 2026-09-02 three executor VMs (9500, 9501, 9503, distinct MACs) all
-    # held 192.0.2.199 at once, and every "client gone", connect timeout
-    # and "staging VM never reported" of the day was that conflict. A fresh
-    # machine-id before networking (bootcmd runs in cloud-init's local
-    # stage) plus dhcp-identifier: mac in the network config (spawn) make
-    # the lease per VM.
+    # and systemd-networkd derives its DHCP identifier from it, so VMs with
+    # distinct MACs can still collide on one address. A fresh machine-id
+    # before networking (bootcmd runs in cloud-init's local stage) plus
+    # dhcp-identifier: mac in the network config (spawn) make the lease
+    # per VM.
     out = ["#cloud-config", f"hostname: {hostname}", "manage_etc_hosts: true",
            "bootcmd:",
            "  - [sh, -c, \"rm -f /etc/machine-id /var/lib/dbus/machine-id && systemd-machine-id-setup\"]",
@@ -115,10 +113,8 @@ class Proxmox:
     @staticmethod
     def mac_for(vmid):
         """A fixed MAC per VM id. `qm clone` invents a MAC per clone, and with
-        the MAC as DHCP identifier every boot took a fresh lease (about 140
-        in the first two hours of bench rounds on 2026-09-02, 120 dark
-        neighbours in cpu-host's table); at 15:12 and 15:37 two VMs in a row
-        booted and never held an address. One lease per VM id instead."""
+        the MAC as DHCP identifier every boot takes a fresh lease, so the
+        table fills with stale addresses. One lease per VM id instead."""
         return f"BC:24:11:DA:{vmid >> 8 & 0xFF:02X}:{vmid & 0xFF:02X}"
 
     def net0_for(self, vmid):

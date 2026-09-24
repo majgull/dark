@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # verify.sh — the one gate for dark/runner: tests, config validation, and no
 # binaries in the tree. The agent-side VM never runs this file (the runner is
-# not a factory workload); CI and the hub do.
+# not a factory workload); CI does.
 set -euo pipefail
 cd "$(dirname "$0")"
 echo "== tests"

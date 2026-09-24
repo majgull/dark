@@ -1,8 +1,7 @@
-"""dark/digest.py — the one report per shift, generated from the ledger
-(design §6; operator: short push plus link). Runs by class and tier, pass
-rates, window and watts consumed and left, the admission table, what was
-parked or blocked. Committed into the bench checkout; one ntfy line with
-the link.
+"""dark/digest.py - the one report per shift, generated from the ledger.
+Runs by class and tier, pass rates, window and watts consumed and left, the
+admission table, what was parked or blocked. Committed into the bench
+checkout; one ntfy line with the link.
 """
 
 import os
@@ -32,9 +31,9 @@ def render(ledger, catalog, budgets, shift_id, now):
     if refused:
         lines += [f"**Refused:** {refused[-1]['detail']}", ""]
 
-    # think: the level the run ran at (default = the provider's own); reasoning:
-    # measured characters, the only statement about thinking that is a fact
-    # (bench probes/: glm's "low" is 22 chars); Wh: measured, n/a = not metered
+    # think: the level the run ran at (default = the provider's own);
+    # reasoning: measured characters, the only statement about thinking that is
+    # a fact; Wh: measured, n/a = not metered
     lines += ["## Runs this shift", "", "| task | class | tier | outcome | kind | calls (distinct) | tokens in/out | reasoning | seconds | wall | checks | think | Wh |",
               "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     nm = lambda v: "n/a" if v is None else v  # noqa: E731 — NOT MEASURED, never an estimate

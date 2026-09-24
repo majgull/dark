@@ -44,7 +44,7 @@ class States(unittest.TestCase):
         self.assertFalse(spec.transition_ok("pass", "executing"))
 
     def test_structural_never_escalates(self):
-        self.assertEqual(spec.ESCALATES, {"fail:capability", "fail:budget"})  # decision 10
+        self.assertEqual(spec.ESCALATES, {"fail:capability", "fail:budget"})
         self.assertNotIn("fail:structural", spec.ESCALATES)
 
 

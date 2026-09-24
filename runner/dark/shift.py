@@ -1,5 +1,4 @@
-"""dark/shift.py — one shift: preflight, admission, runs, digest
-(design §5, §6).
+"""dark/shift.py - one shift: preflight, admission, runs, digest.
 
 For each task: the cheapest admitted tier whose window or watts are open
 takes one run inside the class envelope. fail:capability escalates once
@@ -20,9 +19,8 @@ from .run import Runner
 
 # --- the launch a resumed shift repeats ---------------------------------------
 # The arguments a shift was launched with. They are recorded in shift.start
-# so that `--resume` continues the same round: the first resume smoke
-# (2026-09-03) re-ran its kill-point tasks at think=low because the
-# command line that resumed a think=none launch simply did not say --think.
+# so that `--resume` continues the same round: a resuming command line that
+# leaves out an option would otherwise silently change the run's limits.
 LAUNCH_KEYS = ("tasks", "task_dir", "tier", "think", "arm", "slot", "work_org",
                # a comparison set is one limit and one adaptation setting: a resume
                # that quietly dropped either would put two regimes under one shift id
@@ -81,9 +79,8 @@ class Shift:
         self.sleep = sleep
         self.log = log
         self.arm = arm
-        # seconds and the arm: two shifts launched in the same minute (the
-        # 35B round and the variance subset, 13:46) shared an id and their
-        # events merged in each other's digest
+        # seconds and the arm: two shifts launched in the same minute must not
+        # share an id
         # --resume reuses the id of the shift that broke, so its runs, its
         # digest and this attempt's runs are one shift in the ledger
         self.id = resume or (time.strftime("%Y%m%d-%H%M%S", time.localtime(clock())) + f"-{arm}")
@@ -105,7 +102,7 @@ class Shift:
         self.blocked = []
         self._based = set()  # tasks whose chain.base this shift has recorded (once, after the base is in place)
 
-    # --- resume (decision 26) ---------------------------------------------------
+    # --- resume -------------------------------------------------------------
     def load_prior(self):
         """The run.end records this shift id already holds, voided ones left
         out. A task with a pass among them is not run again, and a chained
@@ -139,7 +136,7 @@ class Shift:
         return not line, line
 
     def chain_base(self, task):
-        """Where a chained task starts (decision 17): ("delivered", branch)
+        """Where a chained task starts: ("delivered", branch)
         when the step it follows passed in this shift, ("oracle", None) when
         that step failed or did not run here, ("none", None) for a task that
         follows nothing."""
@@ -191,7 +188,7 @@ class Shift:
                      + (f" ({base[1]})" if base[1] else ""))
         try:
             self.ensure_repo(task, base)
-        except (tasks.TaskError, G.GiteaError, OSError) as e:  # OSError: a git cwd gone, a clone's file (review 1.2, 3.1)
+        except (tasks.TaskError, G.GiteaError, OSError) as e:  # OSError: a git cwd gone, a clone's file
             self.ledger.emit("block", task=task.id, reason=f"materialize: {e}", shift=self.id)
             self.blocked.append((task.id, f"materialize: {e}"))
             self.log(f"{task.id}: blocked: materialize: {e}")
@@ -209,7 +206,7 @@ class Shift:
         self.log(f"{task.id}: run on {tier} ({env.basis} envelope: {env.calls} calls, {env.seconds}s"
                  + (f", think {lvl}" if lvl else "") + ")")
         # slot: two shifts at once (a local tier's round and a cloud tier's)
-        # need distinct VM ids; the session arms use slots 1 and 2 from the hub
+        # need distinct VM ids; a session arm uses its own slot
         res = self.runner.run(task, tier, env, slot=getattr(self, "slot", 0), think=lvl,
                               base=base[0] if task.after else None)
         self.results.append(res)
@@ -269,7 +266,7 @@ class Shift:
             cooling = () if self.no_adapt else admission.cooling(self.ledger, self.clock())
             adm_rows = [] if tier else admission.rows(self.budgets, self.catalog, self.ledger, task.cls, think=self.think)
             adm = [tier] if tier else [r.tier for r in adm_rows if r.admitted]
-            rates = {r.tier: r.rate for r in adm_rows}  # decision 20: the retry goes to the best open tier
+            rates = {r.tier: r.rate for r in adm_rows}  # the retry goes to the best open tier
 
             def env_for(t, cls=task.cls):  # the (class, tier) pair's own envelope, at the level it runs at
                 if self.frozen and self.frozen.has(cls):

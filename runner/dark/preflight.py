@@ -1,13 +1,11 @@
-"""dark/preflight.py — refuse the shift with one line on any miss
-(design §6). Every configured model id served, tokens valid, Gitea and
+"""dark/preflight.py - refuse the shift with one line on any miss.
+Every configured model id served, tokens valid, Gitea and
 the org reachable, ledger writable, templates present, Proxmox reachable
 (waking it through the gate if it sleeps) and the VM template present.
 Windows and watts are reported, never refused on: which of them a shift
 needs depends on the tiers its tasks land on, and the shift already parks
-a task whose class has no open tier. The second pilot shift (local tiers
-only) was refused for a claude window the session arms had spent, and its
-cloud arm behind it for the same reason. Cheap local checks run first,
-the wake last.
+a task whose class has no open tier. Cheap local checks run first, the
+wake last.
 """
 
 import os
@@ -83,7 +81,7 @@ class Preflight:
                 add("org", exists, f"org {o!r}" + ("" if exists else " missing (ops/gitea-bootstrap.sh)"))
                 if exists:
                     # the org existing is not the same as the agent being able
-                    # to push into it (dark-runs, 2026-09-03)
+                    # to push into it
                     add(f"org {o} writable", *self.gitea.write_team(o, self.host.agent_user))
         except G.GiteaError as e:
             add("gitea", False, str(e))
@@ -116,7 +114,7 @@ class Preflight:
             add(f"admission {cls}", bool(adm), ", ".join(adm) if adm else "no admitted tier")
         if not need_vm:
             return out
-        # 8. proxmox reachable, waking the compute plane through the gate if needed
+        # 8. proxmox reachable, waking the local-model host through the gate if needed
         up = self.px.reachable()
         if not up:
             up = self.wake()
@@ -128,11 +126,10 @@ class Preflight:
 
     def wake(self):
         """A real chat request to the cheapest local tier of a provider with
-        wake = true: the gate WOL-wakes the compute plane on it. Returns the
+        wake = true: the gate wake-on-LANs the local-model host on it. Returns the
         new reachability. A shift does this in preflight; `dark stage` does
         it on its own, since a session arm's staging can come hours after
-        the last shift (2026-09-03 16:48: 24 stagings against a host the
-        gate had put to sleep, every one "no route to host")."""
+        the last shift, when the gate may have put the host to sleep."""
         wakers = [p for p in self.catalog.providers.values() if p.wake]
         if not wakers:
             return False

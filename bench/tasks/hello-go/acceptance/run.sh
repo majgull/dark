@@ -1,5 +1,5 @@
 #!/bin/bash
-# hidden acceptance for hello-go; runs at the repo root in the staging VM
+# hidden acceptance for hello-go; runs at the repo root in the fresh judging VM
 export HOME="${HOME:-/root}" GOCACHE="${GOCACHE:-/root/.cache/go-build}" GOPATH="${GOPATH:-/root/go}"
 export PATH="$PATH:/usr/local/go/bin"
 fail=0

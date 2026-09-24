@@ -7,12 +7,9 @@
 # <state> is executing | verifying | staging, or pass:<task-id> to break as
 # soon as that task of the shift has delivered.
 #
-# The smoke suite first drove this from the hub: launch over one ssh, read
-# the shift id over another, start the watcher over a third. Each round trip
-# is seconds and the run it was trying to interrupt is about a minute, so
-# the watcher arrived after the run had already ended and every kill point
-# reported nothing. Here the launch, the id and the watcher are one process
-# on the machine the shift runs on.
+# Launch, id and watcher must be one process on the machine the shift runs
+# on: over separate connections the round trip is longer than the run being
+# interrupted, and the watcher arrives after it has already ended.
 #
 # Prints "SHIFT <id>" and then ops/kill_at.py's one JSON line. Exits with
 # kill_at's status: 0 only if the point was reached and the process killed.

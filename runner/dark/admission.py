@@ -1,15 +1,15 @@
 """dark/admission.py — which tiers may run which class, derived from the
-ledger, never typed (design §5).
+ledger, never typed.
 
 A (class, tier) pair with at least min_runs runs is admitted iff its pass
 rate over the last last_runs runs is at or above the class's admit_at.
 With fewer runs it is admitted provisionally iff the class's provisional
 list names it. Order: measured tiers first, cheapest by cost_order, then
-provisional tiers in the list's order (operator's seed policy is the pick
-until data replaces it). The pick is the first admitted tier that is not
-cooling and whose window or watts are open; escalation is one extra run
-on the open admitted tier with the best measured rate (decision 20), only
-on the outcomes spec.ESCALATES names. There is no ladder.
+provisional tiers in the list's order (the configured provisional order is
+the pick until data replaces it). The pick is the first admitted tier that
+is not cooling and whose window or watts are open; escalation is one extra
+run on the open admitted tier with the best measured rate, only on the
+outcomes spec.ESCALATES names. There is no ladder.
 """
 
 from dataclasses import dataclass
@@ -35,7 +35,7 @@ def rows(budgets, catalog, ledger, cls, think=None):
     runs at the level the class runs at (`think` overrides it, as a shift's
     --think does; a tier with no level anywhere is judged on all its runs);
     a record from before the levels existed counts as "none" for a tier
-    that does not think and as no level for one that does (decision 14)."""
+    that does not think and as no level for one that does."""
     cb = budgets.cls(cls)
     out = []
     for m in catalog.models.values():
@@ -102,10 +102,8 @@ def pick(admitted_tiers, exclude=(), cooling_tiers=None, is_open=None):
 def escalation(admitted_tiers, from_tier, exclude=(), cooling_tiers=None, is_open=None, rates=None):
     """The tier for the single escalation run after `from_tier`. With
     `rates` ({tier: pass rate or None}) it is the open admitted tier with
-    the best measured rate, ties by admitted order (decision 20, 2026-09-03:
-    the next-in-order rule could never reach a strictly better tier when the
-    tiers ahead of it tied). Without rates, the next admitted tier that is
-    open. One extra run either way, never a ladder."""
+    the best measured rate, ties by admitted order. Without rates, the next
+    admitted tier that is open. One extra run either way, never a ladder."""
     if from_tier not in admitted_tiers:
         return None
     if rates is None:

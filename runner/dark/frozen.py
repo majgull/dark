@@ -2,10 +2,9 @@
 
 A comparison set is a group of rounds whose counts are meant to be read
 against each other. The soft envelope is computed from the ledger's own
-recent passes, and the ledger grows while the rounds run: on 2026-09-04 one
-tier ran its first round cut off at 900 seconds and its third at 450, and
-the difference arrived as three budget failures that looked like the model
-getting worse. A frozen file takes the limit out of the ledger. It names
+recent passes, and the ledger grows while the rounds run, so rounds of the
+same set can be cut off at different limits and read as the model getting
+worse. A frozen file takes the limit out of the ledger. It names
 calls, seconds, reasoning characters and think level per class; the runner
 reads it instead of computing; and every `run.start` records the set name,
 the file name and the SHA-256 of the file's bytes, so a table can say which
@@ -13,7 +12,7 @@ rounds shared a limit and a reader can check that they did.
 
 File format (TOML):
 
-    set = "rq2-dsf"
+    set = "example-set"
     note = "why this set exists"          # optional
 
     [class.additive]

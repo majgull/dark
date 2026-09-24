@@ -1,16 +1,37 @@
-# dark/runner — the factory v2 runner
+# dark/runner
 
-A task with a class, a spec and hidden acceptance tests goes through preflight, execute (throwaway VM), verify, push, stage (a fresh VM runs the hidden tests) and ends as exactly one outcome in a JSONL ledger. Every bound is data; which tier may run which class is derived from the ledger. Design: hub `docs/949-v2-design.md`; why: `docs/949-factory-v2-bootstrap.md`.
+The runner drives one task at a time through a fixed pipeline and records a
+single outcome for every attempt. A task with a class, a spec and hidden
+acceptance tests goes through preflight, execution (a throwaway VM),
+verification, a push, and staging (a fresh VM runs the hidden tests); the run
+ends as exactly one outcome in an append-only JSONL ledger. Every bound is
+data, and which tier may run which class is derived from the ledger. Terms are
+defined once in `../docs/concepts.md`.
+
+## What it needs
+
+- Python 3 and a checkout of this directory.
+- `models.toml`, `budgets.toml` and `host.toml`: the provider catalog, the
+  caps, and where things are on the deployment host (Gitea URLs, token files,
+  the VM host, the checkouts). Every `host.toml` value is an example for one
+  local machine; replace it with your own.
+- A Gitea instance holding the code and work organisations, and a Proxmox host
+  holding the VM template the runs clone.
+
+## Run the tests
+
+`bash verify.sh` is the one gate: the unit tests, the config validation and
+the no-binaries check. It prints `verify OK` when all three pass.
 
 ## Files a human edits
 
 - `models.toml` the catalog: provider, cost (`local` = watts, `sub-window` = a daily window), speed, watts, roles. Every id is checked against the live provider at preflight.
 - `budgets.toml` the hard caps per class, headroom, admission thresholds, the provisional tier order, windows, watts, watchdog, shift size.
-- `host.toml` where things are on the runner host (Gitea URLs, token files, Proxmox, ntfy, checkouts). Env overrides are listed inline.
+- `host.toml` where things are on the deployment host (Gitea URLs, token files, the VM host, notifications, checkouts). Env overrides are listed inline.
 
 Nothing else carries a number. Measured values live in `~/.dark/ledger.jsonl` and the digest renders them.
 
-## Commands (on the runner host, from the runner checkout root)
+## Commands (on the deployment host, from the runner checkout root)
 
 ```
 python3 -m dark check-config
@@ -22,7 +43,7 @@ python3 -m dark digest [--shift <id>]
 python3 -m dark abort <run-id>|all
 ```
 
-Detached with an unbuffered log: `bash ops/shift.sh [shift args]` (prints the log path under `~/.dark/logs/`). Session arms (design §7b) are driven from the hub by `dark/bench` `tools/arm.sh`, which ends in `python3 -m dark stage ... --slot 1` here, so a session arm can be staged while a shift is running on slot 0.
+Detached with an unbuffered log: `bash ops/shift.sh [shift args]` (prints the log path under `~/.dark/logs/`). A session arm is driven by the bench's `tools/arm.sh`, which ends in `python3 -m dark stage ... --slot 1` here, so a session arm can be staged while a shift is running on slot 0.
 
 `shift` runs preflight, computes admission, runs every task on the first open admitted tier (the seed order in `budgets.toml` until a (class, tier) pair has `min_runs` of data, then measured pass rate and cost order), escalates once on `fail:capability`, blocks on `fail:structural`, parks on `fail:budget`, then commits the digest into the bench checkout and sends one ntfy line. `--tier` forces a tier for the bench: admission is skipped, envelopes and windows are not.
 
@@ -54,11 +75,11 @@ dark/run.py        one run through the state table; the watchdog
 dark/shift.py      a shift: preflight, admission, runs, digest
 dark/digest.py     the one report and the one ntfy line
 dark/tasks.py      task records, template + start overlay, force-pushed main, acceptance tarball
-dark/agent.py      the executor (injected into the VM); the reviewed v1 contract plus heartbeat
+dark/agent.py      the executor (injected into the VM) and its heartbeat
 dark/stager.py     the stager (injected into a fresh VM)
 dark/vm.py         Proxmox over ssh; dark/gitea.py the API; dark/llm.py the model client
-ops/               gitea-bootstrap, archive-v1, deploy, no-binaries
-tests/             143 tests; the executor and stager run as real subprocesses behind the runner
+ops/               gitea-bootstrap, deploy, shift, smoke, break-at, verify-round, no-binaries
+tests/             361 tests; the executor and stager run as real subprocesses behind the runner
 ```
 
 `bash verify.sh` is the gate: tests, config validation, no binaries.

@@ -107,8 +107,8 @@ class Queries(unittest.TestCase):
         rate, n = self.led.pass_rate("additive", "local-a", 3)  # the last three all failed
         self.assertEqual((rate, n), (0.0, 3))
         self.assertEqual(self.led.passes("additive", "local-a"), 3)
-        # decision 11: structural failures and aborts are not the model's and
-        # leave the denominator (a provider 502, a VM that would not start)
+        # structural failures and aborts are not the model's and leave the
+        # denominator (a provider 502, a VM that would not start)
         self.led.emit("run.end", **run_end(run="s1", outcome="fail:structural", fail_kind="llm"))
         self.led.emit("run.end", **run_end(run="s2", outcome="abort"))
         self.assertEqual(self.led.pass_rate("additive", "local-a", 20), (0.5, 6))

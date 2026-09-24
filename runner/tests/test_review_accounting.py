@@ -1,5 +1,7 @@
-"""Adversarial review, item 3 — accounting (dark/budget.py, dark/ledger.py,
-dark/admission.py)."""
+"""dark/budget.py, dark/ledger.py and dark/admission.py: the accounting rules
+for unreported spend, the validator share, the pass-rate window, cooldown and
+the soft-limit floor.
+"""
 
 import math
 import os
@@ -35,8 +37,8 @@ class UnreportedSpend(Base):
 
         end = self.led.last("run.end")
         self.assertEqual(end["calls"], 1, "the served call was recorded as zero")
-        # adjudicated (949): tokens the runner never saw stay NOT MEASURED (None);
-        # the window is charged the reservation per served call instead
+        # tokens the runner never saw stay NOT MEASURED (None); the window is
+        # charged the reservation per served call instead
         self.assertIsNone(end["tokens_in"])
         self.assertGreater(end["reserved_per_call"], 0)
 
@@ -48,9 +50,8 @@ class UnreportedSpend(Base):
 
 class ValidatorShare(unittest.TestCase):
     """"Validators may consume at most (1 - reserve_for_data_runs) of a
-    window." WindowState.open_for implements the share, but the only gate the
-    runner actually calls passes validator=False unconditionally
-    (dark/budget.py:162)."""
+    window." WindowState.open_for implements the share; the runner's tier
+    gate only evaluates it when the call site passes a role."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -70,9 +71,9 @@ class ValidatorShare(unittest.TestCase):
                 for i, line in enumerate(f, 1):
                     if "validator=" in line and "def " not in line:
                         callers.append(f"dark/{name}:{i}: {line.strip()}")
-        # adjudicated (949): the share is evaluated where the argument is not the
-        # literal False (tier_open computes it from the class and the role;
-        # review.py passes the role)
+        # the share is evaluated where the argument is not the literal False
+        # (tier_open computes it from the class and the role; review.py passes
+        # the role)
         self.assertTrue([c for c in callers if "validator=False" not in c],
                         "no module in dark/ ever evaluates the validator share; "
                         f"every call site is: {callers}")
@@ -93,7 +94,8 @@ class ValidatorShare(unittest.TestCase):
 
 
 class PassRateAndCooldown(unittest.TestCase):
-    """Evidence: the two accounting escapes the brief names that hold."""
+    """The last-N-runs window deadmits and readmits a tier; a cooldown lapses
+    on its own."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -133,16 +135,15 @@ class PassRateAndCooldown(unittest.TestCase):
         self.assertEqual(env.max_reasoning_chars, self.bud.cls("additive").hard.max_reasoning_chars)
 
     def test_a_single_near_zero_reasoning_pass_collapses_the_class_cap(self):
-        """Characterisation, not a finding: the formula is the design's, but
-        _soft's p95 <= 0 guard is a point test, so one pass reporting 4
-        reasoning chars takes the whole class from 20000 to 6."""
+        """Characterisation: the formula is the runner's, but _soft's p95 <= 0
+        guard is a point test, so one pass reporting 4 reasoning chars takes
+        the whole class from 20000 to 6."""
         for i in range(self.bud.min_runs - 1):
             self.led.emit("run.end", **run_end(run=f"z{i}", reasoning_chars=0))
         self.led.emit("run.end", **run_end(run="tiny", reasoning_chars=4))
         env = budget.envelope(self.bud, self.led, "additive")
-        # adjudicated (949): every soft limit keeps a floor of half of hard (the
-        # pilot showed the tenth was still a starvation cap for a thinking
-        # tier), and the soft limits are per (class, tier) pair in the shift
+        # every soft limit keeps a floor of half of hard, and the soft limits
+        # are per (class, tier) pair in the shift
         hard = self.bud.cls("additive").hard.max_reasoning_chars
         self.assertEqual(env.max_reasoning_chars, hard // 2)
         self.assertGreater(env.max_reasoning_chars, math.ceil(4 * (1 + self.bud.cls("additive").headroom)))

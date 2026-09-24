@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# gitea-bootstrap — birth an org on the factory Gitea. Idempotent.
-# Run ON the runner host (it reads the admin token there; the hub never does):
+# gitea-bootstrap — create an org on Gitea. Idempotent.
+# Run on the deployment host, which is where the admin token file is:
 #   bash ops/gitea-bootstrap.sh [gitea-url]
 #   bash ops/gitea-bootstrap.sh --work-org <name> [gitea-url]
 # Creates: the org, the repos runner/bench/templates (trunk main), and an
@@ -8,10 +8,9 @@
 # executor user, so the agent token can push run branches.
 #
 # --work-org makes the org a run's work organisation instead: the org and
-# the team, no code repos. The team is the part that matters and the part
-# that was missed when dark-runs was created by hand: the org existed, and
-# every run reached its push and was refused ("User permission denied for
-# writing"), which preflight now checks for before a shift starts.
+# the team, no code repos. The `agents` team is what lets the agent token
+# push run branches, and preflight checks that write access before a shift
+# starts, because a run whose push is refused cannot deliver.
 set -euo pipefail
 WORK_ONLY=0
 if [ "${1:-}" = "--work-org" ]; then WORK_ONLY=1; DARK_ORG=${2:?--work-org needs a name}; shift 2; fi
@@ -35,7 +34,7 @@ say "gitea $URL as $(python3 -c 'import json,sys; print(json.load(open(sys.argv[
 
 code=$(api GET "/orgs/$ORG")
 if [ "$code" = 404 ]; then
-  code=$(api POST /orgs "{\"username\":\"$ORG\",\"visibility\":\"public\",\"description\":\"factory v2 (hub 949): runner, bench, templates\"}")
+  code=$(api POST /orgs "{\"username\":\"$ORG\",\"visibility\":\"public\",\"description\":\"dark: runner, bench, templates\"}")
   [ "$code" = 201 ] || { echo "org create failed ($code): $(cat "$OUT")" >&2; exit 1; }
   say "org $ORG created"
 else

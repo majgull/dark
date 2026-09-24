@@ -40,7 +40,7 @@ def check(path):
     if not os.path.isfile(os.path.join(path, "acceptance", "run.sh")):
         problems.append(f"{tid}: acceptance/run.sh missing")
     after = d.get("after")
-    if after is not None:  # chains (decision 17): id order is chain order
+    if after is not None:  # chains: id order is chain order
         if not isinstance(after, str) or not after < tid:
             problems.append(f"{tid}: after {after!r} must be a task id that sorts before {tid!r}")
         elif not os.path.isfile(os.path.join(os.path.dirname(path), after, "task.toml")):

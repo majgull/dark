@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# chain.sh — run a chain of follow-up steps through one SESSION arm (decision 18).
+# chain.sh — run a chain of follow-up steps through one session arm.
 #
 #   tools/chain.sh <arm> <task-id> [<task-id> ...]
 #   DARK_CHAIN_SHIFT=<shift id> tools/chain.sh <arm> <task-id>...   # resume
@@ -8,11 +8,11 @@
 # hands its pushed branch to the next step (DARK_AFTER_BRANCH: the runner
 # materialises the next repo from it, git log included); a step that failed
 # hands nothing, and the next step starts from the failed step's oracle
-# tree (decision 19: a failure does not stop the chain, every step is
+# tree (a failure does not stop the chain; every step is
 # measured). The session's continuity is the repository, never a
 # conversation: each step is a fresh session in the checkout.
 #
-# Resume (L0): the chain is identified by its shift id, printed at the start
+# Resume: the chain is identified by its shift id, printed at the start
 # and again at the end. Relaunching with DARK_CHAIN_SHIFT set to that id
 # continues the same chain: arm.sh asks the runner for each step's verdict
 # first and skips a step whose branch already passed, handing its delivered

@@ -35,7 +35,7 @@ def _ctx(args):
 
 def cmd_bench(args):
     """python3 -m dark bench <manifest.toml> [--phases ...] [--dry-run]
-    [--bench <path>] [--pause | --resume]: docs/950-bench-e2e.md. Part A
+    [--bench <path>] [--pause | --resume]. Part A
     builds the manifest, --dry-run, the run phase and pause/resume; every
     other phase prints NOT BUILT."""
     from . import bench as B
@@ -254,7 +254,7 @@ def cmd_materialize(args):
 
 
 def cmd_stage(args):
-    """Stage a branch a session arm pushed (design §7b): same hidden
+    """Stage a branch a session arm pushed: same hidden
     acceptance, same fresh VM, one run.end with arm=<arm>."""
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     try:
@@ -286,7 +286,7 @@ def cmd_stage(args):
 
 
 def cmd_review(args):
-    """Launch one session-arm run in review mode (design item 5b): a brief
+    """Launch one session-arm run in review mode: a brief
     and a set of files in, report.md out, pushed to the records repo beside
     the kept stream. No staging: outcome is delivered iff report.md landed."""
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
@@ -389,7 +389,7 @@ def cmd_done(args):
 
 def cmd_envelope(args):
     """The envelope one run of a task gets on a tier: the same calls and
-    seconds the pipeline caps a run at, so a session arm can run under the
+    seconds the default executor caps a run at, so a session arm can run under the
     same wall cap instead of none at all."""
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     try:
@@ -458,8 +458,8 @@ def cmd_digest(args):
 
 
 def cmd_void(args):
-    """Mark a run's outcome as the harness's fault: the record stays, every
-    rate skips it, the digest lists it."""
+    """Mark a run's outcome as the deployment's fault, not the model's: the
+    record stays, every rate skips it, the digest lists it."""
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     hit = [r for r in ledger.runs(include_void=True) if r["run"] == args.run]
     if not hit:
@@ -515,7 +515,7 @@ def main(argv=None):
                         "chars and think level are used instead of the ledger's, and its name and "
                         "sha256 land on every run.start")
     p.add_argument("--executor", choices=["agent", "session"], default=None,
-                   help="what runs inside the VM: 'agent' (the pipeline's protocol loop, the "
+                   help="what runs inside the VM: 'agent' (the default FILE:/DELETE: protocol loop, the "
                         "default) or 'session' (pi with its own tools, dark/session.py)")
     p.add_argument("--no-adapt", action="store_true", default=None,
                    help="admission, cooling and escalation off for this shift: the tier named by "
@@ -543,7 +543,7 @@ def main(argv=None):
     p.add_argument("--base", choices=["delivered", "oracle"],
                    help="what a chained step started from (required for a task with `after`)")
     p.add_argument("--after-branch", help="the predecessor's branch a delivered base was fetched from")
-    p.add_argument("--arm", required=True, help="e.g. session-dsf")
+    p.add_argument("--arm", required=True, help="e.g. session-a")
     p.add_argument("--tier", required=True, help="the model id the session used (must be in models.toml)")
     p.add_argument("--shift", help="ledger shift id to file the run under")
     p.add_argument("--slot", type=int, default=1, help="VM slot (staging VM = vmid_base + 50 + slot); a shift uses slot 0")
@@ -551,11 +551,11 @@ def main(argv=None):
                    help="the pinned envelope file the session was held to: recorded on this run's "
                         "run.start so both arms of a comparison set name the same limits")
     p.add_argument("--capped", action="store_true",
-                   help="the session was stopped at the pipeline's wall cap, it did not finish on its own")
+                   help="the session was stopped at the default executor's wall cap, it did not finish on its own")
     for k in ("calls", "tokens_in", "tokens_out", "reasoning_chars", "seconds"):
         p.add_argument(f"--{k.replace('_', '-')}", dest=k, type=int, default=None,
                        help="as exposed by the session's brain; omit = NOT MEASURED")
-    p = sub.add_parser("review", help="launch a session-arm review-mode run: a brief and files in, report.md out (design item 5b)")
+    p = sub.add_parser("review", help="launch a session-arm review-mode run: a brief and files in, report.md out")
     p.add_argument("--brief", required=True, help="markdown file: the review's instructions")
     p.add_argument("--files", default="", help="comma-separated file paths to stage read-only for the session")
     p.add_argument("--tier", required=True, help="the model id to use (must be in models.toml)")
@@ -581,7 +581,7 @@ def main(argv=None):
     p.add_argument("--tier", help="default: the catalog's validator tier")
     p.add_argument("--shift")
     p = sub.add_parser("bench", help="one manifest, five phases: bootstrap, smoke, run, report, archive")
-    p.add_argument("manifest", help="the experiment's TOML manifest (docs/950-bench-e2e.md)")
+    p.add_argument("manifest", help="the experiment's TOML manifest")
     p.add_argument("--phases", default="bootstrap,smoke,run,report,archive",
                    help="comma-separated phases to run (default: all five)")
     p.add_argument("--dry-run", action="store_true", help="print the plan; no network, works on any host")
@@ -592,7 +592,7 @@ def main(argv=None):
                         "(round, arm) already verified for this manifest's sha256")
     p = sub.add_parser("digest", help="render the digest for the last (or given) shift")
     p.add_argument("--shift")
-    p = sub.add_parser("void", help="exclude a run from every rate (harness fault); the record stays")
+    p = sub.add_parser("void", help="exclude a run from every rate (a fault in the runner or the deployment, not the model); the record stays")
     p.add_argument("run")
     p.add_argument("--reason", required=True)
     p = sub.add_parser("abort", help="ask the watcher to abort a run (or 'all')")

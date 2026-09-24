@@ -87,7 +87,7 @@ class Load(unittest.TestCase):
             tasks.load_tasks(self.tmp)
 
     def test_repo_prefix_names_an_arms_own_repos(self):
-        # a session arm beside a shift must not share dark/t-<id> (950)
+        # a session arm beside a shift must not share dark/t-<id>
         t = tasks.load_task(make_task(self.bench, "hello"))
         self.assertEqual(t.repo_name, "t-hello")
         old = tasks.REPO_PREFIX
@@ -129,8 +129,8 @@ class Trees(unittest.TestCase):
         self.assertEqual(names, {"./run.sh", "./fixture.txt"})
 
     def test_git_errors_never_carry_credentials(self):
-        # a failed materialize push put the admin token into a shift log, the
-        # ledger and (nearly) a committed digest on 2026-09-02
+        # git errors are redacted: the admin token must never reach a log,
+        # the ledger or a digest
         with self.assertRaises(tasks.TaskError) as cm:
             tasks._git("push", "http://dark-admin:0123456789abcdef0123456789abcdef01234567@127.0.0.1:9/dark/t.git",
                        "HEAD:main", cwd=self.tmp)
@@ -153,8 +153,8 @@ class Trees(unittest.TestCase):
 
 
 class Chains(unittest.TestCase):
-    """Decision 17 (950): a task that follows another starts from what that
-    task delivered, or from its oracle tree."""
+    """A task that follows another starts from what that task delivered, or
+    from its oracle tree."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -229,10 +229,10 @@ class Chains(unittest.TestCase):
         self.assertEqual(fakes.branch_files(repos, "dark/t-obs-03", "main"), {".dark/verify.sh", "x.txt"})
         self.assertEqual(fakes.git("rev-list", "--count", "main", cwd=os.path.join(repos, "dark/t-obs-03.git")).stdout.strip(), "2")
 
-    # --- the opus review of 2026-09-03 (hub reports/950-opus-review-runner-chains.md) ---
+    # --- a delivered tree is not trusted ------------------------------------
     def test_symlinks_are_refused_in_a_tree_and_on_a_delivered_branch(self):
-        # 1.1: a model-written branch could link to a runner-host file and
-        # _tree would read it into the next step's tree
+        # a model-written branch could link to a runner-host file and _tree
+        # would read it into the next step's tree
         d = os.path.join(self.tmp, "linktree")
         os.makedirs(d)
         with open(os.path.join(self.tmp, "outside.txt"), "w") as f:
@@ -254,7 +254,7 @@ class Chains(unittest.TestCase):
         self.assertIn("symlink", str(cm.exception))
 
     def test_delete_names_a_directory_and_skips_comments(self):
-        # 1.5: .delete keyed by file path removed nothing for a directory
+        # .delete keyed by file path removed nothing for a directory
         tree = {"b/one.py": b"1", "b/two.py": b"2", "bb.py": b"3", "c.py": b"4"}
         d = os.path.join(self.tmp, "ov")
         os.makedirs(d)
@@ -264,8 +264,8 @@ class Chains(unittest.TestCase):
         self.assertEqual(sorted(tree), ["bb.py"])
 
     def test_a_chain_keeps_one_language_and_needs_an_oracle_behind_it(self):
-        # 1.6 and 1.4: a python step after a go step took the go template; a
-        # predecessor without oracle/ handed its unsolved start over as "oracle"
+        # a python step after a go step took the go template; a predecessor
+        # without oracle/ handed its unsolved start over as "oracle"
         make_task(self.bench, "go-01", lang="go", oracle={"m.go": "package main\n"})
         with self.assertRaises(tasks.TaskError) as cm:
             tasks.load_task(make_task(self.bench, "go-02", extra='after = "go-01"\n'))
@@ -276,7 +276,8 @@ class Chains(unittest.TestCase):
         self.assertIn("oracle", str(cm.exception))
 
     def test_a_gitignore_in_the_base_does_not_drop_the_followers_files(self):
-        # 1.3: git add -A honoured the delivered tree's .gitignore; 3.3: the fetched clone is consumed
+        # git add -A honoured the delivered tree's .gitignore; the fetched
+        # clone is consumed
         t2 = tasks.load_task(os.path.join(self.bench, "tasks", "obs-02"))
         repos = os.path.join(self.tmp, "repos")
         fakes.make_origin(repos, "dark/t-obs-01", {".gitignore": "*.log\n", ".dark/verify.sh": VERIFY}, branch="run/one")

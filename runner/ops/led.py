@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """ops/led.py — read the ledger from a script.
 
-The smoke suite and the arms have to ask the ledger simple questions from
-shell ("did this shift already pass this task", "what branch did that run
+The smoke suite and the bench scripts have to ask the ledger simple questions
+from shell ("did this shift already pass this task", "what branch did that run
 deliver", "how many runs ended in this shift") without embedding python in
 an ssh string. One record per line as JSON, or one field per line with
 --field, or a count with --count. Exit 1 when nothing matched, so a shell

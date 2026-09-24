@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""mutants — the other direction of the ground-truth check (L1).
+"""mutants — the other direction of the ground-truth check.
 
 The second reference asks whether the hidden tests reject a correct
 solution. This asks the opposite: whether they accept a wrong one. A
 *mutant* is the task's own reference with one clause of the specification
-broken on purpose. Each lives in `mutants/<id>/<name>/` (moved out of
-`tasks/`, decision 950: tasks/ is what dark/tasks.py:tests_version() hashes
+broken on purpose. Each lives in `mutants/<id>/<name>/` (kept out of
+`tasks/`, because `tasks/` is what dark/tasks.py:tests_version() hashes
 as the test version, and pulling a mutant must not move it), holding a
 one-line file `WHY` naming the sentence of the specification it violates
 and either the files it replaces (laid over the oracle) or a `MUTATE.py`

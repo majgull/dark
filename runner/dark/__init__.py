@@ -1,4 +1,4 @@
-"""dark — the v2 runner (hub thread 949).
+"""dark - an agent runner for isolated coding tasks.
 
 A task with a class, a spec and hidden acceptance goes through preflight,
 execute (in a throwaway VM), verify, push, stage (in a fresh VM) and lands as

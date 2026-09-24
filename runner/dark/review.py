@@ -1,6 +1,6 @@
 """dark/review.py — the validator tier confirms that a task's hidden
-acceptance follows from its spec (design §7, operator's decision 4: models
-only; the frontier tier writes, the validator tier confirms). One budgeted
+acceptance follows from its spec: models only, the frontier tier writes and
+the validator tier confirms. One budgeted
 call per task on the validator tier, recorded as a `call` event; the
 verdict is written next to the task so it ships with the bench.
 """
@@ -58,8 +58,8 @@ def prompt(task):
 def parse(text):
     """(verdict, [(check, implied, why)]) from the model's reply."""
     checks = []
-    # `CHECK <name> ok:` too: the validator copies the acceptance's own line
-    # shape (dsf on lru-cache-go wrote every name that way, 0/6 parsed)
+    # `CHECK <name> ok:` too: a validator may copy the acceptance's own line
+    # shape and write every name that way
     for m in re.finditer(r"^CHECK\s+(\S+?)(?:\s+(?:ok|fail))?:\s*(IMPLIED|NOT IMPLIED)\s*[—-]*\s*(.*)$",
                          text, re.MULTILINE | re.IGNORECASE):
         checks.append((m.group(1), m.group(2).upper() == "IMPLIED", m.group(3).strip()))
@@ -77,7 +77,7 @@ def review_task(task, catalog, budgets, ledger, tier, shift="adhoc", chat=llm.ch
     cap = budgets.cls("spec").hard
     text = prompt(task)
     if not m.local:
-        # the validator share (design §3): this is control-plane spend. The
+        # the validator share: this is control-plane spend. The
         # reservation is this prompt plus a full reply, not a whole context.
         day = budget.today(ledger)
         w = budget.windows(budgets, catalog, ledger, day)[catalog.window_of(tier)]
@@ -88,7 +88,7 @@ def review_task(task, catalog, budgets, ledger, tier, shift="adhoc", chat=llm.ch
     ok = False
     try:
         # the tier's full reply budget: a validator that thinks in its content
-        # (dsf did, 4096 tokens on wcl-python) must still reach its VERDICT line
+        # must still reach its VERDICT line
         reply, usage = chat(prov.url, tier, [{"role": "system", "content": SYSTEM},
                                               {"role": "user", "content": text}],
                             m.max_tokens, m.timeout, rate_signature=m.rate_limit_signature)

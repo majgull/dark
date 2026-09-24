@@ -1,8 +1,8 @@
-"""dark/bench.py — one manifest, five phases (docs/950-bench-e2e.md).
+"""dark/bench.py - one manifest, five phases.
 
 Part A: manifest parsing and validation, `--dry-run`, the run phase (a
-generalised `actions/950-rq2.sh`), and pause/resume through the ledger
-alone. Phases bootstrap, smoke, report and archive are NOT BUILT here.
+generalised shift driver), and pause/resume through the ledger alone.
+Phases bootstrap, smoke, report and archive are NOT BUILT here.
 """
 
 import hashlib
@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from . import tasks as T
 
 PHASES = ("bootstrap", "smoke", "run", "report", "archive")
-EXECUTORS = ("agent", "session")
+EXECUTORS = ("agent", "session")  # "agent": built-in FILE:/DELETE: executor; "session": a coding-agent CLI in the VM
 THINK_LEVELS = ("none", "low", "medium", "high")
 ORG_NAMES = ("work", "archive", "records", "results")
 _HHMM = re.compile(r"^\d{2}:\d{2}$")
@@ -160,7 +160,8 @@ def parse(path):
 # --- the plan (dry-run and the run phase share it) ---------------------------
 
 def shift_command(manifest, arm):
-    """The exact `dark shift` command line one round of `arm` runs."""
+    """The exact `dark shift` command line one round of `arm` runs.
+    --no-adapt turns admission, cooling and escalation off for the round."""
     return (f"python3 -m dark shift --tasks {','.join(manifest.tasks)} --tier {arm.tier} "
             f"--arm {manifest.name}-{arm.name} --executor {arm.executor} "
             f"--frozen {manifest.envelope} --think {arm.think} --no-adapt --no-push")
@@ -241,7 +242,7 @@ def run_phase(manifest, ledger, tests_version, envelope_sha256, run_shift, verif
     environment, or the manifest does not set it).
 
     Returns True unless a round MISMATCHes; a stop, a pause or every round
-    verifying are all a clean (True) return, per docs/950-bench-e2e.md.
+    verifying are all a clean (True) return.
     """
     if ledger.last("bench.start", name=manifest.name, manifest_sha256=manifest.sha256) is None:
         ledger.emit("bench.start", name=manifest.name, manifest_sha256=manifest.sha256,
@@ -305,7 +306,7 @@ def real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, bench_di
 
 def real_verify_round(repo_root, manifest, conf=None):
     """verify_round(shift_id) -> (lines, mismatch, not_derivable), via
-    ops/verify-round.py — the check actions/950-rq2.sh already runs."""
+    ops/verify-round.py, the same check the run phase already runs."""
     def _verify(shift_id):
         cmd = ["python3", os.path.join(repo_root, "ops", "verify-round.py"),
                "--shift", shift_id, "--tasks", ",".join(manifest.tasks)]

@@ -61,8 +61,8 @@ class Parsing(unittest.TestCase):
         self.assertEqual(ref, [])
 
     def test_track_stall_cycle_rule(self):
-        # 950 stall-cut brief's worked example: a repeat is "seen anywhere
-        # earlier in the run", not a consecutive-streak rule
+        # a repeat is "seen anywhere earlier in the run", not a
+        # consecutive-streak rule
         a = self.agent
         for r in ["A", "B", "A", "C", "B"]:
             a._track_stall(r)
@@ -149,9 +149,9 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(llm.requests[0]["max_tokens"], 512)
 
     def test_files_from_every_iteration_reach_the_branch(self):
-        # 949 pilot: dsf's second reply named only the test file it fixed; the
-        # code from the first reply never got staged and the staging VM saw
-        # "undefined: CompareSemver" against a green executor
+        # a later reply can fix one file while an earlier reply's file is
+        # still missing from the branch; the staging VM then fails on an
+        # undefined symbol against a green executor
         verify = "#!/bin/bash\ncd \"$(dirname \"$0\")/..\"\ntest -f hello.txt || exit 1\ntest -f world.txt || exit 1\necho verify OK\n"
         world = "FILE: world.txt\n```\nworld\n```\n"
         rc, llm = self.run_agent([{"content": FILE_HELLO}, {"content": world}],
@@ -209,7 +209,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(tag["reasoning_chars"], 100)
 
     def test_llm_http_failure_is_llm_kind(self):
-        # a 5xx is retried once (ollama-cloud's 502 afternoon); two in a row fail the run
+        # a 5xx is retried once; two in a row fail the run
         rc, llm = self.run_agent([{"status": 503, "content": "down"}, {"status": 503, "content": "down"}])
         self.assertEqual(rc, 1)
         tag = self.done_tag()
@@ -247,7 +247,7 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(fakes.branch_file(self.repos, self.full, "run/r1", ".dark/verify.sh"), VERIFY_HELLO)
 
-    # --- stall cut (950 stall-cut, part B item 1) --------------------------
+    # --- stall cut ----------------------------------------------------------
 
     def test_stall_one_repeat_does_not_cut(self):
         # A A B with max_stall=2: only one repeat happens (at the second A),
@@ -293,7 +293,7 @@ class EndToEnd(unittest.TestCase):
         # always computed, whether or not the cut is armed
         self.assertEqual((tag["distinct_calls"], tag["repeat_calls"], tag["stall_max"]), (1, 4, 5))
 
-    # --- transcript double-record (950 stall-cut, part B item 2) -----------
+    # --- transcript double-record -------------------------------------------
 
     def transcript(self):
         with open(os.path.join(self.repos, "t.jsonl")) as f:

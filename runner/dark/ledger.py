@@ -1,5 +1,5 @@
 """dark/ledger.py — the JSONL ledger: the only source for pass rates, cost,
-windows, watts and admission (design §2).
+windows, watts and admission.
 
 Single writer: the runner process on the runner host. Every record is one
 line, validated against spec.EVENTS before it is written, flushed and
@@ -7,8 +7,7 @@ fsynced. Readers tolerate a torn last line (a crash mid-write) and count
 it. A record whose kind this process does not know is skipped and counted
 too (`unknown`), never raised on: a shift is a long-lived process, and a
 `dark void`/`dark stage` from a newer deploy beside it appends kinds it
-never registered. The first pilot shift died that way, four tasks short,
-on a run.void it could not read. Writers still refuse unregistered kinds.
+never registered. Writers still refuse unregistered kinds.
 """
 
 import datetime as _dt
@@ -101,16 +100,17 @@ class Ledger:
     @staticmethod
     def level_of(r, legacy=None):
         """dark's thinking level a run.end stands for: the recorded one, else
-        `legacy`, what a record from before the levels existed (decision 13)
+        `legacy`, what a record from before the levels existed
         counts as: "none" for a tier that does not think, None for a thinking
         tier whose thinking was then uncontrolled and belongs to no level."""
         return r.get("think") or legacy
 
     def runs(self, cls=None, tier=None, arm=None, since=None, include_void=False, think=None, legacy=None):
         """run.end records, chronological, optionally filtered; voided runs
-        (a harness fault, see run.void) are skipped unless asked for. With
-        `think`, only runs at that level (decision 14: rates and envelopes
-        are per level, a tier's uncontrolled past never pools with them)."""
+        (a fault in the runner or the deployment, see run.void) are skipped
+        unless asked for. With `think`, only runs at that level (rates and
+        envelopes are per level, a tier's uncontrolled past never pools with
+        them)."""
         skip = set() if include_void else self.voided()
         return [r for r in self.events("run.end", since=since)
                 if r["run"] not in skip
@@ -123,8 +123,7 @@ class Ledger:
         """(rate, n) over the last `last` runs of (cls, tier); rate None when n == 0.
         Structural failures and aborts are not the model's (a provider 502, a
         VM that would not start, the gate powering the host down) and are
-        left out of the denominator (decision 11, 2026-09-02: ollama-cloud
-        answered a third of the afternoon's requests with 502)."""
+        left out of the denominator."""
         rs = [r for r in self.runs(cls=cls, tier=tier, think=think, legacy=legacy)
               if r["outcome"] not in ("fail:structural", "abort")][-last:]
         if not rs:
@@ -153,8 +152,8 @@ class Ledger:
                 continue
             # None = NOT MEASURED. A run the runner ended (deadline, silent kill,
             # abort) carries the calls its progress tags showed started and no
-            # token counts: it is charged its reservation per call, never zero
-            # (949 review 3.1). A session arm without counts and without a
+            # token counts: it is charged its reservation
+            # per call, never zero. A session arm without counts and without a
             # reservation is charged nothing, and the digest shows n/a.
             if r["kind"] == "run.end":
                 calls = r.get("calls")
@@ -180,9 +179,9 @@ class Ledger:
     def watts_used(self, day, draw, local_class_of):
         """Wh spent on `day`: the measured `wh` of every run that carries one
         (dark/power.py, any tier: the executor VM draws on the same host),
-        else, for rows metered before the meter existed, seconds *
-        draw[watts class] / 3600 for local tiers (a placeholder, never
-        reported as a measurement). `local_class_of` maps tier id -> watts
+        else, for rows that carry no measured Wh, seconds * draw[watts class]
+        / 3600 for local tiers (a placeholder, never reported as a
+        measurement). `local_class_of` maps tier id -> watts
         class (None for non-local)."""
         wh = 0.0
         for r in self.events():

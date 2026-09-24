@@ -64,7 +64,7 @@ class VM(unittest.TestCase):
         self.assertIn("qm set 9500 --cicustom user=local:snippets/dark-x1.yaml,network=local:snippets/dark-x1-net.yaml", cmds)
         # a fixed MAC per VM id, the template's other net0 options kept
         self.assertIn("qm set 9500 --net0 virtio=BC:24:11:DA:25:1C,bridge=vmbr0,firewall=1", cmds)
-        # one DHCP identity per clone (three VMs shared 192.0.2.199 on 2026-09-02)
+        # one DHCP identity per clone
         self.assertIn("dhcp-identifier: mac", self.ssh.stdin["cat > /var/lib/vz/snippets/dark-x1-net.yaml"])
         self.assertIn("systemd-machine-id-setup", vm.user_data("dark-x1", {}, []))
         self.assertIn("GROUP agentfw", self.ssh.stdin["cat > /etc/pve/firewall/9500.fw"])

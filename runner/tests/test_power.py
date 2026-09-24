@@ -28,7 +28,7 @@ class Clock:
         return self.t
 
 
-def meter(cpu_reads, gpu_lines, cpu="root@px", gpu="operator@vm"):
+def meter(cpu_reads, gpu_lines, cpu="cpu-user@cpu-host", gpu="gpu-user@gpu-host"):
     reads = list(cpu_reads)
 
     def ssh_out(host, cmd, timeout=15):

@@ -1,12 +1,10 @@
 """dark/session.py: the numbers the session arm reports come from pi's own
 stream, counted as it arrives.
 
-The fixture is a real recording: pi 0.84.2 against deepseek-v4-flash through
-the runner host's endpoint on 2026-09-05, asked to write a file and read it
-back. Three model calls, two tool calls, and the token counts the provider
-returned. Last night's session arm had to scrape these from an audit trail
-and could not always tell a refused call from a lost record; here they are
-counted from the events themselves.
+The fixture is a recorded pi session asked to write a file and read it back:
+three model calls, two tool calls, and the token counts the provider returned.
+The counts come from the events themselves, so a refused call is not confused
+with a lost record.
 """
 
 import io
@@ -111,7 +109,7 @@ class Counting(unittest.TestCase):
 
     def test_a_kill_at_the_envelope_keeps_the_stream_up_to_the_kill(self):
         # a kill loses nothing already emitted: the file is a prefix of the
-        # full stream, not empty and not the whole thing (design item 5a)
+        # full stream, not empty and not the whole thing
         path = os.path.join(tempfile.mkdtemp(), "stream.jsonl")
         session.MAX_CALLS = 2
         p = FakeProc(fixture_lines())
@@ -128,14 +126,14 @@ class Config(unittest.TestCase):
         import tempfile
         home = tempfile.mkdtemp()
         session.TASK.update({"llm_model": "deepseek-v4-flash:cloud",
-                             "llm_url": "http://git-host:11434/v1",
+                             "llm_url": "http://localhost:11434/v1",
                              "think_api": "reasoning_effort", "ctx": 128000,
                              "max_tokens": 8192, "thinking_tokens": 1})
         session.write_models_json(home)
         with open(os.path.join(home, ".pi", "agent", "models.json")) as f:
             doc = json.load(f)
         prov = doc["providers"]["dark"]
-        self.assertEqual(prov["baseUrl"], "http://git-host:11434/v1")
+        self.assertEqual(prov["baseUrl"], "http://localhost:11434/v1")
         self.assertEqual(prov["apiKey"], "unused")   # the server ignores it
         self.assertEqual(prov["models"][0]["id"], "deepseek-v4-flash:cloud")
         self.assertTrue(prov["compat"]["supportsReasoningEffort"])
@@ -173,9 +171,9 @@ class Config(unittest.TestCase):
 
 
 class RecordsPush(unittest.TestCase):
-    """dark/session.py's own push of the kept stream (design item 5a): a
+    """dark/session.py's own push of the kept stream: a
     fail() or the ok path always calls records_kw(), and a push failure is
-    reported, never raised — the run's outcome is decided before this runs
+    reported, never raised: the run's outcome is decided before this runs
     and stays what it was."""
 
     def setUp(self):
@@ -238,7 +236,7 @@ class RecordsPushLive(unittest.TestCase):
 
 
 class ReviewMode(unittest.TestCase):
-    """design item 5b: no hidden acceptance, just report.md landed
+    """No hidden acceptance, just report.md landed
     non-empty. read_report()/review_outcome() are the decision the runner
     reads back as "delivered" (dark/run.py's ReviewMode tests fake the rest
     of the executor around this)."""

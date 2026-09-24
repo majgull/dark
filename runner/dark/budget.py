@@ -1,5 +1,5 @@
 """dark/budget.py — envelopes, windows and watts, derived from the ledger
-inside the hard caps (design §4).
+inside the hard caps.
 
 An envelope is what one run may spend. Its soft limits are the class's
 measured p95 over passes times (1 + headroom), clipped by the hard cap,
@@ -40,9 +40,8 @@ class Envelope:
 def _soft(hard_v, p95_v, headroom):
     """The soft limit: p95 of passes plus headroom, clipped to [hard/2, hard].
     The floor is what keeps the limit from ratcheting down to the easiest
-    tasks: the pilot's first soft envelopes (additive, from hello-* passes)
-    were 185 s and 2000 reasoning chars, and semver-go on the validator
-    tier died at 66 s / 21136 chars of a run that was going to pass."""
+    tasks, where a handful of quick passes would otherwise size a cap that a
+    real run of the class cannot fit."""
     if p95_v is None or p95_v <= 0:
         return hard_v
     return max(hard_v // 2, min(hard_v, int(math.ceil(p95_v * (1.0 + headroom)))))
@@ -63,7 +62,7 @@ def envelope(budgets, ledger, cls, tier=None, think=None, legacy=None):
     from that (class, tier) pair's own passes (a non-thinking tier's zero
     reasoning must not size a thinking tier's cap, nor a 20 s local pass a
     cloud tier's seconds); without one, from the whole class. With a level,
-    from the pair's passes at that level only (decision 14)."""
+    from the pair's passes at that level only."""
     cb = budgets.cls(cls)
     h = cb.hard
     lv = dict(think=think, legacy=legacy)
@@ -87,7 +86,7 @@ class WindowState:
     validator_calls: int
     validator_tokens: int
     validator_share: float      # 1 - reserve_for_data_runs
-    exhausted_by_signal: bool   # a rate-limit signature was seen today
+    exhausted_by_signal: bool   # a rate-limit signature (models.toml rate_limit_signature) was seen today
 
     @property
     def calls_left(self):
@@ -179,7 +178,7 @@ def tier_open(catalog, budgets, ledger, model_id, env, day, wins=None, wts=None)
     """(ok, why): may this tier take one run of `env` today? Local tiers are
     held to watts; sub-window tiers to their provider's window. A validator
     tier doing control-plane work (a spec or review class call) is held to
-    the validator share; a data run on the same tier is not (design §3)."""
+    the validator share; a data run on the same tier is not."""
     m = catalog.model(model_id)
     if m.local:
         wts = wts if wts is not None else watts(budgets, catalog, ledger, day)

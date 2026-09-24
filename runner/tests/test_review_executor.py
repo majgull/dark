@@ -1,9 +1,8 @@
-"""Adversarial review, item 2 — the executor contract (dark/agent.py,
-dark/stager.py).
+"""dark/agent.py and dark/stager.py: the executor contract.
 
-The path guards, the reply-only staging rule and the acceptance tarball
-checks are probed here as evidence for the report's NOT FOUND lines; the
-reasoning cap and the continuation loop are probed for the envelope claim.
+The path guards, the reply-only staging rule and the acceptance tarball checks
+are probed here; the reasoning cap and the continuation loop are probed against
+the call envelope.
 """
 
 import base64
@@ -21,8 +20,8 @@ FILE_HELLO = "FILE: hello.txt\n```\nhello world\n```\n"
 
 
 class PathGuards(unittest.TestCase):
-    """Evidence for "no reply writes outside the work tree or to
-    .git/.gitea/.dark/verify.sh"."""
+    """No reply writes outside the work tree or to .git, .gitea or
+    .dark/verify.sh."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -60,7 +59,8 @@ class PathGuards(unittest.TestCase):
 
 
 class AcceptanceTarball(unittest.TestCase):
-    """Evidence for the stager's tarball path checks (dark/stager.py:107)."""
+    """The stager rejects traversal, absolute and link members in an
+    acceptance tarball."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -103,8 +103,8 @@ class AcceptanceTarball(unittest.TestCase):
 
 
 class ReasoningCap(Base):
-    """"a budget failure never retries in the same shift" rests on the
-    reasoning cap being an envelope, not a post-mortem. dark/agent.py:263
+    """"A budget failure never retries in the same shift" rests on the
+    reasoning cap being an envelope, not a post-mortem: the agent's _account
     checks it once per turn, after the continuation chain has already run."""
 
     def test_the_cap_stops_the_agent_at_the_call_that_breaches_it(self):
@@ -119,7 +119,7 @@ class ReasoningCap(Base):
 
 
 class ContinuationCap(Base):
-    """Evidence: the continuation chain is counted against max_calls."""
+    """The continuation chain is counted against max_calls."""
 
     def test_continuations_never_exceed_the_call_envelope(self):
         r = self.runner([{"content": FILE_HELLO, "finish_reason": "length"}] * 3)

@@ -48,8 +48,8 @@ class Envelopes(Fixture):
         self.assertEqual((env.calls, env.seconds), (6, 900))
 
     def test_soft_never_below_half_of_hard(self):
-        # the pilot's soft caps came from hello-* passes and killed a medium
-        # task that was going to pass; the floor stops that ratchet
+        # a soft cap must not ratchet below half of hard: the floor stops a
+        # single cheap pass from starving a heavier task
         self.passes(3, calls=1, seconds=10, reasoning_chars=4)
         env = budget.envelope(self.bud, self.led, "additive")
         self.assertEqual((env.calls, env.seconds, env.max_reasoning_chars), (3, 450, 10000))
@@ -176,8 +176,8 @@ class Admission(Fixture):
         self.assertIsNone(admission.escalation(adm, "ghost"))
 
     def test_escalation_goes_to_the_best_open_tier(self):
-        # decision 20: three tiers tied ahead of a better one; the retry
-        # reaches the better one, and a closed or cooling best falls back
+        # three tiers tied ahead of a better one; the retry reaches the better
+        # one, and a closed or cooling best falls back
         adm = ["local-a", "local-b", "local-c", "cloud-x"]
         rates = {"local-a": 0.83, "local-b": 0.83, "local-c": 0.83, "cloud-x": 1.0}
         self.assertEqual(admission.escalation(adm, "local-a", rates=rates), "cloud-x")
@@ -204,9 +204,9 @@ if __name__ == "__main__":
 
 
 class Levels(Fixture):
-    """Decision 14: rates and envelopes are per thinking level. A tier's runs
-    before the levels existed count as "none" when it does not think and as
-    no level when it does; the class's level is what the factory runs at."""
+    """Rates and envelopes are per thinking level. A tier's runs without a
+    level count as "none" when it does not think and as no level when it does;
+    the class's level is what the default arm runs at."""
 
     def with_level(self, cls="additive", lvl="low"):
         import dataclasses

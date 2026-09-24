@@ -1,37 +1,34 @@
-# budgets.toml — every bound the runner enforces, as data (design §4, §5).
+# budgets.toml - every bound the runner enforces, as data.
 #
 # Hard caps are the one thing a human writes. Soft limits are derived from the
 # ledger: p95 of the class's passes times (1 + headroom), clipped by hard, once
-# the class has [admission].min_runs passes; hard before that. operator, 2026-09-02:
-# "use the placeholders" — they get corrected from the ledger's measured
-# consumption, never from guesses. The runner refuses to start if any class in
-# spec.CLASSES has no hard cap.
+# the class has [admission].min_runs passes; hard before that. Hard caps are
+# placeholders: they get corrected from the ledger's measured consumption, never
+# from guesses. The runner refuses to start if any class in spec.CLASSES has no
+# hard cap.
 
 [watts]
-# operator, 2026-09-02: no narrow watts cap while benching; hangs are already bounded
-# by the per-call timeout, the class seconds envelope and the watchdog. The
-# watts window is for the stable factory running long real work, so this stays
-# effectively open (a whole day of the high class is ~9 kWh) until phase 3
-# sets it from what the rounds measured. The ledger keeps charging Wh either way.
-# 2026-09-05 16:10, operator: no budget of any kind this weekend; a value nothing reaches.
+# The watts cap stays effectively open while a deployment is being measured:
+# hangs are already bounded by the per-call timeout, the class seconds envelope
+# and the watchdog, and a whole day of the high class is a few kWh. Raise it
+# from what the rounds measure once the deployment is stable. The ledger keeps
+# charging Wh either way.
 daily_wh = 1000000000
 # draw per watts class, W: PLACEHOLDERS, used only for run.end rows that carry
-# no measured `wh` (runs before dark/power.py, 2026-09-03). Every run since is
-# metered (RAPL package + nvidia-smi); no report may present these as watts.
+# no measured `wh`. A run with a meter is metered (RAPL package + nvidia-smi);
+# no report may present these placeholders as watts.
 low = 180
 mid = 250
 high = 380
 
 # ---- per class: hard envelope, headroom for the soft limit, admission
 # threshold, and the provisional tier order used until a (class, tier) pair
-# has min_runs of data. Order = cheapest-first by operator's stated profiles. ------
+# has min_runs of data. Order = cheapest-first by the tiers' own profiles. ------
 
-# think: the level the class runs at when a shift sets none (decision 14);
-# admission and the soft envelope count only runs at that level. Evidence for
-# the caps and the lists: hub reports/949-admission.md (bench of 2026-09-02,
-# 410 valid runs). max_reasoning_chars is per call and is the bound above the
-# level's cut: 40000 sits over medium's 32000 with margin and under high; the
-# uncontrolled runs that parked at 60000-85000 chars were the pre-level regime.
+# think: the level the class runs at when a shift sets none; admission and the
+# soft envelope count only runs at that level. max_reasoning_chars is per call
+# and is the bound above the level's cut: 40000 sits over medium's 32000 with
+# margin and under high.
 
 [class.additive]
 # passes at low, local: calls p95 3 (max 5), seconds p95 229 (max 289; every
@@ -41,40 +38,34 @@ think = "low"
 hard = { runs = 2, calls = 6, seconds = 900, max_reasoning_chars = 40000 }
 headroom = 0.3
 admit_at = 0.7
-# 35B thinking at low 7/8 (6 Wh per pass), dsf 7/8 low, 8/8 medium, glm 8/9
-# low; sonnet: session arm 5/6, factory NOT MEASURED. Dropped: 35B non-thinking
-# 9/16 (0.56), 9B 4/12 and 4/8, 27B non-thinking 5/8, 3.8-27B 5/8.
+# A local thinking tier needs up to 6 calls on this class, so 6 is the cap the
+# soft rule sizes below.
 provisional = ["example-small", "example-large"]
 
 [class.mechanical]
 # one call per pass on every tier at every level (max 2); seconds max 49 at
 # none, 153 at low; reasoning at none is 0, at low p95 7495 per call, and the
-# one 35027-char run (9B, uncontrolled) is what 10000 rules out.
+# 10000 rules out the long uncontrolled runs.
 think = "none"
 hard = { runs = 2, calls = 4, seconds = 300, max_reasoning_chars = 10000 }
 headroom = 0.3
 admit_at = 0.7
-# every local tier 5/6 at none (split-module-python is the miss on all of
-# them), thinking buys nothing here (9B low = 9B none = 5/6); cloud 6/6 at
-# every level. Cheapest first: the 9B non-thinking at 10 Wh per pass.
+# Thinking buys nothing on this class, so the cheapest admitted tier is picked.
 provisional = ["example-small", "example-large"]
 
 [class.repair]
-# passes at low: calls p95 3 (max 8, one 35B non-thinking run), seconds p95
-# 183 (max 304); the only run past 900 s was a 9B park at 1205 s that never
-# finished. 900 is three times the slowest pass.
+# passes at low: calls p95 3 (max 8), seconds p95 183 (max 304); the only run
+# past 900 s never finished. 900 is three times the slowest pass.
 think = "low"
 hard = { runs = 2, calls = 8, seconds = 900, max_reasoning_chars = 40000 }
 headroom = 0.5
 admit_at = 0.5
-# 35B low 5/7 (6 Wh per pass), 3.8-27B low 7/7 (23 Wh), glm low 6/7, dsf low
-# 6/7. Dropped: 35B non-thinking 3/8, 9B 2/7 and 3/7. The 27B non-thinking's
-# 6/7 stands at level none and is not evidence at low.
+# Local tiers pass this class at low with a wide spread; keep the cap generous.
 provisional = ["example-small", "example-large"]
 
-# spec and review are not benched (operator 2026-09-02 17:18): high is their level,
-# the caps stay placeholders. The claude proxy ignores the level (think_api
-# none), so it documents the intent until a controllable tier serves them.
+# spec and review are not benched: high is their level, the caps stay
+# placeholders. A provider that ignores the level (think_api none) documents
+# the intent until a controllable tier serves them.
 [class.spec]
 think = "high"
 hard = { runs = 1, calls = 3, seconds = 600, max_reasoning_chars = 80000 }
@@ -97,9 +88,8 @@ last_runs = 20     # the pass rate is over the last N runs of the pair
 cost_order = ["local/low", "local/high"]
 
 [think]
-# dark's own thinking levels (decision 13, operator 2026-09-02: "we need our own
-# method"): characters of visible thinking per call, cut live from the
-# stream by the executor, the same for every tier. Characters because they
+# dark's own thinking levels: characters of visible thinking per call, cut live
+# from the stream by the executor, the same for every tier. Characters because they
 # are the one unit every provider exposes as it happens; tokens differ per
 # tokenizer and arrive only in the final usage. The provider is told the
 # nearest thing it understands (reasoning_effort, enable_thinking) so the
@@ -116,16 +106,16 @@ chars_per_token = 3
 
 [watchdog]
 heartbeat_seconds = 120     # the executor PATCHes its progress comment at least this often
-silent_kill_seconds = 900   # v1's measured incident: the 7h40m unbounded watcher
-max_denials = 15            # v1 incident: 3,970 retries of a refused command
-max_calls_low_variety = 25  # v1 incident: 53 near-identical helper scripts
+silent_kill_seconds = 900   # a run with no heartbeat for this long is killed
+max_denials = 15            # give up after this many retries of a refused command
+max_calls_low_variety = 25  # a run repeating near-identical helper scripts is cut here
 poll_seconds = 15
 # a fresh VM must hold an address (guest agent) within this; one that does not
-# is reaped and cloned once more (a staging VM sat 25 min without DHCP, 2026-09-02)
+# is reaped and cloned once more
 net_wait_seconds = 180
 
 [shift]
-# 20 parked the 21st task of a full-bench round (wcl-python on the 35B, round 2)
+# the run cap of one shift, so one long round cannot hold the lane forever
 max_runs = 60
 concurrency = 1             # the local lane is serial by hardware
 vm_template = 9001          # dark-agent-go: git, build-essential, go, python3

@@ -9,13 +9,14 @@
 Rules the tables follow, so a reader can re-derive them:
 - a run counts when it has a run.end, no run.void names it, and its outcome
   is not fail:structural (the harness failed, not the model);
-- a re-judged row (a `restage` shift, or any run.end carrying `restaged_from`)
+- a re-judged row (a `restage` shift, which judges a delivered branch a
+  second time, or any run.end carrying `restaged_from`)
   supplies the verdict; its cost, level and reasoning come from the run that
   delivered the branch (joined on `branch`), never from the re-judgement;
 - a number the ledger does not carry prints as n/a (NOT MEASURED). Wh is the
   measured `wh` field only; rows without one are unmetered, never estimated;
-- session-arm tool calls are not in the ledger (the bouncer trail holds them:
-  `bouncer audit --session NAME`, count `pre` records, not lines).
+- session-arm tool calls are not in the ledger (the agent session's own audit
+  trail holds them; count `pre` records, not lines).
 Every table is preceded by a comment naming the command and the ledger's
 sha256, so the markdown that embeds it says where it came from."""
 
@@ -82,7 +83,7 @@ def is_session(r):
 
 def calls_of(r):
     """A session arm's `calls` in the ledger is what its arm script counted at
-    stage time (trail records, doubled and once tail-capped: audit P0-1); the
+    stage time (trail records, doubled and once tail-capped); the
     trail is the source. Factory calls are the executor's own count."""
     return "trail" if is_session(r) else na(r.get("calls"))
 
@@ -182,11 +183,11 @@ def runs(events, shift):
 def arm_match(name, pattern):
     """Does this run's arm belong to the side named by `pattern`?
 
-    A side is usually one arm name. It may also be a glob, because a lane
-    that names its arm per round ("rq2-pipeline-r1", "-r2", ...) writes one
+    A side is usually one arm name. It may also be a glob, because a
+    comparison that names its arm per round (arm-r1, arm-r2, ...) writes one
     arm name per round and the side is the set of them. The glob is matched
-    against the whole name, so "rq2-pipeline-*" is the pipeline side and
-    "rq2-pipeline" alone still means exactly that arm."""
+    against the whole name, so "arm-*" is the whole set and "arm" alone
+    still means exactly that arm."""
     if any(c in pattern for c in "*?["):
         return fnmatch.fnmatchcase(name or "", pattern)
     return name == pattern

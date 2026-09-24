@@ -24,9 +24,9 @@ import time
 
 RAPL = "/sys/class/powercap/intel-rapl:0"
 # one nvidia-smi per second, not `-lms`: over a pipe nvidia-smi block-buffers
-# its loop output and the runner saw no lines until it was killed (first
-# metered run, 2026-09-03). Each invocation exits and flushes; the outer
-# timeout ends the loop if the ssh ever leaks.
+# its loop output and the runner sees no lines until it is killed. Each
+# invocation exits and flushes; the outer timeout ends the loop if the ssh
+# ever leaks.
 GPU_CMD = ("timeout 14400 bash -c 'while :; do nvidia-smi --query-gpu=index,power.draw "
            "--format=csv,noheader,nounits || exit 1; sleep 1; done'")
 

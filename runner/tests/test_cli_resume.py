@@ -113,8 +113,7 @@ class EnvelopeCmd(Base):
 class LaunchRecord(Base):
     """--resume repeats the launch it continues (the arguments recorded in
     shift.start), so a resumed round cannot change tier or thinking level
-    halfway: the first resume smoke re-ran its tasks at think=low because
-    the resuming command line simply did not say --think."""
+    halfway."""
 
     REC = {"tasks": ["obs-01"], "task_dir": None, "tier": "local-a", "think": "none",
            "arm": "smoke-local", "slot": 0, "work_org": "dark-runs"}

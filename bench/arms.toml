@@ -1,17 +1,18 @@
-# arms.toml — the bench's arms as data (design §7b). Factory arms run on the
+# arms.toml — the bench's arms as data. Factory arms run on the
 # runner host (`python3 -m dark shift --arm <name> [--tier <id>]`); session
-# arms run from the hub (`tools/arm.sh <arm> <task>`): one bouncer session,
-# one model, the spec and the starting tree, no planner, no validator, no
-# ladder. Every arm's result is staged by the same hidden acceptance in the
-# same fresh VM (`python3 -m dark stage`).
+# arms run from the operator's machine (`tools/arm.sh <arm> <task>`): one
+# agent session, one model, the spec and the starting tree, no planner, no
+# validator, no escalation. Every arm's result is judged by the same hidden
+# acceptance in the same fresh VM (`python3 -m dark stage`).
 #
 # tier: the model id the ledger files the run under (must be in the runner's
-# models.toml). cell: a bouncer cell that can reach the model; the name below
-# is an example (a remote tier must be reachable from the cell that runs the arm).
+# models.toml). cell: the execution cell that can reach the model; the name
+# below is an example (a remote tier must be reachable from the cell that runs
+# the arm). brain: the model backend the session launcher starts.
 
 [arm.dark-local]
 mode = "factory"
-executor = "admitted"        # the first open admitted tier per class
+executor = "admitted"        # the first tier the frozen admission table admits for the class
 
 [arm.dark-cloud]
 mode = "factory"
@@ -35,12 +36,11 @@ brain = "claude"
 tier = "claude-sonnet-5"
 cell = "example-cloud"
 
-# RQ2 arms of 2026-09-05 (docs/950-research.md RQ2): both run on the runner
-# host, both inside the same throwaway VM. The session arm is dark/session.py,
-# a plain pi session with no bouncer; its rows carry calls and tool_calls
-# counted from its own stream. Registered so ops/verify-round.py checks the
-# session rows as session rows (the smoke pair of 2026-09-05 was checked as
-# cloud rows because the names were not here).
+# The pipeline-versus-session comparison arms: both run on the runner host,
+# both inside the same throwaway VM. The session arm is dark/session.py, a
+# plain pi session outside the runner pipeline; its rows carry calls and
+# tool_calls counted from its own stream. Registered so tools/report.py reads
+# the session rows as session rows.
 [arm.rq2c-pipeline]
 mode = "factory"
 executor = "deepseek-v4-flash:cloud"
@@ -50,8 +50,8 @@ mode = "session"
 executor = "session"
 tier = "deepseek-v4-flash:cloud"
 
-# RQ2 sonnet extension (2026-09-05): the same two arms on claude-sonnet-5,
-# through the claude proxy (no token usage reported, think not steerable).
+# The same two arms on claude-sonnet-5, through the claude proxy (no token
+# usage reported, think not steerable).
 [arm.rq2s-pipeline]
 mode = "factory"
 executor = "claude-sonnet-5"

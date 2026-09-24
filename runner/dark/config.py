@@ -34,7 +34,7 @@ class Provider:
     window: str           # "" = local (watts), else a [window.*] name in budgets
     # how the provider is told dark's thinking level (the cut is dark's own,
     # identical everywhere): "reasoning_effort" (OpenAI-style field; ollama
-    # honours none/low/medium/high, probed 2026-09-02), "chat_template"
+    # honours none/low/medium/high), "chat_template"
     # (llama.cpp: chat_template_kwargs.enable_thinking on/off, no level),
     # "none" (the claude-cli proxy: nothing reaches the model)
     think_api: str = "none"
@@ -59,10 +59,9 @@ class Model:
     max_tokens: int
     rate_limit_signature: str | None
     note: str
-    # thinking budget on top of max_tokens (the response budget). v1's mistake,
-    # repeated here until 2026-09-02: one max_tokens shared by thinking and
-    # answer starved the answer (the 9B's pilot replies all ended on "length";
-    # glm's six parks sat at the ceiling). 0 = the tier does not think.
+    # thinking budget on top of max_tokens (the response budget): one
+    # max_tokens shared by thinking and answer starves the answer, so the two
+    # are separate. 0 = the tier does not think.
     thinking_tokens: int = 0
     # think: the tier's default level when a shift sets none (None = the
     # provider's default behaviour, i.e. what a user gets out of the box)
@@ -131,10 +130,10 @@ class ClassBudget:
     headroom: float
     admit_at: float
     provisional: tuple
-    # think: dark's thinking level the class runs at when the shift sets none
-    # (decision 14, 2026-09-02): admission and the soft envelope count only
-    # runs at this level, so a tier's uncontrolled-thinking past (before the
-    # levels existed) never pools with its measured rate. None = each tier's own.
+    # think: dark's thinking level the class runs at when the shift sets none:
+    # admission and the soft envelope count only runs at this level, so a
+    # tier's uncontrolled-thinking past never pools with its measured rate.
+    # None = each tier's own.
     think: str | None = None
 
 
@@ -398,7 +397,7 @@ class Host:
     power_cpu_host: str = ""  # ssh target with the RAPL package counter (the Proxmox host); "" = no CPU metering
     power_gpu_host: str = ""  # ssh target where nvidia-smi sees the GPUs (the model VM); "" = no GPU metering
     agent_user: str = "dark-agent"  # the Gitea user the executor VMs push as
-    records_org: str = "dark-records"  # one repo per shift; session-arm and review-mode transcripts (item 5)
+    records_org: str = "dark-records"  # one repo per shift; session-arm and review-mode transcripts
     admin_token: str = ""
     agent_token: str = ""
 

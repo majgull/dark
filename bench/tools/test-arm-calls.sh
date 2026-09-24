@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Prove the tool-call accounting rule in tools/arm.sh against the five
-# trails that came back NOT MEASURED tonight, plus one that did not.
+# Prove the tool-call accounting rule in tools/arm.sh against the trails the
+# rule must classify, plus one it must not.
 # The rule is read out of arm.sh itself, not copied, so the test proves
 # the deployed script.
 set -uo pipefail
