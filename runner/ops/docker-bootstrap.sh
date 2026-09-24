@@ -43,6 +43,14 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [ "$ready" = 1 ] || { echo "gitea did not come up (port $GITEA_PORT on the host)" >&2; exit 1; }
+# the CLI answers from the database before the web server listens; the API
+# calls below need the web server, so wait for its health endpoint as well
+ready=0
+for _ in $(seq 1 60); do
+  if runner_sh "curl -fsS -o /dev/null $GITEA_IN/api/healthz" >/dev/null 2>&1; then ready=1; break; fi
+  sleep 2
+done
+[ "$ready" = 1 ] || { echo "gitea web server did not answer on $GITEA_IN/api/healthz" >&2; exit 1; }
 
 create_user() { # create_user <name> <password> [--admin]
   local name=$1 password=$2 admin=${3:-} out
@@ -66,9 +74,11 @@ create_user "$AGENT_USER" "${DARK_AGENT_PASSWORD:-dark-agent}"
 
 write_token() { # write_token <gitea-user> <token-name> <file>
   local user=$1 token_name=$2 file=$3 token
-  # --raw prints the token alone; a fresh token each run keeps this idempotent
+  # --raw prints the token alone. Gitea refuses a token name a user already
+  # has, so each run mints a fresh token under a time-stamped name; a re-run
+  # after a partial failure then replaces the file instead of stopping here
   token=$(gitea_cli admin user generate-access-token --username "$user" \
-            --token-name "$token_name" --raw | tr -d '\r' | tail -1)
+            --token-name "$token_name-$(date +%s)" --raw | tr -d '\r' | tail -1)
   [ -n "$token" ] || { echo "no token for $user" >&2; exit 1; }
   printf '%s\n' "$token" | runner_sh "umask 077; mkdir -p $STATE; cat > $file"
   say "token $token_name written to $file"
