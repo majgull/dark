@@ -6,6 +6,7 @@ stays green on a host without docker. Run it explicitly:
 """
 
 import os
+import random
 import subprocess
 import time
 import unittest
@@ -14,7 +15,14 @@ from dark import docker as D
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 IMAGE = os.environ.get("DARK_SANDBOX_IMAGE", "dark-sandbox")
-NET = "dark-sandbox-test"
+# A per-run tag is this process id plus a random hex word. Every docker object
+# this run makes carries it, so two copies of this test can share one daemon
+# without touching each other's containers or networks. The vmid label lives
+# in a six digit block no dark run uses: real VMs are 9001 and 9500+slot.
+TAG = "%d-%04x" % (os.getpid(), random.randrange(0x10000))
+NET = "dark-live-net-%s" % TAG
+CONTAINER = "dark-live-%s" % TAG
+VMID = 900000 + os.getpid() % 100000
 
 
 def docker(*args, check=True):
@@ -49,15 +57,19 @@ class LiveDocker(unittest.TestCase):
                                capture_output=True, text=True)
             if r.returncode != 0:
                 raise unittest.SkipTest(f"cannot build {IMAGE}: {r.stderr.strip()[-300:]}")
-        docker("network", "rm", NET, check=False)
-        docker("network", "create", "--internal", NET)
+        # the name is unique to this run, so create it rather than adopt a
+        # leftover; tearDownClass removes only a network this run created
+        cls.net_created = docker("network", "create", "--internal", NET).returncode == 0
+        if not cls.net_created:
+            raise unittest.SkipTest(f"cannot create network {NET}")
 
     @classmethod
     def tearDownClass(cls):
-        docker("network", "rm", NET, check=False)
+        if getattr(cls, "net_created", False):
+            docker("network", "rm", NET, check=False)
 
     def setUp(self):
-        self.vmid, self.name = 9500, "dark-live-x0"
+        self.vmid, self.name = VMID, CONTAINER
         self.d = D.Docker(IMAGE, network=NET, cpus="1", memory="512m", pids=128)
         self.d.reap(self.vmid, self.name)  # a leftover from an interrupted run
         self.addCleanup(self.d.reap, self.vmid, self.name)

@@ -40,6 +40,14 @@ python3 bench/tools/check_tasks.py
 python3 bench/tools/validate.py
 ```
 
+CI clones dark-tasks, checks out the commit named in `bench/dark-tasks.ref`
+and runs the task tools on that checkout. When the task set changes, bump the
+ref:
+
+```
+git -C <dark-tasks> rev-parse main > bench/dark-tasks.ref
+```
+
 `check_tasks.py` validates every task record. `validate.py` builds each
 reference solution against its own hidden checks and confirms that the
 untouched starting tree is rejected. `bench/README.md` lists the other

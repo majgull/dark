@@ -10,6 +10,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: false
       - name: install
         run: python3 -m pip install ".[dev]"
       - name: runner gate
@@ -17,8 +21,19 @@ jobs:
       - name: example tasks
         run: python3 bench/tools/check_tasks.py
       - name: task set
-        run: git clone --depth 1 https://github.com/majgull/dark-tasks ../dark-tasks
+        # Clone the task set from the server that runs this workflow, with the
+        # job token, and check out the commit bench/dark-tasks.ref names. The
+        # repository variable DARK_TASKS_URL overrides the clone URL; that is
+        # how a local act run points the clone at a local copy of the task set.
+        run: |
+          url="${{ vars.DARK_TASKS_URL }}"
+          url="${url:-${{ github.server_url }}/${{ github.repository_owner }}/dark-tasks}"
+          case "$url" in
+            http://*|https://*) url="${url%%://*}://x-access-token:${{ github.token }}@${url#*://}" ;;
+          esac
+          git clone "$url" dark-tasks
+          git -C dark-tasks checkout "$(cat bench/dark-tasks.ref)"
       - name: task records
-        run: python3 bench/tools/check_tasks.py ../dark-tasks
+        run: python3 bench/tools/check_tasks.py dark-tasks
       - name: task acceptance
-        run: DARK_TASKS=../dark-tasks python3 bench/tools/validate.py
+        run: DARK_TASKS=dark-tasks python3 bench/tools/validate.py
