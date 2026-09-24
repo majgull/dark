@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/banner.svg" alt="dark factory" width="480"></p>
+
 # dark factory
 
 dark factory is a pipeline that lets a language model write code on its own, inside a
