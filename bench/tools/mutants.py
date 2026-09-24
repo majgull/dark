@@ -68,7 +68,7 @@ def main():
     ap.add_argument("--json")
     args = ap.parse_args()
     try:
-        index = task_dir_index(args.tasks_dir or TASKS_ROOT, fallback=HERE)
+        index = task_dir_index(args.tasks_dir or TASKS_ROOT)
     except TaskError as e:
         print(f"tasks: {e}")
         return 1

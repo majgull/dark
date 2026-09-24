@@ -72,7 +72,7 @@ def main():
     # fall back to
     spec = os.pathsep.join(given) if given else TASKS_ROOT
     try:
-        dirs = task_dirs(spec, fallback=HERE)
+        dirs = task_dirs(spec)
     except TaskError as e:
         print(f"tasks: {e}")
         return 1

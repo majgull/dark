@@ -161,44 +161,37 @@ def task_roots(spec):
     return [os.path.expanduser(p) for p in str(spec or "").split(os.pathsep) if p]
 
 
-def task_dirs(spec, fallback=None):
+def task_dirs(spec):
     """[(root, task directory), ...] for every directory under a `tasks/`
     across the roots of `spec`, in root order then name order. A root with
     no `tasks/` directory is refused with its path.
 
-    `fallback` names one root that holds the local example tasks rather than
-    a task set. A name in two task sets is refused, naming both directories:
-    one never silently shadows the same name in another set. The examples
-    are not a task set, so a name they share with one is not a conflict;
-    they stay in this list, so a count of every directory stays honest, and
-    `task_dir_index` keeps the first occurrence for a lookup."""
-    fb = os.path.abspath(fallback) if fallback else ""
+    A name in two roots is refused, naming both directories: no root
+    silently shadows the same name in another."""
     out, owners = [], {}
     for root in task_roots(spec):
         tdir = os.path.join(root, "tasks")
         if not os.path.isdir(tdir):
             raise TaskError(f"{root}: no tasks directory")
-        r = os.path.abspath(root)
         for name in sorted(os.listdir(tdir)):
             d = os.path.join(tdir, name)
             if not os.path.isdir(d):
                 continue
-            if r != fb:
-                if name in owners:
-                    raise TaskError(f"task {name!r} is in two directories: {owners[name]} and {d}")
-                owners[name] = d
+            if name in owners:
+                raise TaskError(f"task {name!r} is in two directories: {owners[name]} and {d}")
+            owners[name] = d
             out.append((root, d))
     return out
 
 
-def task_dir_index(spec, fallback=None):
+def task_dir_index(spec):
     """{task id: (root, task directory)} for every valid task record across
-    the roots of `spec`: the directories that hold a `task.toml`. The first
-    occurrence of a name wins."""
+    the roots of `spec`: the directories that hold a `task.toml`. A name in
+    two roots is refused by `task_dirs`, so a name is never shadowed."""
     index = {}
-    for root, d in task_dirs(spec, fallback):
+    for root, d in task_dirs(spec):
         if os.path.isfile(os.path.join(d, "task.toml")):
-            index.setdefault(os.path.basename(d), (root, d))
+            index[os.path.basename(d)] = (root, d)
     return index
 
 
@@ -209,8 +202,8 @@ def primary_root(spec):
     return roots[0] if roots else os.path.expanduser(str(spec or ""))
 
 
-def load_tasks(bench_dir, only=None, fallback=None):
-    index = task_dir_index(bench_dir, fallback)
+def load_tasks(bench_dir, only=None):
+    index = task_dir_index(bench_dir)
     ids = sorted(index) if not only else [tid for tid in sorted(index) if tid in only]
     out = [load_task(index[tid][1]) for tid in ids]
     missing = set(only or []) - set(index)

@@ -293,8 +293,7 @@ def real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, task_pat
     from .shift import Shift
 
     def _run(round_no, arm):
-        task_list = T.load_tasks(task_path or host.task_path(), only=list(manifest.tasks),
-                                 fallback=host.bench_dir)
+        task_list = T.load_tasks(task_path or host.task_path(), only=list(manifest.tasks))
         fr, _ = frozen_mod.load(manifest.envelope), None
         arm_name = f"{manifest.name}-{arm.name}"
         launch = {"tasks": [t.id for t in task_list], "task_dir": None, "tier": arm.tier,

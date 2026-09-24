@@ -324,17 +324,19 @@ class TaskRoots(unittest.TestCase):
         self.assertIn(os.path.join(self.a, "tasks", "hello"), msg)
         self.assertIn(os.path.join(self.b, "tasks", "hello"), msg)
 
-    def test_the_example_fallback_does_not_conflict_with_a_task_set(self):
-        # the two tasks under bench/tasks/ are examples, not a task set: a
-        # name they share with a real set is served by the real set (first
-        # occurrence wins), and every directory is still listed
-        make_task(self.a, "hello")
-        make_task(self.b, "hello")
-        spec = os.pathsep.join([self.a, self.b])
-        index = tasks.task_dir_index(spec, fallback=self.b)
-        self.assertEqual(list(index), ["hello"])
-        self.assertEqual(index["hello"][1], os.path.join(self.a, "tasks", "hello"))
-        self.assertEqual(len(tasks.task_dirs(spec, fallback=self.b)), 2)
+    def test_the_example_tasks_are_not_exempt_from_a_duplicate(self):
+        # the bench checkout's own examples are a task set like any other: a
+        # name they share with another root is refused, naming both, so no
+        # root is ever served by a silent first occurrence
+        bench = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "bench")
+        self.assertTrue(os.path.isdir(os.path.join(bench, "tasks", "hello-go")))
+        make_task(self.a, "hello-go")
+        spec = os.pathsep.join([bench, self.a])
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.task_dirs(spec)
+        msg = str(cm.exception)
+        self.assertIn(os.path.join(bench, "tasks", "hello-go"), msg)
+        self.assertIn(os.path.join(self.a, "tasks", "hello-go"), msg)
 
     def test_a_missing_directory_is_refused_with_its_path(self):
         missing = os.path.join(self.tmp, "absent")

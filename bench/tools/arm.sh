@@ -58,21 +58,19 @@ EOF
 MODE=$(read_arm mode); [ "$MODE" = session ] || { echo "arm $ARM is not a session arm" >&2; exit 2; }
 BRAIN=$(read_arm brain); TIER=$(read_arm tier); CELL=$(read_arm cell)
 # the task path: DARK_TASKS is one task-set root or several joined with ':',
-# like PATH. The task is looked up across them, first occurrence wins. A name
-# in two task sets is an error naming both, never a silent shadow; the
-# examples beside this tool ($HERE) are a fallback and never conflict.
-TASK_PATHS=(); REAL_PATHS=()
+# like PATH. The task is looked up across them. A name in two task sets is
+# an error naming both, never a silent shadow.
+TASK_PATHS=()
 IFS=':' read -r -a TASK_ROOTS <<< "${DARK_TASKS:-$HERE}"
 for root in "${TASK_ROOTS[@]}"; do
   [ -n "$root" ] && [ -f "$root/tasks/$TASK/task.toml" ] || continue
   TASK_PATHS+=("$root/tasks/$TASK")
-  [ "$(cd "$root" 2>/dev/null && pwd)" = "$HERE" ] || REAL_PATHS+=("$root/tasks/$TASK")
 done
 if [ ${#TASK_PATHS[@]} -eq 0 ]; then
   echo "no task $TASK in ${DARK_TASKS:-$HERE}" >&2; exit 2
 fi
-if [ ${#REAL_PATHS[@]} -gt 1 ]; then
-  echo "task $TASK is in two directories: ${REAL_PATHS[0]} and ${REAL_PATHS[1]}" >&2; exit 2
+if [ ${#TASK_PATHS[@]} -gt 1 ]; then
+  echo "task $TASK is in two directories: ${TASK_PATHS[0]} and ${TASK_PATHS[1]}" >&2; exit 2
 fi
 TDIR="${TASK_PATHS[0]}"
 say() { printf '== arm %s/%s %s\n' "$ARM" "$TASK" "$*"; }

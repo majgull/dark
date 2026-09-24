@@ -55,19 +55,19 @@ runner restart (`docker compose -p dark restart runner`), never a rebuild.
 The runner reads its task set from `DARK_TASKS`, one task-set root (a
 directory holding `tasks/`) or several joined with `:`. Compose mounts two
 host directories, named by `DARK_TASKS_DIRS` and `DARK_TASKS_DIRS_2`, read
-only, and lists them after the bench checkout:
+only, and lists the ones that are set:
 
 ```
 DARK_TASKS_DIRS=$HOME/tasks/public DARK_TASKS_DIRS_2=$HOME/tasks/private \
   docker compose -p dark up -d gitea runner
 ```
 
-Inside the runner `DARK_TASKS` is
-`/root/dark-runner/bench:/root/dark-tasks/1:/root/dark-tasks/2`. A task name
-in two task sets is refused, naming both, rather than one silently winning;
-the bench checkout's example tasks are a fallback and never conflict. With
-neither variable set, the bench checkout's two example tasks are the only
-task set.
+Inside the runner `DARK_TASKS` is `/root/dark-tasks/1`, plus
+`:/root/dark-tasks/2` when `DARK_TASKS_DIRS_2` is set. A task name in two
+task sets is refused, naming both, rather than one silently winning. With
+neither variable set, `DARK_TASKS` is `/root/dark-tasks/1`, which compose
+mounts from `./bench`, so the bench checkout's two example tasks are the
+only task set.
 
 ### The two verdicts, with no model
 

@@ -54,10 +54,10 @@ services:
       DARK_STATE: /root/.dark
       DARK_TEMPLATES: /root/dark-runner/templates
       DARK_BENCH: /root/dark-runner/bench
-      # The task path: the bench checkout baked into the image, then each
-      # task-set directory named by DARK_TASKS_DIRS and DARK_TASKS_DIRS_2,
-      # in that order. Both unset means the bench checkout alone.
-      DARK_TASKS: /root/dark-runner/bench${DARK_TASKS_DIRS:+:/root/dark-tasks/1}${DARK_TASKS_DIRS_2:+:/root/dark-tasks/2}
+      # The task path: each task-set directory named by DARK_TASKS_DIRS and
+      # DARK_TASKS_DIRS_2, in that order. Both unset means the bench
+      # checkout's example tasks, mounted at /root/dark-tasks/1 below.
+      DARK_TASKS: /root/dark-tasks/1${DARK_TASKS_DIRS_2:+:/root/dark-tasks/2}
       DARK_SANDBOX_IMAGE: dark-sandbox
       # where dark reads models.toml, budgets.toml and host.toml: the mounted
       # config directory, not the copy baked into the image
@@ -80,7 +80,7 @@ services:
       # task-set directories outside the checkout, read-only. DARK_TASKS_DIRS
       # and DARK_TASKS_DIRS_2 name host directories; each is mounted below
       # /root/dark-tasks and listed in DARK_TASKS above. Unset, the mount
-      # points at the example tasks and is not listed.
+      # points at the example tasks; only the ones set are listed.
       - ${DARK_TASKS_DIRS:-./bench}:/root/dark-tasks/1:ro
       - ${DARK_TASKS_DIRS_2:-./bench}:/root/dark-tasks/2:ro
       # the config directory: the examples in this checkout by default, a

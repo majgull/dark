@@ -140,7 +140,7 @@ def _task_list(args, host):
     if getattr(args, "task_dir", None):
         return [tasks.load_task(args.task_dir)]
     only = [t for t in (args.tasks or "").split(",") if t] or None
-    return tasks.load_tasks(args.bench or host.task_path(), only=only, fallback=host.bench_dir)
+    return tasks.load_tasks(args.bench or host.task_path(), only=only)
 
 
 def _resume_launch(args, ledger, host):
@@ -260,7 +260,7 @@ def cmd_stage(args):
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     try:
         task = tasks.load_task(args.task_dir) if args.task_dir else \
-            tasks.load_tasks(args.bench or host.task_path(), only=[args.task], fallback=host.bench_dir)[0]
+            tasks.load_tasks(args.bench or host.task_path(), only=[args.task])[0]
     except tasks.TaskError as e:
         print(f"tasks: {e}")
         return 2
@@ -395,7 +395,7 @@ def cmd_envelope(args):
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     try:
         task = tasks.load_task(args.task_dir) if args.task_dir else \
-            tasks.load_tasks(args.bench or host.task_path(), only=[args.task], fallback=host.bench_dir)[0]
+            tasks.load_tasks(args.bench or host.task_path(), only=[args.task])[0]
     except tasks.TaskError as e:
         print(f"tasks: {e}")
         return 2

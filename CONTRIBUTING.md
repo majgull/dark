@@ -33,8 +33,7 @@ For the full set, put a dark-tasks checkout beside this repository at
 `../dark-tasks` and point the tools at it with `DARK_TASKS`. The task path may
 name several task sets at once, `:` separated, so a public set and a private
 one are checked in one run; a task name in two task sets is refused, naming
-both (the example tasks under `bench/tasks/` are a fallback and never
-conflict):
+both:
 
 ```
 DARK_TASKS=../dark-tasks:$HOME/private-tasks python3 bench/tools/check_tasks.py
