@@ -125,7 +125,11 @@ class Proxmox:
             return re.sub(r"virtio=[0-9A-Fa-f:]+", f"virtio={self.mac_for(vmid)}", m.group(1))
         return f"virtio={self.mac_for(vmid)},bridge=vmbr0,firewall=1"
 
-    def spawn(self, vmid, name, cloud_config):
+    def spawn(self, vmid, name, files, runcmd):
+        """Clone, configure and start a VM. `files` is {path: (content, mode)}
+        and `runcmd` a list of argv lists; the cloud-init document is rendered
+        here, so callers of the seam never build one."""
+        cloud_config = user_data(name, files, runcmd)
         if self.status(vmid) is not None:
             self.reap(vmid, name)
         snippet = f"/var/lib/vz/snippets/{name}.yaml"

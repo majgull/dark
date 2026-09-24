@@ -1,0 +1,51 @@
+"""dark/sandbox.py - the seam between the runner and the compute plane.
+
+A sandbox is one throwaway machine the runner injects a script into and
+discards afterwards: today a Proxmox VM, later also a container. The runner
+uses only the five methods below, so a new backend implements them and the
+callers do not change. `vm.Proxmox` is the only backend today.
+
+`spawn` takes the files to write and the command to run, not a rendered
+cloud-init document: rendering is Proxmox's business, and a backend without
+cloud-init would have no use for one.
+"""
+
+from typing import Protocol
+
+from . import config
+from . import vm
+
+
+class Sandbox(Protocol):
+    """What the runner needs from the compute plane. Each implementation
+    documents the contract of its own methods."""
+
+    def reachable(self) -> bool:
+        """Is the backend usable right now?"""
+        ...
+
+    def template_ok(self) -> tuple[bool, str]:
+        """(ok, why) for the image a sandbox is cloned from."""
+        ...
+
+    def spawn(self, vmid, name, files, runcmd) -> None:
+        """Start a sandbox for `vmid`/`name`; `files` is {path: (content, mode)}
+        and `runcmd` is a list of argv lists. Raise on failure."""
+        ...
+
+    def guest_ip(self, vmid) -> str | None:
+        """The sandbox's address, or None while it holds none."""
+        ...
+
+    def reap(self, vmid, name) -> bool:
+        """Stop and remove the sandbox. True iff it is gone."""
+        ...
+
+
+def make(host, template):
+    """The one place the runner builds a backend object, chosen by
+    host.backend. A name this build does not implement is refused by
+    config.check_backend, never guessed. `template` names the image a
+    sandbox is cloned from."""
+    config.check_backend(host.backend)
+    return vm.Proxmox(host.proxmox, template)

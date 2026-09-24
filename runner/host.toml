@@ -13,6 +13,7 @@ git_lan_url = ""                                    # DARK_GIT_LAN     (where VM
 admin_token_file = "~/.dark/dark-admin.token"       # DARK_ADMIN_TOKEN_FILE
 agent_token_file = "~/.dark/dark-agent.token"       # DARK_AGENT_TOKEN_FILE
 agent_user = "dark-agent"                           # DARK_AGENT_USER  (the Gitea user executor VMs push as)
+backend = "proxmox"                                 # DARK_BACKEND     (the compute plane; the only value is "proxmox")
 proxmox = "cpu-host"                                # DARK_PROXMOX     (example role name for the Proxmox host)
 ntfy_url = ""                                       # DARK_NTFY        (optional; "" = no push)
 state_dir = "~/.dark"                               # DARK_STATE       (ledger, abort markers, scratch)

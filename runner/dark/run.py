@@ -248,7 +248,7 @@ class Runner:
 
     # --- VM launch (tests replace this) --------------------------------------
     def launch(self, vmid, name, files, runcmd):
-        self.px.spawn(vmid, name, vm.user_data(name, files, runcmd))
+        self.px.spawn(vmid, name, files, runcmd)
 
     def reap(self, vmid, name):
         try:

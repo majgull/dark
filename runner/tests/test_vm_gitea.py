@@ -56,10 +56,15 @@ class VM(unittest.TestCase):
         self.assertIn("not a template", why)
 
     def test_spawn_sequence_and_firewall(self):
-        self.px.spawn(9500, "dark-x1", "#cloud-config\n")
+        files = {"/opt/task.json": ('{"a": 1}', "0600")}
+        runcmd = [["bash", "-lc", "python3 /opt/agent.py"]]
+        self.px.spawn(9500, "dark-x1", files, runcmd)
         cmds = self.ssh.cmds
         self.assertIn("cat > /var/lib/vz/snippets/dark-x1.yaml", cmds)
-        self.assertEqual(self.ssh.stdin["cat > /var/lib/vz/snippets/dark-x1.yaml"], "#cloud-config\n")
+        doc = self.ssh.stdin["cat > /var/lib/vz/snippets/dark-x1.yaml"]
+        self.assertEqual(doc, vm.user_data("dark-x1", files, runcmd))
+        self.assertIn("  - path: /opt/task.json", doc)
+        self.assertIn("runcmd:", doc)
         self.assertIn("qm clone 9001 9500 --name dark-x1", cmds)
         self.assertIn("qm set 9500 --cicustom user=local:snippets/dark-x1.yaml,network=local:snippets/dark-x1-net.yaml", cmds)
         # a fixed MAC per VM id, the template's other net0 options kept
@@ -73,12 +78,12 @@ class VM(unittest.TestCase):
 
     def test_fixed_mac_keeps_template_net_options(self):
         self.ssh.template[9001] = "template: 1\nnet0: virtio=BC:24:11:8D:50:5B,bridge=vmbr1,firewall=1\n"
-        self.px.spawn(9551, "dark-s1", "#cloud-config\n")
+        self.px.spawn(9551, "dark-s1", {}, [])
         self.assertIn("qm set 9551 --net0 virtio=BC:24:11:DA:25:4F,bridge=vmbr1,firewall=1", self.ssh.cmds)
 
     def test_spawn_reaps_a_leftover_first(self):
         self.ssh.status[9500] = "running"
-        self.px.spawn(9500, "dark-x1", "x")
+        self.px.spawn(9500, "dark-x1", {}, [])
         self.assertTrue(any(c.startswith("qm destroy 9500") for c in self.ssh.cmds))
         self.assertEqual(self.px.status(9500), "running")  # the new one
 

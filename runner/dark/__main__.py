@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, tasks
+from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, sandbox, tasks
 from . import gitea as G
 from . import ledger as L
 from . import vm
@@ -29,7 +29,7 @@ def _ctx(args):
     catalog, budgets, host = _load(args)
     ledger = L.Ledger(host.ledger_path)
     gitea = G.Gitea(host.gitea_url, host.admin_token, lan_url=host.gitea_lan_url)
-    px = vm.Proxmox(host.proxmox, budgets.shift["vm_template"])
+    px = sandbox.make(host, budgets.shift["vm_template"])
     return catalog, budgets, host, ledger, gitea, px
 
 

@@ -372,7 +372,7 @@ HOST_ENV = {
     "org": "DARK_ORG", "gitea_url": "DARK_GITEA_URL", "gitea_lan_url": "DARK_GITEA_LAN",
     "git_lan_url": "DARK_GIT_LAN",
     "admin_token_file": "DARK_ADMIN_TOKEN_FILE", "agent_token_file": "DARK_AGENT_TOKEN_FILE",
-    "proxmox": "DARK_PROXMOX", "ntfy_url": "DARK_NTFY", "state_dir": "DARK_STATE",
+    "proxmox": "DARK_PROXMOX", "backend": "DARK_BACKEND", "ntfy_url": "DARK_NTFY", "state_dir": "DARK_STATE",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "wake_timeout": "DARK_WAKE_TIMEOUT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
     "agent_user": "DARK_AGENT_USER", "records_org": "DARK_RECORDS_ORG",
@@ -388,6 +388,7 @@ class Host:
     git_lan_url: str = ""     # where VMs clone/push from; "" = gitea_lan_url
     admin_token_file: str = "~/.dark/dark-admin.token"
     agent_token_file: str = "~/.dark/dark-agent.token"
+    backend: str = "proxmox"  # the compute plane; "proxmox" is the only value this build supports
     proxmox: str = "cpu-host"
     ntfy_url: str = ""
     state_dir: str = "~/.dark"
@@ -420,6 +421,16 @@ class Host:
         return os.path.join(self.state_dir, "scratch")
 
 
+BACKENDS = ("proxmox",)  # implementations of the dark/sandbox.Sandbox protocol
+
+
+def check_backend(name):
+    """Refuse a compute-plane backend this build does not implement, naming
+    it in one line. dark/sandbox.Sandbox is the seam every backend fills."""
+    if name not in BACKENDS:
+        raise ConfigError(f'host backend {name!r}: the only supported value is "proxmox"')
+
+
 def load_host(path, environ=os.environ):
     d = _read(path).get("host") or {}
     vals = {}
@@ -428,4 +439,6 @@ def load_host(path, environ=os.environ):
             vals[key] = environ[env]
         elif key in d:
             vals[key] = d[key]
-    return Host(**vals)
+    host = Host(**vals)
+    check_backend(host.backend)
+    return host
