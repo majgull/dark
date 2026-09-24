@@ -1,0 +1,24 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: install
+        run: python3 -m pip install ".[dev]"
+      - name: runner gate
+        run: cd runner && bash verify.sh
+      - name: example tasks
+        run: python3 bench/tools/check_tasks.py
+      - name: task set
+        run: git clone --depth 1 https://github.com/majgull/dark-tasks ../dark-tasks
+      - name: task records
+        run: python3 bench/tools/check_tasks.py ../dark-tasks
+      - name: task acceptance
+        run: DARK_TASKS=../dark-tasks python3 bench/tools/validate.py

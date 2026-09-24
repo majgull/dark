@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dark"
+version = "0.2.0"
+description = "Run a language model on a coding task in a throwaway machine, judged by tests it never sees"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "CC0-1.0"
+license-files = ["LICENSE"]
+# the dark package imports only the standard library; the list is empty on
+# purpose, so installing it never pulls a third-party runtime dependency
+dependencies = []
+
+[project.optional-dependencies]
+# test suite: tests/test_repo_hygiene.py imports pytest directly
+dev = ["pytest==9.1.1"]
+
+[project.urls]
+Homepage = "https://github.com/majgull/dark"
+Repository = "https://github.com/majgull/dark"
+Tasks = "https://github.com/majgull/dark-tasks"
+Paper = "https://github.com/majgull/dark-paper"
+
+[project.scripts]
+dark = "dark.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "runner"}
+packages = ["dark"]
