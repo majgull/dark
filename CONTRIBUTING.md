@@ -30,11 +30,15 @@ python3 bench/tools/check_tasks.py
 ```
 
 For the full set, put a dark-tasks checkout beside this repository at
-`../dark-tasks` and point the tools at it with `DARK_TASKS`:
+`../dark-tasks` and point the tools at it with `DARK_TASKS`. The task path may
+name several task sets at once, `:` separated, so a public set and a private
+one are checked in one run; a task name in two task sets is refused, naming
+both (the example tasks under `bench/tasks/` are a fallback and never
+conflict):
 
 ```
-DARK_TASKS=../dark-tasks python3 bench/tools/check_tasks.py
-DARK_TASKS=../dark-tasks python3 bench/tools/validate.py
+DARK_TASKS=../dark-tasks:$HOME/private-tasks python3 bench/tools/check_tasks.py
+DARK_TASKS=../dark-tasks:$HOME/private-tasks python3 bench/tools/validate.py
 ```
 
 `check_tasks.py` validates every task record. `validate.py` builds each

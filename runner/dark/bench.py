@@ -185,8 +185,10 @@ def dry_run(manifest, phases, bench=None):
         lines.append(f"envelope file: {env_path}")
     else:
         lines.append(f"NOT CHECKED: envelope file {manifest.envelope} (not found on this host)")
-    if bench and os.path.isdir(os.path.join(bench, "tasks")):
-        missing = [t for t in manifest.tasks if not os.path.isdir(os.path.join(bench, "tasks", t))]
+    if bench:
+        roots = T.task_roots(bench)
+        missing = [t for t in manifest.tasks
+                   if not any(os.path.isdir(os.path.join(r, "tasks", t)) for r in roots)]
         if missing:
             lines.append(f"NOT CHECKED: bench checkout {bench}: tasks/ missing {missing}")
         else:
@@ -284,14 +286,15 @@ def run_phase(manifest, ledger, tests_version, envelope_sha256, run_shift, verif
 
 # --- wiring the real world (the CLI uses these; tests inject fakes instead) --
 
-def real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, bench_dir=None):
+def real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, task_path=None):
     """run_shift(round, arm) -> shift id, one shift launched in-process
     through dark.shift.Shift — the same path `dark shift` uses."""
     from . import frozen as frozen_mod
     from .shift import Shift
 
     def _run(round_no, arm):
-        task_list = T.load_tasks(bench_dir or host.bench_dir, only=list(manifest.tasks))
+        task_list = T.load_tasks(task_path or host.task_path(), only=list(manifest.tasks),
+                                 fallback=host.bench_dir)
         fr, _ = frozen_mod.load(manifest.envelope), None
         arm_name = f"{manifest.name}-{arm.name}"
         launch = {"tasks": [t.id for t in task_list], "task_dir": None, "tier": arm.tier,

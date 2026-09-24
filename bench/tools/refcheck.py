@@ -26,8 +26,15 @@ import tempfile
 import tomllib
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# the runner package sits beside the bench in this checkout; its tasks.py is
+# the one resolver for the task path
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "runner"))
+
+from dark.tasks import TaskError, task_dir_index  # noqa: E402
+
 # The task set lives in its own repository (github.com/majgull/dark-tasks); DARK_TASKS
-# names its checkout. Unset, the two example tasks beside this tool are used.
+# names one or more checkouts of it, `:` separated. Unset, the two example
+# tasks beside this tool are used.
 TASKS_ROOT = os.environ.get("DARK_TASKS", HERE)
 sys.path.insert(0, os.path.join(HERE, "tools"))
 
@@ -62,8 +69,7 @@ def apply_solution(work, dest):
     return sorted(after - before), sorted(before - after)
 
 
-def one(tid, work_dir, templates, keep):
-    tdir = os.path.join(TASKS_ROOT, "tasks", tid)
+def one(tid, tdir, work_dir, templates, keep):
     with open(os.path.join(tdir, "task.toml"), "rb") as f:
         lang = tomllib.load(f)["lang"]
     dest = tempfile.mkdtemp(prefix=f"ref-{tid}-")
@@ -114,10 +120,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", required=True, help="directory holding one solved tree per task")
     ap.add_argument("--tasks", required=True)
+    ap.add_argument("--tasks-dir", help="task-set root(s), ':' separated (default: $DARK_TASKS, else the examples here)")
     ap.add_argument("--templates", default=os.path.join(os.path.dirname(HERE), "templates"))
     ap.add_argument("--json", help="write every result to this file")
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
+    try:
+        index = task_dir_index(args.tasks_dir or TASKS_ROOT, fallback=HERE)
+    except TaskError as e:
+        print(f"tasks: {e}")
+        return 2
     out = []
     for tid in args.tasks.split(","):
         wd = os.path.join(args.work, tid)
@@ -125,7 +137,11 @@ def main():
             print(f"{tid:26} MISSING: no {wd}")
             out.append({"task": tid, "missing": True})
             continue
-        out.append(one(tid, wd, args.templates, args.keep))
+        if tid not in index:
+            print(f"{tid:26} MISSING: no task directory for {tid}")
+            out.append({"task": tid, "missing": True})
+            continue
+        out.append(one(tid, index[tid][1], wd, args.templates, args.keep))
     if args.json:
         with open(args.json, "w") as f:
             json.dump(out, f, indent=1)

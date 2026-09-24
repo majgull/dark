@@ -376,7 +376,8 @@ HOST_ENV = {
     "sandbox_image": "DARK_SANDBOX_IMAGE", "sandbox_network": "DARK_SANDBOX_NETWORK",
     "sandbox_cpus": "DARK_SANDBOX_CPUS", "sandbox_memory": "DARK_SANDBOX_MEMORY",
     "sandbox_pids": "DARK_SANDBOX_PIDS",
-    "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "wake_timeout": "DARK_WAKE_TIMEOUT",
+    "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
+    "wake_timeout": "DARK_WAKE_TIMEOUT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
     "agent_user": "DARK_AGENT_USER", "records_org": "DARK_RECORDS_ORG",
 }
@@ -404,6 +405,9 @@ class Host:
     state_dir: str = "~/.dark"
     templates_dir: str = "~/dark-templates"
     bench_dir: str = "~/dark-bench"
+    # the task path: one task-set root, or several joined with os.pathsep
+    # (PATH style). "" = the bench_dir above. Each root holds tasks/.
+    task_dirs: str = ""
     wake_timeout: int = 420
     power_cpu_host: str = ""  # ssh target with the RAPL package counter (the Proxmox host); "" = no CPU metering
     power_gpu_host: str = ""  # ssh target where nvidia-smi sees the GPUs (the model VM); "" = no GPU metering
@@ -427,6 +431,11 @@ class Host:
     @property
     def ledger_path(self):
         return os.path.join(self.state_dir, "ledger.jsonl")
+
+    def task_path(self):
+        """Where the task set is read from: DARK_TASKS when set, else the
+        bench checkout. One root or several joined with os.pathsep."""
+        return self.task_dirs or self.bench_dir
 
     @property
     def abort_dir(self):

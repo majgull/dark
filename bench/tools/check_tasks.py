@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """check_tasks — the bench's CI gate: every tasks/<id> is a valid record.
-Stdlib only, standalone (the runner's loader is the authority at run time;
-this catches the mistakes before a shift does)."""
+The runner's tasks.py holds the authority on where task sets live, so this
+shares its resolver (stdlib only, no install) instead of keeping a second
+copy that drifts; this tool catches the mistakes before a shift does.
+
+  python3 tools/check_tasks.py [path ...]
+
+Each path is a task-set root holding tasks/; several may be given, and each
+may itself be a colon-separated list. Unset, $DARK_TASKS is used, and with
+neither, the two example tasks beside this tool."""
 
 import os
 import sys
@@ -10,8 +17,15 @@ import tomllib
 CLASSES = ("additive", "mechanical", "repair")
 LANGS = ("go", "python")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# the runner package sits beside the bench in this checkout; the resolver in
+# dark/tasks.py is the one implementation of the task path
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "runner"))
+
+from dark.tasks import TaskError, task_dirs  # noqa: E402
+
 # The task set lives in its own repository (github.com/majgull/dark-tasks); DARK_TASKS
-# names its checkout. Unset, the two example tasks beside this tool are used.
+# names one or more checkouts of it, `:` separated. Unset, the two example
+# tasks beside this tool are used.
 TASKS_ROOT = os.environ.get("DARK_TASKS", HERE)
 
 
@@ -53,11 +67,18 @@ def check(path):
 
 
 def main():
-    root = os.path.join(sys.argv[1] if len(sys.argv) > 1 else TASKS_ROOT, "tasks")
-    dirs = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
+    given = sys.argv[1:]
+    # several path arguments are one PATH-style list, like the variable they
+    # fall back to
+    spec = os.pathsep.join(given) if given else TASKS_ROOT
+    try:
+        dirs = task_dirs(spec, fallback=HERE)
+    except TaskError as e:
+        print(f"tasks: {e}")
+        return 1
     problems = []
-    for d in dirs:
-        problems += check(os.path.join(root, d))
+    for _, d in dirs:
+        problems += check(d)
     for p in problems:
         print(p)
     print(f"{len(dirs)} task(s), {len(problems)} problem(s)")

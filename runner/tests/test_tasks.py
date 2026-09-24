@@ -291,6 +291,62 @@ class Chains(unittest.TestCase):
         self.assertEqual([d for d in os.listdir(scratch) if d.startswith("mat-")], [])
 
 
+class TaskRoots(unittest.TestCase):
+    """A task path may name several task-set directories at once, PATH
+    style. Names are looked up across them; the same name in two of them is
+    refused, never silently shadowed."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.a = os.path.join(self.tmp, "a")
+        self.b = os.path.join(self.tmp, "b")
+
+    def test_one_directory_is_unchanged(self):
+        make_task(self.a, "hello")
+        make_task(self.a, "fix-1", cls="repair", may_edit=("main.py",), lang="go")
+        self.assertEqual([t.id for t in tasks.load_tasks(self.a)], ["fix-1", "hello"])
+        self.assertEqual([t.id for t in tasks.load_tasks(self.a, only=["hello"])], ["hello"])
+
+    def test_two_directories_are_the_union(self):
+        make_task(self.a, "hello")
+        make_task(self.b, "other")
+        spec = os.pathsep.join([self.a, self.b])
+        self.assertEqual([t.id for t in tasks.load_tasks(spec)], ["hello", "other"])
+        self.assertEqual(sorted(tasks.task_dir_index(spec)), ["hello", "other"])
+        self.assertEqual(tasks.load_tasks(spec, only=["other"])[0].id, "other")
+
+    def test_a_name_in_two_directories_is_refused_naming_both(self):
+        make_task(self.a, "hello")
+        make_task(self.b, "hello")
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_tasks(os.pathsep.join([self.a, self.b]))
+        msg = str(cm.exception)
+        self.assertIn(os.path.join(self.a, "tasks", "hello"), msg)
+        self.assertIn(os.path.join(self.b, "tasks", "hello"), msg)
+
+    def test_the_example_fallback_does_not_conflict_with_a_task_set(self):
+        # the two tasks under bench/tasks/ are examples, not a task set: a
+        # name they share with a real set is served by the real set (first
+        # occurrence wins), and every directory is still listed
+        make_task(self.a, "hello")
+        make_task(self.b, "hello")
+        spec = os.pathsep.join([self.a, self.b])
+        index = tasks.task_dir_index(spec, fallback=self.b)
+        self.assertEqual(list(index), ["hello"])
+        self.assertEqual(index["hello"][1], os.path.join(self.a, "tasks", "hello"))
+        self.assertEqual(len(tasks.task_dirs(spec, fallback=self.b)), 2)
+
+    def test_a_missing_directory_is_refused_with_its_path(self):
+        missing = os.path.join(self.tmp, "absent")
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_tasks(missing)
+        self.assertIn(missing, str(cm.exception))
+
+    def test_the_first_root_is_the_primary_checkout(self):
+        self.assertEqual(tasks.primary_root(os.pathsep.join([self.a, self.b])), self.a)
+        self.assertEqual(tasks.primary_root(self.a), self.a)
+
+
 class TestsVersion(unittest.TestCase):
     """Every run.end names the bench commit whose acceptance judged it, so a
     table can print the test version of each row instead of the reader

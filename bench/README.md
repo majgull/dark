@@ -22,10 +22,10 @@ A task may follow another: `after = "<id>"` in its `task.toml`. Its starting tre
 
 ## Tools
 
-Every tool reads the task set at `DARK_TASKS` (the root of a `dark-tasks` checkout) and, unset, the examples here.
+Every tool reads the task set from `DARK_TASKS`, one root of a `dark-tasks` checkout or several joined with `:`, and unset, the examples here. A task name in two task sets is refused, naming both, rather than one silently winning; the example tasks here are a fallback and never conflict.
 
 ```
-python3 tools/check_tasks.py [path]   every tasks/<id> is a valid record; the CI gate
+python3 tools/check_tasks.py [path ...]  every tasks/<id> is a valid record; the CI gate
 python3 tools/validate.py             each reference solution against its own hidden checks
 python3 tools/mutants.py              each broken copy is caught by at least one hidden check
 python3 tools/refcheck.py             a solved tree per task against the hidden checks

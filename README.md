@@ -41,7 +41,17 @@ cd bench && python3 tools/check_tasks.py     # the two example tasks: 0 problems
 ```
 
 With the full task set cloned beside the repository, `python3 tools/check_tasks.py
-../../dark-tasks` checks all 31 tasks. `docs/fresh-container.md` records a bare container
+../../dark-tasks` checks all 31 tasks. The task path (`DARK_TASKS`) may name
+several task sets at once, `:` separated, so a public set and a private one are
+checked in one run; a task name in two task sets is refused, naming both,
+rather than one silently winning (the example tasks under `bench/tasks/` are a
+fallback and never conflict):
+
+```
+DARK_TASKS=../../dark-tasks:$HOME/private-tasks python3 tools/check_tasks.py
+```
+
+`docs/fresh-container.md` records a bare container
 running the checks.
 
 ## Layout

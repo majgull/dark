@@ -24,6 +24,7 @@ ntfy_url = ""                                       # DARK_NTFY        (optional
 state_dir = "~/.dark"                               # DARK_STATE       (ledger, abort markers, scratch)
 templates_dir = "~/dark-templates"                  # DARK_TEMPLATES   (a checkout of dark/templates)
 bench_dir = "~/dark-bench"                          # DARK_BENCH       (a checkout of dark/bench)
+task_dirs = ""                                      # DARK_TASKS       (task-set roots, ":" separated; "" = bench_dir above)
 wake_timeout = 420                                  # DARK_WAKE_TIMEOUT (seconds a real wake request may take)
 # energy sensors (dark/power.py): the RAPL package counter lives on the Proxmox
 # host; the GPUs are passed through to the model VM, so nvidia-smi runs there

@@ -67,13 +67,14 @@ def cmd_bench(args):
             print(f"{phase}: NOT BUILT")
             continue
         bench_dir = args.bench or host.bench_dir
+        task_path = args.bench or host.task_path()
         try:
             envelope_sha256 = frozen_mod.load(manifest.envelope).sha256
         except frozen_mod.FrozenError as e:
             print(f"run: {e}")
             return 2
-        tests_version = tasks.tests_version(bench_dir)
-        run_shift = B.real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, bench_dir=bench_dir)
+        tests_version = tasks.tests_version(tasks.primary_root(bench_dir))
+        run_shift = B.real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, task_path=task_path)
         verify_round = B.real_verify_round(HERE, manifest, conf=args.conf)
         calls_left = B.real_calls_left(catalog, budgets, ledger)
         ok = B.run_phase(manifest, ledger, tests_version, envelope_sha256, run_shift, verify_round,
@@ -139,7 +140,7 @@ def _task_list(args, host):
     if getattr(args, "task_dir", None):
         return [tasks.load_task(args.task_dir)]
     only = [t for t in (args.tasks or "").split(",") if t] or None
-    return tasks.load_tasks(args.bench or host.bench_dir, only=only)
+    return tasks.load_tasks(args.bench or host.task_path(), only=only, fallback=host.bench_dir)
 
 
 def _resume_launch(args, ledger, host):
@@ -220,7 +221,7 @@ def cmd_shift(args):
     sh.slot = args.slot
     ran = sh.run(task_list, tier=args.tier, max_runs=args.max_runs)
     text, one = sh.report()
-    bench = args.bench or host.bench_dir
+    bench = tasks.primary_root(args.bench or host.bench_dir)
     rel = digest.publish(text, sh.id, host.ledger_path, bench,
                          push_url=gitea.push_url(f"{host.org}/bench") if not args.no_push else None)
     link = f"{host.gitea_lan_url}/{host.org}/bench/src/branch/main/{rel}"
@@ -259,7 +260,7 @@ def cmd_stage(args):
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     try:
         task = tasks.load_task(args.task_dir) if args.task_dir else \
-            tasks.load_tasks(args.bench or host.bench_dir, only=[args.task])[0]
+            tasks.load_tasks(args.bench or host.task_path(), only=[args.task], fallback=host.bench_dir)[0]
     except tasks.TaskError as e:
         print(f"tasks: {e}")
         return 2
@@ -394,7 +395,7 @@ def cmd_envelope(args):
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     try:
         task = tasks.load_task(args.task_dir) if args.task_dir else \
-            tasks.load_tasks(args.bench or host.bench_dir, only=[args.task])[0]
+            tasks.load_tasks(args.bench or host.task_path(), only=[args.task], fallback=host.bench_dir)[0]
     except tasks.TaskError as e:
         print(f"tasks: {e}")
         return 2
@@ -431,7 +432,7 @@ def cmd_spec_review(args):
     if not tier:
         print("no validator tier in models.toml and no --tier given")
         return 2
-    bench = args.bench or host.bench_dir
+    bench = tasks.primary_root(args.bench or host.bench_dir)
     os.makedirs(os.path.join(bench, "reviews"), exist_ok=True)
     bad = 0
     for t in task_list:
