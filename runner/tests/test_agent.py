@@ -33,7 +33,7 @@ class Parsing(unittest.TestCase):
 
     def test_parse_files(self):
         reply = ("prose\nFILE: ./a.py\n```python\nprint(1)```\nFILE: .gitea/x\n```\nno\n```\n"
-                 "FILE: ../up\n```\nno\n```\nFILE: .factory/verify.sh\n```\nno\n```\n"
+                 "FILE: ../up\n```\nno\n```\nFILE: .dark/verify.sh\n```\nno\n```\n"
                  "FILE: b.txt\n```\nline\n```\n")
         files = self.agent.parse_files(reply)
         self.assertEqual(set(files), {"a.py", "b.txt"})
@@ -91,7 +91,7 @@ class EndToEnd(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_agent(self, replies, files=None, task_extra=None):
-        files = files or {".factory/verify.sh": VERIFY_HELLO, "README.md": "# t\n"}
+        files = files or {".dark/verify.sh": VERIFY_HELLO, "README.md": "# t\n"}
         self.repos = tempfile.mkdtemp(dir=self.tmp)
         self.gitea.issues[self.full][1]["comments"] = []
         git_url = fakes.make_origin(self.repos, self.full, files)
@@ -155,7 +155,7 @@ class EndToEnd(unittest.TestCase):
         verify = "#!/bin/bash\ncd \"$(dirname \"$0\")/..\"\ntest -f hello.txt || exit 1\ntest -f world.txt || exit 1\necho verify OK\n"
         world = "FILE: world.txt\n```\nworld\n```\n"
         rc, llm = self.run_agent([{"content": FILE_HELLO}, {"content": world}],
-                                 files={".factory/verify.sh": verify, "README.md": "# t\n"})
+                                 files={".dark/verify.sh": verify, "README.md": "# t\n"})
         self.assertEqual(rc, 0)
         tag = self.done_tag()
         self.assertEqual((tag["outcome"], tag["iter"], tag["files"]), ("ok", 2, ["hello.txt", "world.txt"]))
@@ -194,7 +194,7 @@ class EndToEnd(unittest.TestCase):
 
     def test_side_effect_fails_structural_kind(self):
         verify = VERIFY_HELLO.replace("echo verify OK", "echo touched >> README.md; echo verify OK")
-        rc, _ = self.run_agent([{"content": FILE_HELLO}], files={".factory/verify.sh": verify, "README.md": "# t\n"})
+        rc, _ = self.run_agent([{"content": FILE_HELLO}], files={".dark/verify.sh": verify, "README.md": "# t\n"})
         self.assertEqual(rc, 1)
         tag = self.done_tag()
         self.assertEqual(tag["kind"], "side-effect")
@@ -242,10 +242,10 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("Continue from EXACTLY", llm.requests[1]["messages"][-1]["content"])
 
     def test_verify_script_protected_and_gitea_paths_ignored(self):
-        reply = "FILE: .factory/verify.sh\n```\nexit 0\n```\n" + FILE_HELLO
+        reply = "FILE: .dark/verify.sh\n```\nexit 0\n```\n" + FILE_HELLO
         rc, _ = self.run_agent([{"content": reply}])
         self.assertEqual(rc, 0)
-        self.assertEqual(fakes.branch_file(self.repos, self.full, "run/r1", ".factory/verify.sh"), VERIFY_HELLO)
+        self.assertEqual(fakes.branch_file(self.repos, self.full, "run/r1", ".dark/verify.sh"), VERIFY_HELLO)
 
     # --- stall cut (950 stall-cut, part B item 1) --------------------------
 

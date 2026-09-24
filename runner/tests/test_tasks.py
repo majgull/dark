@@ -14,7 +14,7 @@ VERIFY = "#!/bin/bash\nset -e\ncd \"$(dirname \"$0\")/..\"\ntest -f hello.txt\ne
 
 def make_templates(root):
     for lang in ("go", "python"):
-        d = os.path.join(root, lang, ".factory")
+        d = os.path.join(root, lang, ".dark")
         os.makedirs(d)
         with open(os.path.join(d, "verify.sh"), "w") as f:
             f.write(VERIFY)
@@ -110,7 +110,7 @@ class Trees(unittest.TestCase):
         t = tasks.load_task(d)
         tree = tasks.work_tree(t, self.templates)
         self.assertEqual(tree["README.md"], b"# start\n")
-        self.assertEqual(tree[".factory/verify.sh"], VERIFY.encode())
+        self.assertEqual(tree[".dark/verify.sh"], VERIFY.encode())
         self.assertNotIn("hello.txt", tree)
         oracle = tasks.work_tree(t, self.templates, overlay=t.oracle_dir)
         self.assertEqual(oracle["hello.txt"], b"hello\n")
@@ -132,7 +132,7 @@ class Trees(unittest.TestCase):
         # a failed materialize push put the admin token into a shift log, the
         # ledger and (nearly) a committed digest on 2026-09-02
         with self.assertRaises(tasks.TaskError) as cm:
-            tasks._git("push", "http://factory-admin:0123456789abcdef0123456789abcdef01234567@127.0.0.1:9/dark/t.git",
+            tasks._git("push", "http://dark-admin:0123456789abcdef0123456789abcdef01234567@127.0.0.1:9/dark/t.git",
                        "HEAD:main", cwd=self.tmp)
         self.assertNotIn("0123456789abcdef", str(cm.exception))
         self.assertIn("://***@", str(cm.exception))
@@ -145,10 +145,10 @@ class Trees(unittest.TestCase):
         fakes.make_origin(repos, "dark/t-hello", {"old.txt": "old\n"})
         url = f"file://{repos}/dark/t-hello.git"
         sha1 = tasks.materialize(t, tasks.work_tree(t, self.templates), url, os.path.join(self.tmp, "scratch"))
-        self.assertEqual(fakes.branch_files(repos, "dark/t-hello", "main"), {".factory/verify.sh", "README.md", "a.py"})
+        self.assertEqual(fakes.branch_files(repos, "dark/t-hello", "main"), {".dark/verify.sh", "README.md", "a.py"})
         sha2 = tasks.materialize(t, tasks.work_tree(t, self.templates), url, os.path.join(self.tmp, "scratch"))
         self.assertNotEqual(sha1, "")
-        self.assertEqual(fakes.branch_files(repos, "dark/t-hello", "main"), {".factory/verify.sh", "README.md", "a.py"})
+        self.assertEqual(fakes.branch_files(repos, "dark/t-hello", "main"), {".dark/verify.sh", "README.md", "a.py"})
         self.assertTrue(sha2)
 
 
@@ -188,7 +188,7 @@ class Chains(unittest.TestCase):
         self.assertEqual((o2["a.py"], o2["c.py"], o2["hello.txt"]), (b"1\n", b"c\n", b"two\n"))
         self.assertNotIn("b.py", o2)
         self.assertNotIn(".delete", o2)
-        self.assertIn(".factory/verify.sh", o2)
+        self.assertIn(".dark/verify.sh", o2)
         # what obs-02 starts from when obs-01 did not pass: obs-01's oracle plus obs-02's start, no obs-02 oracle
         start = tasks.work_tree(t2, self.templates, base_tree=o1)
         self.assertEqual((start["hello.txt"], start["b.py"], start["c.py"]), (b"one\n", b"b1\n", b"c\n"))
@@ -196,7 +196,7 @@ class Chains(unittest.TestCase):
     def test_materialize_on_a_delivered_base_keeps_its_history(self):
         t2 = tasks.load_task(os.path.join(self.bench, "tasks", "obs-02"))
         repos = os.path.join(self.tmp, "repos")
-        fakes.make_origin(repos, "dark/t-obs-01", {"x.txt": "x\n", ".factory/verify.sh": VERIFY}, branch="run/one")
+        fakes.make_origin(repos, "dark/t-obs-01", {"x.txt": "x\n", ".dark/verify.sh": VERIFY}, branch="run/one")
         fakes.make_origin(repos, "dark/t-obs-02", {"old.txt": "old\n"})
         scratch = os.path.join(self.tmp, "scratch")
         clone, tree = tasks.fetch(f"file://{repos}/dark/t-obs-01.git", "run/one", scratch, "base-obs-02")
@@ -205,7 +205,7 @@ class Chains(unittest.TestCase):
         final = tasks.work_tree(t2, self.templates, base_tree=tree)
         sha = tasks.materialize(t2, final, f"file://{repos}/dark/t-obs-02.git", scratch, base=clone)
         self.assertTrue(sha)
-        self.assertEqual(fakes.branch_files(repos, "dark/t-obs-02", "main"), {".factory/verify.sh", "x.txt", "c.py"})
+        self.assertEqual(fakes.branch_files(repos, "dark/t-obs-02", "main"), {".dark/verify.sh", "x.txt", "c.py"})
         bare = os.path.join(repos, "dark/t-obs-02.git")
         self.assertEqual(fakes.git("rev-list", "--count", "main", cwd=bare).stdout.strip(), "2")
         self.assertIn("after obs-01", fakes.git("log", "-1", "--format=%s", "main", cwd=bare).stdout)
@@ -219,14 +219,14 @@ class Chains(unittest.TestCase):
         make_task(self.bench, "obs-03", extra='after = "obs-02"\n')  # obs-02 has an oracle (setUp)
         t3 = tasks.load_task(os.path.join(self.bench, "tasks", "obs-03"))
         repos = os.path.join(self.tmp, "repos")
-        fakes.make_origin(repos, "dark/t-obs-02", {"x.txt": "x\n", ".factory/verify.sh": VERIFY}, branch="run/two")
+        fakes.make_origin(repos, "dark/t-obs-02", {"x.txt": "x\n", ".dark/verify.sh": VERIFY}, branch="run/two")
         fakes.make_origin(repos, "dark/t-obs-03", {"old.txt": "old\n"})
         scratch = os.path.join(self.tmp, "scratch")
         clone, tree = tasks.fetch(f"file://{repos}/dark/t-obs-02.git", "run/two", scratch, "base-obs-03")
         sha = tasks.materialize(t3, tasks.work_tree(t3, self.templates, base_tree=tree),
                                 f"file://{repos}/dark/t-obs-03.git", scratch, base=clone)
         self.assertTrue(sha)
-        self.assertEqual(fakes.branch_files(repos, "dark/t-obs-03", "main"), {".factory/verify.sh", "x.txt"})
+        self.assertEqual(fakes.branch_files(repos, "dark/t-obs-03", "main"), {".dark/verify.sh", "x.txt"})
         self.assertEqual(fakes.git("rev-list", "--count", "main", cwd=os.path.join(repos, "dark/t-obs-03.git")).stdout.strip(), "2")
 
     # --- the opus review of 2026-09-03 (hub reports/950-opus-review-runner-chains.md) ---
@@ -279,7 +279,7 @@ class Chains(unittest.TestCase):
         # 1.3: git add -A honoured the delivered tree's .gitignore; 3.3: the fetched clone is consumed
         t2 = tasks.load_task(os.path.join(self.bench, "tasks", "obs-02"))
         repos = os.path.join(self.tmp, "repos")
-        fakes.make_origin(repos, "dark/t-obs-01", {".gitignore": "*.log\n", ".factory/verify.sh": VERIFY}, branch="run/one")
+        fakes.make_origin(repos, "dark/t-obs-01", {".gitignore": "*.log\n", ".dark/verify.sh": VERIFY}, branch="run/one")
         fakes.make_origin(repos, "dark/t-obs-02", {"old.txt": "old\n"})
         scratch = os.path.join(self.tmp, "scratch")
         clone, tree = tasks.fetch(f"file://{repos}/dark/t-obs-01.git", "run/one", scratch, "base-obs-02")

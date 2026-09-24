@@ -70,7 +70,7 @@ class Preflight:
             add("ledger writable", False, f"{self.host.ledger_path}: {e.strerror}")
         # 3. templates
         missing = [l for l in tasks.LANGS if not os.path.isfile(
-            os.path.join(self.host.templates_dir, l, ".factory", "verify.sh"))]
+            os.path.join(self.host.templates_dir, l, ".dark", "verify.sh"))]
         add("templates", not missing, f"{self.host.templates_dir}: no verify.sh for {missing}" if missing
             else self.host.templates_dir)
         # 4. gitea + org

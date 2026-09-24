@@ -33,7 +33,7 @@ SPLIT_VERIFY = (
     'exit 1\n')
 
 # A verify.sh that runs the model's own tests, which is what a real
-# .factory/verify.sh does (see the comment on dark/agent.py:333 —
+# .dark/verify.sh does (see the comment on dark/agent.py:333 —
 # "verify.sh ran model-written tests with write access").
 FORGE_VERIFY = (
     '#!/bin/bash\n'
@@ -76,7 +76,7 @@ FORGE_REPLY = ("FILE: hello.txt\n```\nhello world\n```\n"
 
 
 class _Reseeded(Base):
-    """Base, with the origin re-seeded with a different .factory/verify.sh."""
+    """Base, with the origin re-seeded with a different .dark/verify.sh."""
 
     VERIFY = SPLIT_VERIFY
 
@@ -84,7 +84,7 @@ class _Reseeded(Base):
         super().setUp()
         self.repos = os.path.join(self.tmp, "review-repos")
         self.git_url = fakes.make_origin(
-            self.repos, self.full, {".factory/verify.sh": self.VERIFY, "README.md": "# t\n"})
+            self.repos, self.full, {".dark/verify.sh": self.VERIFY, "README.md": "# t\n"})
         self.host.git_lan_url = self.git_url
 
 

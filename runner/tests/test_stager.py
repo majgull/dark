@@ -43,7 +43,7 @@ class Stager(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def stage(self, acceptance, files=None, timeout=10):
-        files = files or {".factory/verify.sh": VERIFY, "hello.txt": "hello\n"}
+        files = files or {".dark/verify.sh": VERIFY, "hello.txt": "hello\n"}
         git_url = fakes.make_origin(os.path.join(self.tmp, "repos"), self.full, files, branch="run/r1")
         task = {"gitea": self.gitea.url, "git_url": git_url, "repo": self.full, "issue": 1,
                 "branch": "run/r1", "token": "agent-tok", "timeout": timeout, "run": "r1",
@@ -85,7 +85,7 @@ class Stager(unittest.TestCase):
         self.assertEqual((tag["ok"], tag["checks_ok"], tag["checks_total"]), (True, 1, 1))
 
     def test_verify_red_in_staging_is_env(self):
-        rc = self.stage({"run.sh": "exit 0\n"}, files={".factory/verify.sh": VERIFY, "other.txt": "x\n"})
+        rc = self.stage({"run.sh": "exit 0\n"}, files={".dark/verify.sh": VERIFY, "other.txt": "x\n"})
         self.assertEqual(rc, 1)
         tag, body = self.tag()
         self.assertFalse(tag["ok"])

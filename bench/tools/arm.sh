@@ -5,11 +5,11 @@
 #
 # 1. materialize the task repo on the runner host (dark/t-<id>, main = start)
 # 2. clone it into a scratch checkout; write the session's brief: the spec,
-#    the may-edit grant, "run .factory/verify.sh, commit, do not push"
+#    the may-edit grant, "run .dark/verify.sh, commit, do not push"
 # 3. one bouncer session (arm's cell/brain/model), waited for, scored from
 #    the trail (tool calls, guard denials)
 # 4. commit whatever the session left (its own commit, or ours), push it as
-#    run/<arm>-<stamp> with the factory-push verb, then stage it on the
+#    run/<arm>-<stamp> with the dark-push verb, then stage it on the
 #    runner host: hidden acceptance in a fresh VM, one run.end with arm=<arm>
 #
 # Tokens: recorded only when the brain's transcript exposes them, else NOT
@@ -101,7 +101,7 @@ WORK="$SCRATCH/$NAME"
 rm -rf "$WORK"
 git clone -q "$GITEA/$ORG/$PREFIX$TASK.git" "$WORK"
 cat > "$WORK/.dark-brief.md" <<EOF
-You are working alone in the git checkout at $WORK (a $LANG_ project). Implement the task below end to end. The gate is \`bash .factory/verify.sh\` at the repo root: it must be green when you finish. Commit your work with git when done (any message). Do NOT push, do NOT create branches, do NOT edit .factory/verify.sh or anything under .gitea/, and do not touch files outside this checkout.
+You are working alone in the git checkout at $WORK (a $LANG_ project). Implement the task below end to end. The gate is \`bash .dark/verify.sh\` at the repo root: it must be green when you finish. Commit your work with git when done (any message). Do NOT push, do NOT create branches, do NOT edit .dark/verify.sh or anything under .gitea/, and do not touch files outside this checkout.
 
 Existing files you may rewrite: ${GRANT:-none (add new files only)}. Any other existing file must stay as it is.
 
@@ -160,6 +160,6 @@ rm -f .dark-brief.md
 git add -A
 git -c user.name="bench-$ARM" -c user.email="bench@hub" commit -qm "bench: $TASK via $ARM ($NAME)" || true
 git switch -qc "$BRANCH" 2>/dev/null || git switch -q "$BRANCH"
-factory-push "$WORK" "HEAD:$BRANCH" 2>&1 | tail -1
+dark-push "$WORK" "HEAD:$BRANCH" 2>&1 | tail -1
 say "pushed $BRANCH; staging on $RUNNER_HOST"
 on_runner "DARK_REPO_PREFIX=$PREFIX python3 -m dark stage --task $TASK --branch $BRANCH --arm $ARM --tier $TIER --shift $SHIFT --slot $SLOT --seconds $SECONDS_ ${CALL_ARGS[*]} ${BASE_KIND:+--base $BASE_KIND} $([ "$CAPPED" = 1 ] && echo --capped)" || true

@@ -387,8 +387,8 @@ class Host:
     gitea_url: str = "http://localhost:3400"
     gitea_lan_url: str = "http://git-host:3400"
     git_lan_url: str = ""     # where VMs clone/push from; "" = gitea_lan_url
-    admin_token_file: str = "~/.factory/factory-admin.token"
-    agent_token_file: str = "~/.factory/factory-agent.token"
+    admin_token_file: str = "~/.dark/dark-admin.token"
+    agent_token_file: str = "~/.dark/dark-agent.token"
     proxmox: str = "cpu-host"
     ntfy_url: str = ""
     state_dir: str = "~/.dark"
@@ -397,7 +397,7 @@ class Host:
     wake_timeout: int = 420
     power_cpu_host: str = ""  # ssh target with the RAPL package counter (the Proxmox host); "" = no CPU metering
     power_gpu_host: str = ""  # ssh target where nvidia-smi sees the GPUs (the model VM); "" = no GPU metering
-    agent_user: str = "factory-agent"  # the Gitea user the executor VMs push as
+    agent_user: str = "dark-agent"  # the Gitea user the executor VMs push as
     records_org: str = "dark-records"  # one repo per shift; session-arm and review-mode transcripts (item 5)
     admin_token: str = ""
     agent_token: str = ""

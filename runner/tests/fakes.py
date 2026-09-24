@@ -191,7 +191,7 @@ class FakeGitea:
                 if p == "/user":
                     auth = self.headers.get("Authorization", "")
                     if auth == "token good":
-                        return self._send(200, {"login": "factory-admin"})
+                        return self._send(200, {"login": "dark-admin"})
                     return self._send(401, {"message": "bad token"})
                 return self._send(404, {"message": f"unrouted {method} {p}"})
 

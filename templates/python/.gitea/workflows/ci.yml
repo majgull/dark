@@ -19,4 +19,4 @@ jobs:
             [ "$(stat -c %s -- "$f")" -le 1048576 ] || { echo "file over 1MB: $f"; exit 1; }
           done < <(git ls-files -z)
       - name: verify
-        run: bash .factory/verify.sh
+        run: bash .dark/verify.sh

@@ -143,7 +143,7 @@ def main():
         for half in ("oracle", "start"):
             dest = tempfile.mkdtemp(prefix=f"val-{tid}-{half}-")
             build(tdir, lang, args.templates, half == "oracle", dest)
-            vrc, vout = run(["bash", ".factory/verify.sh"], dest)
+            vrc, vout = run(["bash", ".dark/verify.sh"], dest)
             arc, aout = run(["bash", ".acceptance/run.sh"], dest)
             ok_n, total = checks(aout)
             if half == "oracle":

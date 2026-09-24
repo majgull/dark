@@ -10,11 +10,11 @@
 # 2026-09-02: `:cloud` models are reachable from box-cloud and cloud only;
 # box-local refuses them by policy).
 
-[arm.factory-local]
+[arm.dark-local]
 mode = "factory"
 executor = "admitted"        # the first open admitted tier per class
 
-[arm.factory-cloud]
+[arm.dark-cloud]
 mode = "factory"
 executor = "deepseek-v4-flash:cloud"
 

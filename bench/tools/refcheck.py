@@ -6,7 +6,7 @@ Given a directory holding a solved copy of a task's starting tree (what
 tools/refwork.py laid out and a writer then edited), this rebuilds the
 pristine starting tree as a git repository, lays the solved tree over it as
 one commit (files the solution deleted are deleted), and runs the tree's
-own `.factory/verify.sh` and then the task's `acceptance/run.sh`, printing
+own `.dark/verify.sh` and then the task's `acceptance/run.sh`, printing
 one line per CHECK.
 
   python3 tools/refcheck.py --work DIR --tasks a,b [--json OUT] [--keep]
@@ -82,7 +82,7 @@ def one(tid, work_dir, templates, keep):
     git("add", "-A", "-f")
     git("commit", "-q", "--allow-empty", "-m", "reference")
     copy_tree(os.path.join(tdir, "acceptance"), os.path.join(dest, ".acceptance"))
-    vrc, vout = run(["bash", ".factory/verify.sh"], dest)
+    vrc, vout = run(["bash", ".dark/verify.sh"], dest)
     arc, aout = run(["bash", ".acceptance/run.sh"], dest)
     ok_n, total = checks(aout)
     failed = [n for n, v in _named(aout) if v == "fail"]

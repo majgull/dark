@@ -66,7 +66,7 @@ RECORDS_WORK = os.environ.get("DARK_RECORDS_WORK", "/opt/records-work")
 STREAM_PATH = os.path.join(RECORDS_DIR, "stream.jsonl")
 T0 = time.time()
 
-BRIEF = """You are working alone in the git work tree at {work} (a {lang} project). Implement the task below end to end. The gate is `bash .factory/verify.sh` at the repo root: it must be green when you finish. Commit your work with git when done (any message). Do NOT push, do NOT create branches, do NOT edit .factory/verify.sh or anything under .gitea/, and do not touch files outside this directory.
+BRIEF = """You are working alone in the git work tree at {work} (a {lang} project). Implement the task below end to end. The gate is `bash .dark/verify.sh` at the repo root: it must be green when you finish. Commit your work with git when done (any message). Do NOT push, do NOT create branches, do NOT edit .dark/verify.sh or anything under .gitea/, and do not touch files outside this directory.
 
 {grant}
 TASK:
@@ -192,7 +192,7 @@ def sh(*cmd, **kw):
 def clone_url(repo=None):
     base = TASK.get("git_url") or TASK["gitea"]
     if base.startswith("http"):
-        base = base.replace("://", f"://factory-agent:{TASK['token']}@", 1)
+        base = base.replace("://", f"://dark-agent:{TASK['token']}@", 1)
     return f"{base}/{repo or REPO}.git"
 
 
@@ -394,8 +394,8 @@ def run_session(node, cli, home, deadline, stream_path, review=False):
 
 
 def verify():
-    if os.path.exists(f"{WORK}/.factory/verify.sh"):
-        r = sh("bash", ".factory/verify.sh")
+    if os.path.exists(f"{WORK}/.dark/verify.sh"):
+        r = sh("bash", ".dark/verify.sh")
     else:
         r = sh("python3", "-m", "unittest", "discover", "-v")
     return r.returncode == 0, (r.stdout + r.stderr)[-4000:]

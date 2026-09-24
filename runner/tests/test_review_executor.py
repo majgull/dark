@@ -22,7 +22,7 @@ FILE_HELLO = "FILE: hello.txt\n```\nhello world\n```\n"
 
 class PathGuards(unittest.TestCase):
     """Evidence for "no reply writes outside the work tree or to
-    .git/.gitea/.factory/verify.sh"."""
+    .git/.gitea/.dark/verify.sh"."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -35,8 +35,8 @@ class PathGuards(unittest.TestCase):
     ESCAPES = (
         ".git/config", "./.git/config", ".git/hooks/pre-commit", ".gitea/workflows/x.yml",
         "/etc/passwd", "//etc/passwd", "///etc/passwd", "../out.txt", "a/../../out.txt",
-        "./../out.txt", ".factory/verify.sh", "./.factory/verify.sh",
-        ".factory/./verify.sh", ".factory/sub/../verify.sh", ".git", ".gitea",
+        "./../out.txt", ".dark/verify.sh", "./.dark/verify.sh",
+        ".dark/./verify.sh", ".dark/sub/../verify.sh", ".git", ".gitea",
     )
 
     def test_no_escaping_path_survives_parse_files(self):

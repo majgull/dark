@@ -78,7 +78,7 @@ def report(ok, checks_ok, checks_total, detail, env=False):
     return 0 if ok else 1
 
 
-PROTECTED = (".factory", ".gitea")
+PROTECTED = (".dark", ".gitea")
 
 
 def tampered():
@@ -104,7 +104,7 @@ def run(cmd, timeout):
 def clone_url():
     base = TASK.get("git_url") or TASK["gitea"]
     if base.startswith("http"):
-        base = base.replace("://", f"://factory-agent:{TASK['token']}@", 1)
+        base = base.replace("://", f"://dark-agent:{TASK['token']}@", 1)
     return f"{base}/{REPO}.git"
 
 
@@ -120,8 +120,8 @@ def main():
     if changed:
         return report(False, 0, 0, f"STAGE-ENV protected paths changed on the branch: {changed}", env=True)
     timeout = int(TASK.get("timeout", 600))
-    if os.path.exists(f"{WORK}/.factory/verify.sh"):
-        rc, out = run(["bash", ".factory/verify.sh"], timeout)
+    if os.path.exists(f"{WORK}/.dark/verify.sh"):
+        rc, out = run(["bash", ".dark/verify.sh"], timeout)
         if rc != 0:
             return report(False, 0, 0, "STAGE-ENV verify.sh red in staging:\n" + out, env=True)
     blob = base64.b64decode(TASK.get("acceptance_tar_b64", ""))

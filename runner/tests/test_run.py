@@ -106,7 +106,7 @@ class Base(unittest.TestCase):
         self.full = "dark/t-hello"
         self.gitea_fake.repos[self.full] = {"archived": False, "branches": {"main"}}
         self.gitea_fake.issues[self.full] = {}
-        self.git_url = fakes.make_origin(self.repos, self.full, {".factory/verify.sh": VERIFY, "README.md": "# t\n"})
+        self.git_url = fakes.make_origin(self.repos, self.full, {".dark/verify.sh": VERIFY, "README.md": "# t\n"})
         self.host = config.Host(org="dark", gitea_url=self.gitea_fake.url, gitea_lan_url=self.gitea_fake.url,
                                 git_lan_url=self.git_url, state_dir=os.path.join(self.tmp, "state"),
                                 templates_dir=make_templates(os.path.join(self.tmp, "templates")),
@@ -195,10 +195,10 @@ class Outcomes(Base):
 
     def test_side_effect_is_structural_from_verifying(self):
         verify = VERIFY.replace("echo verify OK", "echo touched >> README.md; echo verify OK")
-        with open(os.path.join(self.host.templates_dir, "python", ".factory", "verify.sh"), "w") as f:
+        with open(os.path.join(self.host.templates_dir, "python", ".dark", "verify.sh"), "w") as f:
             f.write(verify)
         fakes.git("push", "-q", "--delete", "origin", "main", cwd=os.path.join(self.repos, "seed-dark-t-hello"), check=False)
-        self.git_url = fakes.make_origin(os.path.join(self.tmp, "repos2"), self.full, {".factory/verify.sh": verify, "README.md": "# t\n"})
+        self.git_url = fakes.make_origin(os.path.join(self.tmp, "repos2"), self.full, {".dark/verify.sh": verify, "README.md": "# t\n"})
         self.host.git_lan_url = self.git_url
         r = self.runner([{"content": FILE_HELLO}])
         res = r.run(self.task, "local-a", self.env())

@@ -71,7 +71,7 @@ A MOVE is that DELETE line plus a FILE block at the new path.
 
 Rules: output WHOLE files, never diffs or fragments. Keep existing
 behavior and tests passing. Never modify anything under .gitea/ or .git/,
-and never edit .factory/verify.sh. If you add a file, include it in full.
+and never edit .dark/verify.sh. If you add a file, include it in full.
 Never DELETE anything the task did not ask you to remove.
 You may add NEW files freely. You may rewrite an EXISTING file only when
 the task names it on a `may edit:` line — the harness refuses every
@@ -449,7 +449,7 @@ def _clean_path(path):
 
 def _banned(p):
     # ':' would reach git as pathspec magic (:(glob)..., :/...), not as a path
-    return p.startswith((".gitea", ".git", "/", ":")) or ".." in p or p == ".factory/verify.sh"
+    return p.startswith((".gitea", ".git", "/", ":")) or ".." in p or p == ".dark/verify.sh"
 
 
 def parse_files(reply):
@@ -508,9 +508,9 @@ def side_effects(files, deletes):
 
 
 def verify():
-    script = f"{WORK}/.factory/verify.sh"
+    script = f"{WORK}/.dark/verify.sh"
     if os.path.exists(script):
-        r = sh("bash", ".factory/verify.sh")
+        r = sh("bash", ".dark/verify.sh")
     else:
         r = sh("python3", "-m", "unittest", "discover", "-v")
     return r.returncode == 0, (r.stdout + r.stderr)[-4000:]
@@ -538,7 +538,7 @@ def clone_url():
     agent token injected for http(s)."""
     base = TASK.get("git_url") or TASK["gitea"]
     if base.startswith("http"):
-        base = base.replace("://", f"://factory-agent:{TASK['token']}@", 1)
+        base = base.replace("://", f"://dark-agent:{TASK['token']}@", 1)
     return f"{base}/{REPO}.git"
 
 

@@ -141,7 +141,7 @@ class Gitea:
                         {"name": name, "default_branch": default_branch,
                          "description": description, "auto_init": False})
 
-    def push_url(self, full, user="factory-admin"):
+    def push_url(self, full, user="dark-admin"):
         return f"{self.url.replace('://', f'://{user}:{self.token}@', 1)}/{full}.git"
 
     def branch_exists(self, full, branch):

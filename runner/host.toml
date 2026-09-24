@@ -8,8 +8,8 @@ work_org = "dark-runs"                              # DARK_WORK_ORG    (task wor
 records_org = "dark-records"                        # DARK_RECORDS_ORG (session-arm and review-mode transcripts, one repo per shift)
 gitea_url = "http://localhost:3400"                 # DARK_GITEA_URL   (the runner's own calls)
 gitea_lan_url = "http://git-host:3400"         # DARK_GITEA_LAN   (what VMs reach)
-admin_token_file = "~/.factory/factory-admin.token" # DARK_ADMIN_TOKEN_FILE
-agent_token_file = "~/.factory/factory-agent.token" # DARK_AGENT_TOKEN_FILE
+admin_token_file = "~/.dark/dark-admin.token" # DARK_ADMIN_TOKEN_FILE
+agent_token_file = "~/.dark/dark-agent.token" # DARK_AGENT_TOKEN_FILE
 proxmox = "cpu-host"                      # DARK_PROXMOX
 ntfy_url = "http://localhost:8083/factory"          # DARK_NTFY        ("" = no push)
 state_dir = "~/.dark"                               # DARK_STATE       (ledger, abort markers, scratch)

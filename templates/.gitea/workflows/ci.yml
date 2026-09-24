@@ -26,6 +26,6 @@ jobs:
           fi
           echo /usr/local/go/bin >> "$GITHUB_PATH"
       - name: go template verifies
-        run: bash go/.factory/verify.sh
+        run: bash go/.dark/verify.sh
       - name: python template verifies
-        run: bash python/.factory/verify.sh
+        run: bash python/.dark/verify.sh

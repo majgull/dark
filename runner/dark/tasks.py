@@ -227,8 +227,8 @@ def work_tree(task, templates_dir, overlay=None, base_tree=None):
         _overlay(tree, task.start_dir)
     if overlay and os.path.isdir(overlay):
         _overlay(tree, overlay)
-    if ".factory/verify.sh" not in tree:
-        raise TaskError(f"{task.id}: the work tree has no .factory/verify.sh")
+    if ".dark/verify.sh" not in tree:
+        raise TaskError(f"{task.id}: the work tree has no .dark/verify.sh")
     return tree
 
 

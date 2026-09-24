@@ -173,5 +173,5 @@ net_wait_seconds = 180
 # 20 parked the 21st task of a full-bench round (wcl-python on the 35B, round 2)
 max_runs = 60
 concurrency = 1             # the local lane is serial by hardware
-vm_template = 9001          # factory-agent-go: git, build-essential, go, python3
+vm_template = 9001          # dark-agent-go: git, build-essential, go, python3
 vmid_base = 9500            # executor VMs 9500+slot, staging VMs 9550+slot

@@ -150,7 +150,7 @@ class Gitea(unittest.TestCase):
 
     def test_health_and_auth(self):
         self.assertEqual(self.g.version(), "fake-1.26")
-        self.assertEqual(self.g.whoami(), "factory-admin")
+        self.assertEqual(self.g.whoami(), "dark-admin")
         with self.assertRaises(G.GiteaError) as cm:
             G.Gitea(self.fake.url, "bad").whoami()
         self.assertEqual(cm.exception.code, 401)
@@ -175,7 +175,7 @@ class Gitea(unittest.TestCase):
         self.g.delete_branch("dark/runner", "run/r1")  # idempotent
         self.g.archive_repo("dark/runner")
         self.assertTrue(self.fake.repos["dark/runner"]["archived"])
-        self.assertEqual(self.g.push_url("dark/runner"), f"http://factory-admin:good@127.0.0.1:{self.fake.server.port}/dark/runner.git")
+        self.assertEqual(self.g.push_url("dark/runner"), f"http://dark-admin:good@127.0.0.1:{self.fake.server.port}/dark/runner.git")
 
     def test_issues_and_comments(self):
         self.fake.repos["dark/t"] = {"archived": False, "branches": set()}

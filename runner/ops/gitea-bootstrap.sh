@@ -17,8 +17,8 @@ WORK_ONLY=0
 if [ "${1:-}" = "--work-org" ]; then WORK_ONLY=1; DARK_ORG=${2:?--work-org needs a name}; shift 2; fi
 URL=${1:-http://localhost:3400}
 ORG=${DARK_ORG:-dark}
-TOK_FILE=${DARK_ADMIN_TOKEN_FILE:-$HOME/.factory/factory-admin.token}
-AGENT_USER=${DARK_AGENT_USER:-factory-agent}
+TOK_FILE=${DARK_ADMIN_TOKEN_FILE:-$HOME/.dark/dark-admin.token}
+AGENT_USER=${DARK_AGENT_USER:-dark-agent}
 OUT=$(mktemp)
 trap 'rm -f "$OUT"' EXIT
 tok() { head -1 "$TOK_FILE"; }

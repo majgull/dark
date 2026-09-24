@@ -30,7 +30,7 @@ class Preflight(unittest.TestCase):
         cls.gfake.orgs.add("dark")
         # the team the executor VMs push through (ops/gitea-bootstrap.sh)
         cls.gfake.teams["dark"] = [{"id": 1, "name": "agents", "permission": "write",
-                                    "includes_all_repositories": True, "members": ["factory-agent"]}]
+                                    "includes_all_repositories": True, "members": ["dark-agent"]}]
 
     @classmethod
     def tearDownClass(cls):
@@ -113,12 +113,12 @@ class Preflight(unittest.TestCase):
         # token has no write on the repos the runs create: every run would
         # get through its model calls and die on the push (dark-runs, 2026-09-03)
         self.gfake.teams["dark"] = [{"id": 2, "name": "readers", "permission": "read",
-                                     "includes_all_repositories": True, "members": ["factory-agent"]}]
+                                     "includes_all_repositories": True, "members": ["dark-agent"]}]
         try:
             checks = self.pre().run(need_vm=False)
         finally:
             self.gfake.teams["dark"] = [{"id": 1, "name": "agents", "permission": "write",
-                                         "includes_all_repositories": True, "members": ["factory-agent"]}]
+                                         "includes_all_repositories": True, "members": ["dark-agent"]}]
         self.assertIn("org dark writable", self.misses(checks))
         self.assertIn("no team in dark", preflight.refusal_line(checks))
 
@@ -127,28 +127,28 @@ class Preflight(unittest.TestCase):
         # and puts the real one in units_map; the push needs repo.code
         self.gfake.teams["dark"] = [{"id": 4, "name": "agents", "permission": "none",
                                      "units_map": {"repo.code": "write"},
-                                     "includes_all_repositories": True, "members": ["factory-agent"]}]
+                                     "includes_all_repositories": True, "members": ["dark-agent"]}]
         try:
             checks = self.pre().run(need_vm=False)
         finally:
             self.gfake.teams["dark"] = [{"id": 1, "name": "agents", "permission": "write",
-                                         "includes_all_repositories": True, "members": ["factory-agent"]}]
+                                         "includes_all_repositories": True, "members": ["dark-agent"]}]
         self.assertEqual(self.misses(checks), [])
 
     def test_a_team_that_does_not_cover_repos_made_later_is_refused(self):
         # work repos are created per run: a team without
         # includes_all_repositories covers today's repos and not tomorrow's
         self.gfake.teams["dark"] = [{"id": 3, "name": "agents", "permission": "write",
-                                     "includes_all_repositories": False, "members": ["factory-agent"]}]
+                                     "includes_all_repositories": False, "members": ["dark-agent"]}]
         try:
             checks = self.pre().run(need_vm=False)
         finally:
             self.gfake.teams["dark"] = [{"id": 1, "name": "agents", "permission": "write",
-                                         "includes_all_repositories": True, "members": ["factory-agent"]}]
+                                         "includes_all_repositories": True, "members": ["dark-agent"]}]
         self.assertIn("org dark writable", self.misses(checks))
 
     def test_templates_missing(self):
-        os.remove(os.path.join(self.host.templates_dir, "go", ".factory", "verify.sh"))
+        os.remove(os.path.join(self.host.templates_dir, "go", ".dark", "verify.sh"))
         checks = self.pre().run(need_vm=False)
         t = [c for c in checks if c.name == "templates"][0]
         self.assertFalse(t.ok)
