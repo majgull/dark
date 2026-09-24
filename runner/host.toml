@@ -16,7 +16,7 @@ agent_user = "dark-agent"                           # DARK_AGENT_USER  (the Gite
 backend = "proxmox"                                 # DARK_BACKEND     (the compute plane; "proxmox" or "docker")
 proxmox = "cpu-host"                                # DARK_PROXMOX     (example role name for the Proxmox host)
 sandbox_image = "dark-sandbox"                      # DARK_SANDBOX_IMAGE   (docker backend: the image a sandbox is created from; build it with `docker build -t dark-sandbox runner/sandbox`)
-sandbox_network = "dark"                            # DARK_SANDBOX_NETWORK (docker backend: the network a sandbox joins; the model and Gitea are services on it)
+sandbox_network = "dark"                            # DARK_SANDBOX_NETWORK (docker backend: the network a sandbox joins; compose.yaml names it <project>_back and sets this env var itself)
 sandbox_cpus = "2"                                  # DARK_SANDBOX_CPUS    (docker backend: --cpus; "" = no limit)
 sandbox_memory = "2g"                               # DARK_SANDBOX_MEMORY  (docker backend: --memory; "" = no limit)
 sandbox_pids = 512                                  # DARK_SANDBOX_PIDS    (docker backend: --pids-limit; 0 = no limit)

@@ -1,0 +1,94 @@
+# The docker deployment of dark factory: Gitea, the runner, and an optional
+# local model, on one internal network. The runner spawns each sandbox as a
+# sibling container on that network through the mounted docker socket, so a
+# sandbox reaches Gitea and the model by service name and has no other egress.
+#
+#   docker compose up -d gitea runner          # the pipeline
+#   bash runner/ops/docker-bootstrap.sh        # users, orgs, tokens (once)
+#   docker compose --profile model up -d ollama
+#
+# `back` is internal: no container on it has a route off the host. Gitea and
+# ollama also join `front`, which is a normal compose network: Gitea needs it
+# to publish its host port, and ollama needs it to pull models. Sandboxes are
+# created on `back` only, so the runner's own containers never get `front`.
+
+services:
+  gitea:
+    image: docker.gitea.com/gitea:1.26.2
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__server__HTTP_PORT: "3000"
+      GITEA__server__ROOT_URL: http://localhost:3410/
+      GITEA__server__SSH_DISABLED: "true"
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__service__DISABLE_REGISTRATION: "true"
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "3410:3000"
+    networks:
+      - back
+      - front
+
+  runner:
+    build:
+      context: .
+      dockerfile: runner/Dockerfile
+    working_dir: /root/dark-runner/runner
+    command: ["sleep", "infinity"]
+    environment:
+      DARK_BACKEND: docker
+      DARK_ORG: dark
+      DARK_WORK_ORG: dark-runs
+      DARK_RECORDS_ORG: dark-records
+      DARK_GITEA_URL: http://gitea:3000
+      DARK_GITEA_LAN: http://gitea:3000
+      DARK_ADMIN_TOKEN_FILE: /root/.dark/dark-admin.token
+      DARK_AGENT_TOKEN_FILE: /root/.dark/dark-agent.token
+      DARK_AGENT_USER: dark-agent
+      DARK_STATE: /root/.dark
+      DARK_TEMPLATES: /root/dark-runner/templates
+      DARK_BENCH: /root/dark-runner/bench
+      DARK_SANDBOX_IMAGE: dark-sandbox
+      # the network docker compose names for `back`, so a spawned sandbox
+      # joins the same one the runner and Gitea are on
+      DARK_SANDBOX_NETWORK: ${COMPOSE_PROJECT_NAME:-dark}_back
+      DARK_SANDBOX_CPUS: "2"
+      DARK_SANDBOX_MEMORY: 2g
+      DARK_SANDBOX_PIDS: "512"
+      DARK_PROXMOX: ""
+      DARK_POWER_CPU: ""
+      DARK_POWER_GPU: ""
+      DARK_NTFY: ""
+    volumes:
+      # the runner creates its sandboxes on the host daemon; the sandboxes
+      # themselves never get this socket
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-state:/root/.dark
+    networks:
+      - back
+    depends_on:
+      - gitea
+
+  # The model endpoint as a service on `back`, so executor and staging
+  # containers reach it by name. Point [provider.<name>] url in models.toml
+  # at http://ollama:11434/v1 and set the model ids to ones this instance
+  # serves (see docs/docker.md). Not started unless the profile is asked for.
+  ollama:
+    image: ollama/ollama:0.34.3
+    profiles: ["model"]
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - back
+      - front
+
+networks:
+  back:
+    internal: true
+  front: {}
+
+volumes:
+  gitea-data: {}
+  runner-state: {}
+  ollama-models: {}

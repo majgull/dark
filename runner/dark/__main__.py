@@ -97,7 +97,7 @@ def cmd_check_config(args):
 def cmd_preflight(args):
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
     pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px)
-    checks = pre.run(need_vm=not args.no_vm)
+    checks = pre.run(need_vm=not args.no_vm, need_model=not args.no_model)
     for c in checks:
         print(c.line())
     line = preflight.refusal_line(checks)
@@ -486,6 +486,8 @@ def main(argv=None):
     sub.add_parser("check-config", help="load and validate the three config files")
     p = sub.add_parser("preflight", help="every check a shift needs, one line each")
     p.add_argument("--no-vm", action="store_true", help="skip the compute-plane checks (no wake)")
+    p.add_argument("--no-model", action="store_true",
+                   help="skip the model catalog checks and the wake (no endpoint configured)")
     sub.add_parser("admission", help="the admission table derived from the ledger")
     sub.add_parser("status", help="windows, watts and envelopes today")
     p = sub.add_parser("shift", help="preflight, run every task, digest")

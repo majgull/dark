@@ -6,7 +6,8 @@ sandbox image present.
 Windows and watts are reported, never refused on: which of them a shift
 needs depends on the tiers its tasks land on, and the shift already parks
 a task whose class has no open tier. Cheap local checks run first, the
-wake last.
+wake last. `run(need_model=False)` skips the model catalog checks and the
+wake, for a deployment that has no model endpoint configured yet.
 """
 
 import os
@@ -44,7 +45,7 @@ class Preflight:
         self.shift = shift
         self.sleep = sleep
 
-    def run(self, need_vm=True):
+    def run(self, need_vm=True, need_model=True):
         """[Check], in order. Stops at the first miss of a dependency
         (no Gitea -> no org check) but otherwise reports every miss so one
         read fixes them all."""
@@ -87,17 +88,18 @@ class Preflight:
         except G.GiteaError as e:
             add("gitea", False, str(e))
         # 5. catalog: every configured id served by its provider
-        for pname, prov in self.catalog.providers.items():
-            want = self.catalog.ids_by_provider(pname)
-            if not want:
-                continue
-            try:
-                have = self.served(prov)
-            except llm.LLMError as e:
-                add(f"catalog {pname}", False, str(e))
-                continue
-            gone = sorted(want - have)
-            add(f"catalog {pname}", not gone, f"not served: {gone}" if gone else f"{len(want)} ids served")
+        if need_model:
+            for pname, prov in self.catalog.providers.items():
+                want = self.catalog.ids_by_provider(pname)
+                if not want:
+                    continue
+                try:
+                    have = self.served(prov)
+                except llm.LLMError as e:
+                    add(f"catalog {pname}", False, str(e))
+                    continue
+                gone = sorted(want - have)
+                add(f"catalog {pname}", not gone, f"not served: {gone}" if gone else f"{len(want)} ids served")
         # 6. windows and watts today: information, never a refusal (the shift
         # parks a task whose class has no open tier; a local-only shift must
         # not die for a cloud window, nor a cloud arm for the watts)
@@ -121,7 +123,7 @@ class Preflight:
         plane = "docker" if is_docker else "proxmox"
         target = self.host.sandbox_image if is_docker else self.host.proxmox
         up = self.px.reachable()
-        if not up and not is_docker:
+        if not up and not is_docker and need_model:
             up = self.wake()
         add(plane, up, target if up else f"{target}: unreachable after wake")
         if up:

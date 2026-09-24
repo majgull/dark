@@ -20,7 +20,9 @@ tools run without another checkout.
 Running the runner needs what `runner/host.toml` names: a Proxmox host with a VM
 template, a Gitea instance, and an OpenAI-compatible model endpoint. Every value in that
 file is an example for a local machine; replace it with your own. A container backend is
-planned, so the runner can be deployed without Proxmox.
+available: [docs/docker.md](docs/docker.md) builds the runner image, starts Gitea and the
+runner on one internal network with `compose.yaml`, and spawns each sandbox as a sibling
+container, so the runner can be deployed without Proxmox.
 
 The bench tools need Python 3, `bash`, coreutils and `git`. The task check needs the task
 set [dark-tasks](https://github.com/majgull/dark-tasks) cloned beside this checkout;
