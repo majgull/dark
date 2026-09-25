@@ -147,6 +147,25 @@ class DockerTest(unittest.TestCase):
         # no image given: the backend's own, host.sandbox_image
         self.assertEqual(creates[1][-3:], [IMAGE, "/bin/sh", "/opt/dark-start.sh"])
 
+    def test_a_user_sandbox_joins_the_target_network_before_it_starts(self):
+        d = D.Docker(IMAGE, network=NET, target_network="dark-target")
+        d.spawn(9500, "dark-x1", {}, [], cls="user")
+        lines = self.fake.lines()
+        self.assertIn(["network", "connect", "dark-target", "dark-x1"], lines)
+        self.assertLess(lines.index(["network", "connect", "dark-target", "dark-x1"]),
+                        lines.index(["start", "dark-x1"]))
+        # created on the internal network like every sandbox; the target is a second one
+        create = [l for l in lines if l[0] == "create"][0]
+        self.assertEqual(create[create.index("--network") + 1], NET)
+
+    def test_no_other_sandbox_joins_the_target_network(self):
+        d = D.Docker(IMAGE, network=NET, target_network="dark-target")
+        d.spawn(9500, "dark-x1", {}, [])
+        d.spawn(9501, "dark-x2", {}, [], cls="additive")
+        # and a user sandbox with no target network configured joins nothing more
+        D.Docker(IMAGE, network=NET).spawn(9502, "dark-x3", {}, [], cls="user")
+        self.assertFalse([l for l in self.fake.lines() if l[0] == "network"])
+
     def test_spawn_without_limits_omits_the_flags(self):
         D.Docker(IMAGE, network=NET).spawn(9500, "dark-x1", {}, [])
         create = [l for l in self.fake.lines() if l[0] == "create"][0]

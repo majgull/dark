@@ -46,6 +46,12 @@ class ProtocolConformance(unittest.TestCase):
         self.assertIn("lxc", config.BACKENDS)
         config.check_backend("lxc")
 
+    def test_make_hands_each_backend_its_user_arm_reach(self):
+        host = config.Host(backend="docker", target_network="target-net")
+        self.assertEqual(sandbox.make(host, 9001).target_network, "target-net")
+        host = config.Host(proxmox="cpu-host", target_host="192.0.2.20")
+        self.assertEqual(sandbox.make(host, 9001).target_host, "192.0.2.20")
+
 
 class BackendRefusal(unittest.TestCase):
     def load_host(self, body, environ=None):

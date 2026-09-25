@@ -90,6 +90,15 @@ headroom = 0.2
 admit_at = 0
 provisional = ["example-large"]
 
+# the user arm (dark/user.py): one browser action per call, a few per step.
+# Not benched: the caps are placeholders until the ledger sizes them.
+[class.user]
+think = "low"
+hard = { runs = 1, calls = 40, seconds = 1200, max_reasoning_chars = 40000 }
+headroom = 0.3
+admit_at = 0.7
+provisional = ["example-large"]
+
 [admission]
 min_runs = 10      # below this a (class, tier) pair is admitted only provisionally
 last_runs = 20     # the pass rate is over the last N runs of the pair

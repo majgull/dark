@@ -67,6 +67,12 @@ class Lxc(unittest.TestCase):
                 have = inspect.signature(getattr(lxc.Lxc, name))
                 self.assertEqual(list(want.parameters), list(have.parameters))
 
+    def test_a_user_sandbox_is_refused_before_anything_is_cloned(self):
+        with self.assertRaises(vm.VMError) as cm:
+            self.ct.spawn(9500, "dark-x1", {}, [], cls="user")
+        self.assertIn("user-arm", str(cm.exception))
+        self.assertEqual(self.ssh.cmds, [])
+
     def test_reachable(self):
         self.assertTrue(self.ct.reachable())
         self.assertEqual(self.ssh.cmds, ["pct list"])

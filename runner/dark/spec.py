@@ -16,7 +16,10 @@ CALL_CLASSES = ("spec", "review")                    # single budgeted control-p
 # one session for hours in a VM over several repositories, judged by a
 # reviewer session, not by hidden tests; no admission (the operator names the tier)
 SESSION_CLASSES = ("long",)
-CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES
+# the user arm: a fresh browser sandbox given only a URL and numbered steps,
+# judged by its own verdict per step; no work repo, no hidden tests
+USER_CLASSES = ("user",)
+CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES + USER_CLASSES
 
 # --- outcomes: the only terminal states of a run, decided by the runner ----
 # delivered: the review class's pass - no hidden acceptance,

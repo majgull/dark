@@ -337,6 +337,8 @@ class Runner:
         reserved = {"calls": env.calls, "per_call": budget.reservation(self.catalog, tier, env)[1] // max(env.calls, 1)}
 
         st.go("preflight", "shift start")
+        if task.cls in spec.USER_CLASSES:
+            return st.refuse(f"{task.id} is a user task: it has no work repo (run it with `dark user`)")
         try:
             res.issue = self.gitea.issue_create(
                 full, f"run {res.run} [{tier}]",
@@ -679,6 +681,33 @@ class Runner:
         if body:
             detail = f"{detail}: …{body[-360:]}" if len(body) > 360 else f"{detail}: {body}"
         return st.end(outcome, kind, detail, usage=usage)
+
+    # --- the user arm: a URL and numbered steps in, a verdict per step out -------
+    def user_task(self, task, tier, env, issue, run_id, records_repo, think=None):
+        """(task.json, spawn keywords) for a user-arm sandbox. It is told of
+        no work repository: no work repo, no branch, nothing to clone. The
+        one repository it names is the records repo, which is this run's
+        issue tracker and where its screenshots and verdicts are pushed, as
+        in review mode; the agent token is there for that issue and that
+        push, and dark/session.py scrubs it from everything it pushes."""
+        model = self.catalog.model(tier)
+        prov = self.catalog.provider_of(tier)
+        think_chars = self.budgets.think["levels"][think] if think else 0
+        agent_task = {
+            "gitea": self.host.gitea_lan_url, "git_url": self._git_url(),
+            "repo": records_repo, "records_repo": records_repo, "issue": issue,
+            "token": self.host.agent_token,
+            "mode": "user", "url": task.url, "steps": list(task.steps), "spec": task.spec,
+            "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls,
+            "max_tokens": model.max_tokens, "think": think, "think_chars": think_chars,
+            "think_api": prov.think_api, "llm_timeout": model.timeout,
+            "temperature": self.catalog.defaults.get("temperature"),
+            "heartbeat_seconds": self.budgets.watchdog["heartbeat_seconds"],
+            "run": run_id, "task": task.id, "class": task.cls, "max_seconds": env.seconds}
+        spawn_kw = {"cls": task.cls}
+        if self.host.backend == "docker":
+            spawn_kw["image"] = self.host.browser_image
+        return agent_task, spawn_kw
 
     # --- watching --------------------------------------------------------------
     def _abort_requested(self, run_id):

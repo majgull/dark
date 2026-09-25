@@ -23,9 +23,12 @@ START_SCRIPT = "/opt/dark-start.sh"
 
 class Docker:
     def __init__(self, image, network="dark", cpus=None, memory=None, pids=None,
-                 cli="docker", timeout=120):
+                 cli="docker", timeout=120, target_network=""):
         self.image = image
         self.network = network
+        # a user-arm sandbox also joins this one: a normal (non-internal)
+        # network the application under check is reachable on
+        self.target_network = target_network
         self.cpus = cpus
         self.memory = memory
         self.pids = pids
@@ -67,12 +70,13 @@ class Docker:
         out += [" ".join(shlex.quote(a) for a in cmd) for cmd in runcmd]
         return "\n".join(out) + "\n"
 
-    def spawn(self, vmid, name, files, runcmd, image=None):
+    def spawn(self, vmid, name, files, runcmd, cls=None, image=None):
         """Create the container, write `files` in (modes honoured), copy in a
         start script built from `runcmd` and start it. A container of the same
         name left over from an earlier run is removed first. `image` is the
         image for this one sandbox (a user-arm run's browser image); None is
-        the backend's own, host.sandbox_image."""
+        the backend's own, host.sandbox_image. A "user" sandbox joins
+        target_network as well, before it starts."""
         if self._exists(name):
             self.reap(vmid, name)
         self._names[vmid] = name
@@ -100,6 +104,8 @@ class Docker:
             args += [image or self.image, "/bin/sh", START_SCRIPT]
             self.run(args, timeout=300)
             self.run(["cp", tmp + "/.", f"{name}:/"], timeout=120)
+            if cls == "user" and self.target_network:
+                self.run(["network", "connect", self.target_network, name], timeout=60)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         self.run(["start", name], timeout=120)

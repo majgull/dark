@@ -76,6 +76,25 @@ class VM(unittest.TestCase):
         self.assertEqual(cmds[-1], "qm start 9500")
         self.assertEqual(self.px.status(9500), "running")
 
+    def test_a_user_vm_may_reach_the_target_host_and_nothing_more(self):
+        px = vm.Proxmox("cpu-host", 9001, ssh=self.ssh, sleep=lambda s: None, target_host="192.0.2.20")
+        px.spawn(9500, "dark-x1", {}, [], cls="user")
+        fw = self.ssh.stdin["cat > /etc/pve/firewall/9500.fw"]
+        self.assertTrue(fw.endswith("[RULES]\nGROUP agentfw\nOUT ACCEPT -dest 192.0.2.20\n"), fw)
+        self.assertIn("policy_out: DROP", fw)
+        self.assertEqual(fw.count("ACCEPT"), 1)
+
+    def test_other_vms_get_no_target_rule(self):
+        px = vm.Proxmox("cpu-host", 9001, ssh=self.ssh, sleep=lambda s: None, target_host="192.0.2.20")
+        px.spawn(9500, "dark-x1", {}, [])
+        px.spawn(9501, "dark-x2", {}, [], cls="repair")
+        vm.Proxmox("cpu-host", 9001, ssh=self.ssh, sleep=lambda s: None).spawn(9502, "dark-x3", {}, [], cls="user")
+        for vmid in (9500, 9501, 9502):
+            with self.subTest(vmid=vmid):
+                fw = self.ssh.stdin[f"cat > /etc/pve/firewall/{vmid}.fw"]
+                self.assertNotIn("ACCEPT", fw)
+                self.assertTrue(fw.endswith("GROUP agentfw\n"))
+
     def test_fixed_mac_keeps_template_net_options(self):
         self.ssh.template[9001] = "template: 1\nnet0: virtio=BC:24:11:8D:50:5B,bridge=vmbr1,firewall=1\n"
         self.px.spawn(9551, "dark-s1", {}, [])

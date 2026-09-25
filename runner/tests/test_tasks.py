@@ -6,6 +6,7 @@ import tarfile
 import tempfile
 import unittest
 
+from dark import spec as spec_mod
 from dark import tasks
 from tests import fakes
 
@@ -348,6 +349,127 @@ class TaskRoots(unittest.TestCase):
     def test_the_first_root_is_the_primary_checkout(self):
         self.assertEqual(tasks.primary_root(os.pathsep.join([self.a, self.b])), self.a)
         self.assertEqual(tasks.primary_root(self.a), self.a)
+
+
+def make_user_task(bench, tid="shop", body=None):
+    """A user task: task.toml only, no start/, no acceptance/."""
+    d = os.path.join(bench, "tasks", tid)
+    os.makedirs(d)
+    if body is None:
+        body = ('url = "https://app.example.test/"\n'
+                'steps = ["Open the sign-in page", "Sign in as the demo user", "Add one item to the cart"]\n'
+                'spec = """Check that a visitor can buy one item."""\n')
+    with open(os.path.join(d, "task.toml"), "w") as f:
+        f.write(f'id = "{tid}"\nclass = "user"\n{body}')
+    return d
+
+
+class UserTasks(unittest.TestCase):
+    """class = "user": url required, steps numbered in order, and nothing of
+    a work-repo task; url and steps refused on every other class."""
+
+    def setUp(self):
+        self.bench = os.path.join(tempfile.mkdtemp(), "bench")
+
+    def refuse(self, needle, tid, body):
+        d = make_user_task(self.bench, tid, body)
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_task(d)
+        self.assertIn(needle, str(cm.exception))
+
+    def test_a_user_task_loads_with_its_url_and_steps(self):
+        t = tasks.load_task(make_user_task(self.bench))
+        self.assertEqual((t.cls, t.url, t.lang, t.may_edit), ("user", "https://app.example.test/", "", ()))
+        self.assertEqual(t.steps, ("Open the sign-in page", "Sign in as the demo user",
+                                   "Add one item to the cart"))
+        self.assertFalse(os.path.exists(t.acceptance_dir))  # no hidden tests to need
+
+    def test_the_url_is_required_for_a_user_task(self):
+        self.refuse("url", "a", 'steps = ["x"]\nspec = "s"\n')
+        self.refuse("url", "b", 'url = "ftp://x"\nsteps = ["x"]\nspec = "s"\n')
+
+    def test_steps_are_a_non_empty_list_of_texts(self):
+        for i, steps in enumerate(("[]", '"one"', '["ok", ""]', "[1]")):
+            with self.subTest(steps=steps):
+                self.refuse("steps", f"s{i}", f'url = "http://x"\nsteps = {steps}\nspec = "s"\n')
+
+    def test_a_user_task_has_no_work_repo_fields(self):
+        base = 'url = "http://x"\nsteps = ["x"]\nspec = "s"\n'
+        self.refuse("may_edit", "m", base + 'may_edit = ["a.py"]\n')
+        self.refuse("lang", "l", base + 'lang = "python"\n')
+        self.refuse("after", "f", base + 'after = "a"\n')
+
+    def test_url_and_steps_are_refused_on_every_other_class(self):
+        for cls in spec_mod.EXEC_CLASSES:
+            for key, value in (("url", '"http://x"'), ("steps", '["x"]')):
+                with self.subTest(cls=cls, key=key):
+                    d = make_task(self.bench, f"{cls}-{key}", cls=cls, extra=f"{key} = {value}\n")
+                    with self.assertRaises(tasks.TaskError) as cm:
+                        tasks.load_task(d)
+                    self.assertIn(key, str(cm.exception))
+
+
+class _NoMeter:
+    def start(self):
+        return self
+
+    def stop(self):
+        return {}
+
+
+class UserTaskInTheSandbox(unittest.TestCase):
+    """What a user-arm sandbox is told: the URL and the steps, and no work
+    repository at all, so nothing in it can clone or read the source."""
+
+    def setUp(self):
+        from dark import budget, config
+        from dark import ledger as L
+        from dark import run as R
+        from tests.test_config import BUDGETS, MODELS, write_conf
+        tmp = tempfile.mkdtemp()
+        cat, bud = config.load(write_conf(tmp, MODELS, BUDGETS))
+        self.host = config.Host(work_org="dark-runs", records_org="dark-records", state_dir=tmp,
+                                agent_token="agent-tok", git_lan_url="http://git.example.test")
+        led = L.Ledger(os.path.join(tmp, "ledger.jsonl"))
+        self.runner = R.Runner(cat, bud, self.host, led, None, None, log=lambda *a: None,
+                               hold=lambda s: (True, ""), meter=_NoMeter)
+        self.task = tasks.load_task(make_user_task(os.path.join(tmp, "bench")))
+        self.env = budget.envelope(bud, led, "user", "cloud-x")
+
+    def build(self):
+        return self.runner.user_task(self.task, "cloud-x", self.env, 7, "shop-1", "dark-records/s1")
+
+    def test_the_task_carries_the_url_and_the_numbered_steps(self):
+        at, _ = self.build()
+        self.assertEqual(at["url"], "https://app.example.test/")
+        self.assertEqual(at["steps"], list(self.task.steps))
+        self.assertEqual((at["class"], at["mode"], at["max_calls"]), ("user", "user", self.env.calls))
+
+    def test_no_work_repository_and_nothing_to_clone(self):
+        at, _ = self.build()
+        # the one repository named is the records repo, never the work org
+        self.assertEqual(at["repo"], "dark-records/s1")
+        self.assertEqual(at["records_repo"], "dark-records/s1")
+        self.assertFalse(any(isinstance(v, str) and v.startswith(self.host.work_org + "/")
+                             for v in at.values()))
+        for key in ("branch", "may_edit", "lang", "runtime_url", "acceptance_tar_b64"):
+            self.assertNotIn(key, at)
+
+    def test_the_sandbox_is_spawned_as_a_user_sandbox(self):
+        _, kw = self.build()
+        self.assertEqual(kw, {"cls": "user"})               # proxmox: the target firewall rule
+        self.host.backend = "docker"
+        _, kw = self.build()
+        self.assertEqual(kw, {"cls": "user", "image": "dark-sandbox-browser"})
+
+    def test_a_shift_refuses_a_user_task(self):
+        class NoGitea:
+            def __getattr__(self, name):
+                raise AssertionError(f"gitea.{name} called for a user task")
+        self.runner.gitea = NoGitea()
+        res = self.runner.run(self.task, "cloud-x", self.env)
+        self.assertEqual(res.outcome, "refused")
+        self.assertIn("dark user", res.detail)
 
 
 class TestsVersion(unittest.TestCase):

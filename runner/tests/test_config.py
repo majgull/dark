@@ -80,6 +80,10 @@ think = "medium"
 hard = { runs = 1, calls = 2000, seconds = 14400, max_reasoning_chars = 40000 }
 admit_at = 0
 provisional = ["cloud-x"]
+[class.user]
+hard = { runs = 1, calls = 20, seconds = 600, max_reasoning_chars = 40000 }
+admit_at = 0.7
+provisional = ["cloud-x"]
 [admission]
 min_runs = 3
 last_runs = 5
@@ -309,10 +313,18 @@ class HostKeys(unittest.TestCase):
         self.assertEqual(self.load_host('[host]\nbrowser_image = "img-a"\n',
                                         {"DARK_BROWSER_IMAGE": "img-b"}).browser_image, "img-b")
 
+    def test_target_network_and_host(self):
+        self.assertEqual((config.Host().target_network, config.Host().target_host), ("", ""))
+        h = self.load_host('[host]\ntarget_network = "net-a"\ntarget_host = "192.0.2.20"\n',
+                           {"DARK_TARGET_NETWORK": "net-b", "DARK_TARGET_HOST": "192.0.2.21"})
+        self.assertEqual((h.target_network, h.target_host), ("net-b", "192.0.2.21"))
+        h = self.load_host('[host]\ntarget_network = "net-a"\ntarget_host = "192.0.2.20"\n')
+        self.assertEqual((h.target_network, h.target_host), ("net-a", "192.0.2.20"))
+
     def test_the_example_host_file_names_every_key_and_its_variable(self):
         with open(os.path.join(HERE, "host.toml")) as f:
             text = f.read()
-        for key in ("browser_image",):
+        for key in ("browser_image", "target_network", "target_host"):
             with self.subTest(key=key):
                 self.assertRegex(text, rf"(?m)^{key} = .*# {config.HOST_ENV[key]}\b")
 

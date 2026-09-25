@@ -380,6 +380,7 @@ HOST_ENV = {
     "sandbox_container": "DARK_SANDBOX_CONTAINER", "sandbox_snapshot": "DARK_SANDBOX_SNAPSHOT",
     "sandbox_bridge": "DARK_SANDBOX_BRIDGE",
     "browser_image": "DARK_BROWSER_IMAGE",
+    "target_network": "DARK_TARGET_NETWORK", "target_host": "DARK_TARGET_HOST",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
     "wake_timeout": "DARK_WAKE_TIMEOUT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
@@ -414,6 +415,12 @@ class Host:
     # the image a user-arm sandbox is created from (runner/sandbox/Dockerfile.browser):
     # the sandbox image plus Chromium and Playwright
     browser_image: str = "dark-sandbox-browser"
+    # where a user-arm sandbox may reach the application it checks, besides
+    # the service host: a second, non-internal docker network it joins
+    # (docker backend), or one address its firewall lets out to (Proxmox).
+    # "" = nothing more than any other sandbox.
+    target_network: str = ""
+    target_host: str = ""
     ntfy_url: str = ""
     state_dir: str = "~/.dark"
     templates_dir: str = "~/dark-templates"
