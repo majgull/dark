@@ -33,6 +33,11 @@ ethernets:
     dhcp-identifier: mac
 """
 
+# The per-guest firewall file: drop both ways, then the agentfw group's
+# rules (the service host only). Shared with the lxc backend.
+FIREWALL = ("[OPTIONS]\nenable: 1\npolicy_in: DROP\npolicy_out: DROP\n"
+            "log_level_in: info\nlog_level_out: info\n\n[RULES]\nGROUP agentfw\n")
+
 
 def user_data(hostname, files, runcmd):
     """A #cloud-config document: `files` is {path: (content, mode)}."""
@@ -139,9 +144,7 @@ class Proxmox:
         self.ssh(f"qm clone {self.template} {vmid} --name {name}", timeout=300)
         self.ssh(f"qm set {vmid} --net0 {self.net0_for(vmid)}")
         self.ssh(f"qm set {vmid} --cicustom user=local:snippets/{name}.yaml,network=local:snippets/{name}-net.yaml")
-        fw = ("[OPTIONS]\nenable: 1\npolicy_in: DROP\npolicy_out: DROP\n"
-              "log_level_in: info\nlog_level_out: info\n\n[RULES]\nGROUP agentfw\n")
-        self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=fw)
+        self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=FIREWALL)
         self.ssh(f"qm start {vmid}", timeout=120)
 
     def reap(self, vmid, name):
