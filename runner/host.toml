@@ -24,6 +24,7 @@ sandbox_container = ""                              # DARK_SANDBOX_CONTAINER (lx
 sandbox_snapshot = ""                               # DARK_SANDBOX_SNAPSHOT  (lxc backend: the snapshot of that container to clone from, e.g. "base")
 sandbox_bridge = "vmbr0"                            # DARK_SANDBOX_BRIDGE    (lxc backend: the bridge the clone's net0 joins; one that reaches only the service host)
 sandbox_pool = ""                                   # DARK_SANDBOX_POOL      (lxc backend: the Proxmox pool a clone is placed in; "" = no pool)
+sandbox_allow_in = ""                               # DARK_SANDBOX_ALLOW_IN  (lxc backend: "<ipv4>:<port>" clients a clone's firewall lets in, comma separated; "" = the service host only)
 browser_image = "dark-sandbox-browser"              # DARK_BROWSER_IMAGE   (docker backend: the image a user-arm sandbox is created from; build it with runner/sandbox/Dockerfile.browser)
 target_network = ""                                 # DARK_TARGET_NETWORK  (docker backend: a second, non-internal network a user-arm sandbox joins to reach the application; "" = none)
 target_host = ""                                    # DARK_TARGET_HOST     (Proxmox backend: the one address a user-arm VM's firewall lets out to, e.g. "192.0.2.20"; "" = none)

@@ -379,6 +379,7 @@ HOST_ENV = {
     "sandbox_pids": "DARK_SANDBOX_PIDS",
     "sandbox_container": "DARK_SANDBOX_CONTAINER", "sandbox_snapshot": "DARK_SANDBOX_SNAPSHOT",
     "sandbox_bridge": "DARK_SANDBOX_BRIDGE", "sandbox_pool": "DARK_SANDBOX_POOL",
+    "sandbox_allow_in": "DARK_SANDBOX_ALLOW_IN",
     "browser_image": "DARK_BROWSER_IMAGE",
     "target_network": "DARK_TARGET_NETWORK", "target_host": "DARK_TARGET_HOST",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
@@ -415,6 +416,10 @@ class Host:
     # the Proxmox pool a clone is placed in, so the throwaways are grouped and
     # never mixed with the containers that serve; "" = no pool
     sandbox_pool: str = ""
+    # the clients a clone's default-drop firewall lets in, besides the service
+    # host: "<ipv4>:<tcp port>" entries joined with commas, one IN ACCEPT rule
+    # each (a user-arm browser on another host names itself here). "" = nobody
+    sandbox_allow_in: str = ""
     # the image a user-arm sandbox is created from (runner/sandbox/Dockerfile.browser):
     # the sandbox image plus Chromium and Playwright
     browser_image: str = "dark-sandbox-browser"
@@ -448,6 +453,7 @@ class Host:
         self.sandbox_memory = "" if self.sandbox_memory in (None, "") else str(self.sandbox_memory)
         self.sandbox_container = "" if self.sandbox_container in (None, "") else str(self.sandbox_container)
         self.sandbox_pool = "" if self.sandbox_pool in (None, "") else str(self.sandbox_pool)
+        self.sandbox_allow_in = "" if self.sandbox_allow_in in (None, "") else str(self.sandbox_allow_in)
         try:
             self.sandbox_pids = int(self.sandbox_pids or 0)
         except (TypeError, ValueError):

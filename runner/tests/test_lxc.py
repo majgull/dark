@@ -160,9 +160,10 @@ class Lxc(unittest.TestCase):
 
     def test_make_passes_the_pool_through(self):
         host = config.Host(backend="lxc", proxmox="cpu-host", sandbox_container="200",
-                           sandbox_snapshot="base", sandbox_bridge="vmbr9", sandbox_pool="dark-pool")
+                           sandbox_snapshot="base", sandbox_bridge="vmbr9", sandbox_pool="dark-pool",
+                           sandbox_allow_in="192.0.2.20:8080")
         ct = sandbox.make(host, 9001)
-        self.assertEqual((ct.pool, ct.bridge), ("dark-pool", "vmbr9"))
+        self.assertEqual((ct.pool, ct.bridge, ct.allow_in), ("dark-pool", "vmbr9", "192.0.2.20:8080"))
 
     def test_spawn_pushes_contents_and_the_start_script(self):
         pushed = []
@@ -182,6 +183,40 @@ class Lxc(unittest.TestCase):
         self.assertEqual(fw, vm.FIREWALL)
         self.assertEqual(fw, "[OPTIONS]\nenable: 1\npolicy_in: DROP\npolicy_out: DROP\n"
                              "log_level_in: info\nlog_level_out: info\n\n[RULES]\nGROUP agentfw\n")
+
+    def test_firewall_lets_in_the_named_clients(self):
+        ct = lxc.Lxc("h", 200, "base-snap", allow_in="192.0.2.20:8080", ssh=self.ssh)
+        ct.spawn(9500, "dark-x1", {}, [])
+        self.assertEqual(self.ssh.stdin["cat > /etc/pve/firewall/9500.fw"],
+                         vm.FIREWALL +
+                         "IN ACCEPT -source 192.0.2.20 -p tcp -dport 8080 -log nolog\n")
+        ct = lxc.Lxc("h", 200, "base-snap", allow_in="192.0.2.20:8080, 198.51.100.7:443",
+                     ssh=self.ssh)
+        ct.spawn(9501, "dark-x2", {}, [])
+        self.assertEqual(self.ssh.stdin["cat > /etc/pve/firewall/9501.fw"],
+                         vm.FIREWALL +
+                         "IN ACCEPT -source 192.0.2.20 -p tcp -dport 8080 -log nolog\n"
+                         "IN ACCEPT -source 198.51.100.7 -p tcp -dport 443 -log nolog\n")
+
+    def test_allow_in_rule_bounds(self):
+        self.assertEqual(lxc.allow_in_rules(""), "")
+        self.assertEqual(lxc.allow_in_rules("1.2.3.4:1, 1.2.3.4:65535"),
+                         "IN ACCEPT -source 1.2.3.4 -p tcp -dport 1 -log nolog\n"
+                         "IN ACCEPT -source 1.2.3.4 -p tcp -dport 65535 -log nolog\n")
+        for bad in ("1.2.3.4:0", "1.2.3.4:65536"):
+            with self.subTest(entry=bad):
+                with self.assertRaises(vm.VMError):
+                    lxc.allow_in_rules(bad)
+
+    def test_a_bad_allow_in_entry_is_refused_before_cloning(self):
+        for entry in ("1.2.3:80", "1.2.3.4:0", "1.2.3.4:http"):
+            with self.subTest(entry=entry):
+                ssh = FakeSSH()
+                with self.assertRaises(vm.VMError) as cm:
+                    lxc.Lxc("h", 200, "base-snap", allow_in=entry, ssh=ssh).spawn(
+                        9500, "dark-x1", {}, [])
+                self.assertIn(entry, str(cm.exception))
+                self.assertEqual(ssh.cmds, [])
 
     def test_spawn_raises_when_a_step_fails(self):
         def ssh(cmd, stdin=None, timeout=120):

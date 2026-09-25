@@ -17,15 +17,40 @@ from . import docker, vm
 
 START_SCRIPT = docker.START_SCRIPT
 
+# one host's sandbox_allow_in entry: a dotted IPv4 address and a tcp port
+ALLOW_IN = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$")
+
+
+def allow_in_rules(spec):
+    """The firewall lines that open a clone to the clients in `spec`, the
+    host's sandbox_allow_in: "<ipv4>:<tcp port>" entries joined with commas.
+    One `IN ACCEPT` line per entry, appended to the default-drop file after
+    GROUP agentfw, so a user-arm browser on another host can reach a
+    rehearsal clone and nothing else. An entry that is not a dotted IPv4
+    address and a port 1..65535 raises VMError naming it; "" is no line."""
+    lines = []
+    for entry in (e.strip() for e in spec.split(",")):
+        if not entry:
+            continue
+        m = ALLOW_IN.match(entry)
+        if not m or any(int(o) > 255 for o in m.groups()[:4]) or not 1 <= int(m.group(5)) <= 65535:
+            raise vm.VMError(f"sandbox_allow_in {entry!r}: not <ipv4>:<port> "
+                             "(a dotted IPv4 address and a tcp port 1..65535)")
+        ip = ".".join(str(int(o)) for o in m.groups()[:4])
+        lines.append(f"IN ACCEPT -source {ip} -p tcp -dport {int(m.group(5))} -log nolog\n")
+    return "".join(lines)
+
 
 class Lxc:
-    def __init__(self, host, source, snapshot, bridge="vmbr0", pool="", ssh=None):
+    def __init__(self, host, source, snapshot, bridge="vmbr0", pool="", allow_in="", ssh=None):
         self.host = host
         self.source = str(source)
         self.snapname = str(snapshot)
         self.bridge = bridge
         # the Proxmox pool the clone is placed in; "" = no pool
         self.pool = pool
+        # the clients the clone's firewall lets in, besides the service host
+        self.allow_in = allow_in
         self._ssh = ssh or (lambda cmd, stdin=None, timeout=120: vm._ssh(host, cmd, stdin, timeout))
 
     def ssh(self, cmd, stdin=None, check=True, timeout=120):
@@ -97,14 +122,18 @@ class Lxc:
         """Full-clone the source container from its snapshot, put it on the
         bridge behind the firewall, place it in the pool when one is set,
         clear onboot, start it, push `files` in (modes honoured) and run a
-        start script built from `runcmd` in the background. A container left
-        over under the same id is reaped first.
+        start script built from `runcmd` in the background. The firewall file
+        is the default-drop one plus one IN ACCEPT line per sandbox_allow_in
+        entry. A container left over under the same id is reaped first.
         A "user" sandbox is refused before anything is cloned: a clone of a
         service container is not a browser sandbox, and this backend has no
         target rule to let it out to the application."""
         if cls == "user":
             raise vm.VMError("the lxc backend has no user-arm sandbox (no browser image, no target "
                              "rule); run user tasks on the docker or proxmox backend")
+        # every entry is validated before anything is cloned: a malformed one
+        # must not leave a half-built clone behind
+        allow_in = allow_in_rules(self.allow_in)
         if self.status(vmid) is not None:
             self.reap(vmid, name)
         pool = f" --pool {self.pool}" if self.pool else ""
@@ -115,7 +144,7 @@ class Lxc:
         # throwaway must not come up with the host (found on a real host,
         # 2026-09-25). pct set takes this while the container is stopped.
         self.ssh(f"pct set {vmid} --onboot 0")
-        self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=vm.FIREWALL)
+        self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=vm.FIREWALL + allow_in)
         self.ssh(f"pct start {vmid}", timeout=120)
         for path, (content, mode) in files.items():
             self.push(vmid, path, content, mode)

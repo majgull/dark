@@ -76,5 +76,6 @@ def make(host, template):
                              pids=host.sandbox_pids, target_network=host.target_network)
     if host.backend == "lxc":
         return lxc.Lxc(host.proxmox, host.sandbox_container, host.sandbox_snapshot,
-                       bridge=host.sandbox_bridge, pool=host.sandbox_pool)
+                       bridge=host.sandbox_bridge, pool=host.sandbox_pool,
+                       allow_in=host.sandbox_allow_in)
     return vm.Proxmox(host.proxmox, template, target_host=host.target_host)

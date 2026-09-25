@@ -264,28 +264,32 @@ class LxcHostKeys(unittest.TestCase):
 
     def test_defaults(self):
         h = config.Host()
-        self.assertEqual((h.sandbox_container, h.sandbox_snapshot, h.sandbox_bridge, h.sandbox_pool),
-                         ("", "", "vmbr0", ""))
+        self.assertEqual((h.sandbox_container, h.sandbox_snapshot, h.sandbox_bridge, h.sandbox_pool,
+                          h.sandbox_allow_in), ("", "", "vmbr0", "", ""))
 
     def test_file_values(self):
         h = self.load('[host]\nbackend = "lxc"\nsandbox_container = 200\n'
                       'sandbox_snapshot = "base"\nsandbox_bridge = "vmbr9"\n'
-                      'sandbox_pool = "dark-pool"\n')
-        self.assertEqual((h.sandbox_container, h.sandbox_snapshot, h.sandbox_bridge, h.sandbox_pool),
-                         ("200", "base", "vmbr9", "dark-pool"))
+                      'sandbox_pool = "dark-pool"\nsandbox_allow_in = "192.0.2.20:8080"\n')
+        self.assertEqual((h.sandbox_container, h.sandbox_snapshot, h.sandbox_bridge, h.sandbox_pool,
+                          h.sandbox_allow_in), ("200", "base", "vmbr9", "dark-pool", "192.0.2.20:8080"))
 
     def test_environment_overrides(self):
         env = {"DARK_SANDBOX_CONTAINER": "201", "DARK_SANDBOX_SNAPSHOT": "pre-change",
-               "DARK_SANDBOX_BRIDGE": "vmbr7", "DARK_SANDBOX_POOL": "dark-pool"}
+               "DARK_SANDBOX_BRIDGE": "vmbr7", "DARK_SANDBOX_POOL": "dark-pool",
+               "DARK_SANDBOX_ALLOW_IN": "192.0.2.20:8080"}
         self.assertEqual({k: config.HOST_ENV[k] for k in ("sandbox_container", "sandbox_snapshot",
-                                                          "sandbox_bridge", "sandbox_pool")},
+                                                          "sandbox_bridge", "sandbox_pool",
+                                                          "sandbox_allow_in")},
                          {"sandbox_container": "DARK_SANDBOX_CONTAINER",
                           "sandbox_snapshot": "DARK_SANDBOX_SNAPSHOT",
                           "sandbox_bridge": "DARK_SANDBOX_BRIDGE",
-                          "sandbox_pool": "DARK_SANDBOX_POOL"})
+                          "sandbox_pool": "DARK_SANDBOX_POOL",
+                          "sandbox_allow_in": "DARK_SANDBOX_ALLOW_IN"})
         h = self.load('[host]\nsandbox_container = "200"\nsandbox_snapshot = "base"\n', environ=env)
-        self.assertEqual((h.sandbox_container, h.sandbox_snapshot, h.sandbox_bridge, h.sandbox_pool),
-                         ("201", "pre-change", "vmbr7", "dark-pool"))
+        self.assertEqual((h.sandbox_container, h.sandbox_snapshot, h.sandbox_bridge, h.sandbox_pool,
+                          h.sandbox_allow_in),
+                         ("201", "pre-change", "vmbr7", "dark-pool", "192.0.2.20:8080"))
 
     def test_checked_in_host_toml_has_example_lines(self):
         with open(os.path.join(HERE, "host.toml")) as f:
@@ -293,7 +297,8 @@ class LxcHostKeys(unittest.TestCase):
         for key, env in (("sandbox_container", "DARK_SANDBOX_CONTAINER"),
                          ("sandbox_snapshot", "DARK_SANDBOX_SNAPSHOT"),
                          ("sandbox_bridge", "DARK_SANDBOX_BRIDGE"),
-                         ("sandbox_pool", "DARK_SANDBOX_POOL")):
+                         ("sandbox_pool", "DARK_SANDBOX_POOL"),
+                         ("sandbox_allow_in", "DARK_SANDBOX_ALLOW_IN")):
             with self.subTest(key=key):
                 line = [ln for ln in text.splitlines() if ln.startswith(key + " ")]
                 self.assertEqual(len(line), 1)
