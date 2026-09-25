@@ -21,12 +21,38 @@ From the repository root:
 ```
 docker compose -p dark up -d gitea runner        # build the runner image and start Gitea, the runner and the gate
 bash runner/ops/docker-bootstrap.sh dark         # users, tokens, orgs, repos, sandbox image (once)
+DARK_RUNTIME_ARCHIVE=/root/runtime.tar.gz bash runner/ops/docker-bootstrap.sh dark   # optional: the session runtime, see below
 docker compose -p dark exec runner dark check-config
 docker compose -p dark exec runner dark preflight --no-model
 ```
 
 `-p dark` is the compose project name; the bootstrap takes the same one.
 Gitea answers on `http://localhost:3410`.
+
+### The session runtime archive
+
+A session, long, review or user run starts pi inside a sandbox, and the
+sandbox image does not hold pi. The runtime archive is the tar.gz a session
+sandbox downloads from Gitea and unpacks before pi starts: it holds `node/`
+and `pi/` at its root, and nothing else. Build one with
+
+```
+bash runner/ops/build-runtime.sh
+```
+
+copy it into the runner container, and run the bootstrap again with the path
+inside the container named, which is what the optional line in the steps
+above does:
+
+```
+docker compose -p dark cp runtime.tar.gz runner:/root/runtime.tar.gz
+DARK_RUNTIME_ARCHIVE=/root/runtime.tar.gz bash runner/ops/docker-bootstrap.sh dark
+```
+
+The bootstrap then commits the archive to `<org>/vm-runtime` on `main`
+through `runner/ops/push-runtime.sh`, which is the repository the runner's
+runtime URL points at by default. Without it, a session, long, review or user
+arm has no runtime and every such run fails on the download.
 
 `preflight` refuses when a model id in `models.toml` is not served by its
 provider. `--no-model` skips that check and the wake, for a deployment with

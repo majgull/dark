@@ -11,11 +11,13 @@
 # creates the orgs and repos and the write team through the Gitea API (the
 # same work ops/gitea-bootstrap.sh does for a Proxmox deployment), builds the
 # sandbox image the runner spawns its containers from, and pushes this
-# checkout's templates into the code org. Safe to run twice.
+# checkout's templates into the code org. Safe to run twice. When
+# DARK_RUNTIME_ARCHIVE names a file inside the runner container, it also
+# commits that file as the session runtime (ops/push-runtime.sh).
 #
 # Overridable: DARK_COMPOSE_PROJECT, DARK_GITEA_PORT, DARK_ORG,
 # DARK_WORK_ORG, DARK_RECORDS_ORG, DARK_ADMIN_USER, DARK_AGENT_USER,
-# DARK_SANDBOX_IMAGE.
+# DARK_SANDBOX_IMAGE, DARK_RUNTIME_ARCHIVE.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -118,4 +120,17 @@ say "templates -> $ORG/templates"
   git push -q -f "$url" main:main
   cd /; rm -rf "$tmp"
 '
+# the session runtime archive: node and pi, the tarball a session VM
+# downloads and unpacks before it can start pi. Optional, and only when
+# DARK_RUNTIME_ARCHIVE names a file inside the runner container; build it
+# with runner/ops/build-runtime.sh and copy it in first.
+if [ -n "${DARK_RUNTIME_ARCHIVE:-}" ]; then
+  say "runtime archive $DARK_RUNTIME_ARCHIVE -> $ORG/vm-runtime"
+  if ! runner_sh "test -s '$DARK_RUNTIME_ARCHIVE'"; then
+    echo "DARK_RUNTIME_ARCHIVE=$DARK_RUNTIME_ARCHIVE is not a file inside the runner container" >&2
+    exit 1
+  fi
+  "${COMPOSE[@]}" exec -T runner bash ops/push-runtime.sh "$GITEA_IN" "$ORG" "$DARK_RUNTIME_ARCHIVE"
+fi
+
 say "bootstrap DONE: $PROJECT"
