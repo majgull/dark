@@ -9,6 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `python3 -m dark ledger-tail [--lines N] [--kind KIND]` prints the last 20 rows of the ledger by default, oldest first, one JSON object per line, keeps only rows of a named event kind, skips a line that is not JSON with one note on standard error, and exits 0 when the ledger is missing or empty.
+- `otlp-gate` in `compose.yaml`: a pinned reverse proxy on `back` and `front` that forwards port 4318 to `DARK_OTLP_UPSTREAM`, so a runner on the internal network can send its spans to a collector elsewhere (`otlp_endpoint = "http://otlp-gate:4318"`).
+- A user-arm run's trace has one child span per browser action, `execute_tool browser.<do>`, with the action, its result and the step number.
+- MCP tests for `dark_run` and `dark_ledger_tail`, the last open task of `specs/mcp-server`.
+
+### Changed
+
+- The user arm shows each step the notes of the steps already finished, and a pass verdict must quote text from the page (`evidence`), accepted only when the quote is in the snapshot the model was shown; `steps.jsonl` keeps the quote.
 
 ## [0.5.0] - 2026-09-25
 
