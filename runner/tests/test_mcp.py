@@ -310,6 +310,10 @@ class ToolCalls(ServerCase):
         self.assertEqual(result["content"][0]["text"], "digest\n")
         _, call = self.call("dark_run", {"task": "/w/t1", "tier": "mid", "arm": "a1", "slot": 2})
         self.assertEqual(call["argv"], ["shift", "--no-push", "--task-dir=/w/t1", "--tier=mid", "--arm=a1", "--slot=2"])
+        # The tool table has no `think`, so the server refuses it before starting anything.
+        r = self.start().tool("dark_run", {"task": "/w/t1", "tier": "mid", "think": True})
+        self.assertEqual(r["error"]["code"], -32602)
+        self.assertIn("unknown argument: think", r["error"]["message"])
 
     def test_user(self):
         _, call = self.call("dark_user", {"task": "/w/u", "tier": "mid"})
@@ -337,6 +341,34 @@ class ToolCalls(ServerCase):
     def test_timeout_seconds_is_the_servers_and_never_reaches_the_command(self):
         _, call = self.call("dark_user", {"task": "/w/u", "tier": "mid", "timeout_seconds": 60})
         self.assertEqual(call["argv"], ["user", "--task=/w/u", "--tier=mid"])
+
+    def ledger_conf(self):
+        """A DARK_CONF whose ledger holds five rows of two kinds, written under /tmp/fx."""
+        conf = os.path.join(self.dir, "conf")
+        state = os.path.join(self.dir, "state")
+        os.makedirs(conf)
+        os.makedirs(state)
+        with open(os.path.join(conf, "host.toml"), "w") as f:
+            f.write(f'[host]\nstate_dir = "{state}"\n')
+        kinds = ["run.start", "run.end", "run.start", "run.end", "run.start"]
+        with open(os.path.join(state, "ledger.jsonl"), "w") as f:
+            for n, kind in enumerate(kinds, 1):
+                f.write(json.dumps({"kind": kind, "n": n}) + "\n")
+        return conf
+
+    def test_ledger_tail_is_answered_by_the_server_and_takes_no_kind(self):
+        # The server answers this tool itself, so its schema has no `kind`: a kind
+        # filter is refused as an unknown argument, and neither call starts a command.
+        s = self.start(DARK_CONF=self.ledger_conf())
+        result = s.tool("dark_ledger_tail", {})["result"]
+        rows = [json.loads(line) for line in result["content"][0]["text"].splitlines()]
+        self.assertEqual([(r["kind"], r["n"]) for r in rows],
+                         [("run.start", 1), ("run.end", 2), ("run.start", 3), ("run.end", 4), ("run.start", 5)])
+        self.assertFalse(result["isError"])
+        r = s.tool("dark_ledger_tail", {"kind": "run.end"})
+        self.assertEqual(r["error"]["code"], -32602)
+        self.assertIn("unknown argument: kind", r["error"]["message"])
+        self.assertEqual(self.calls(), [])
 
 
 class Ledger(ServerCase):
