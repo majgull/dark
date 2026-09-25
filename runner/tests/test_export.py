@@ -131,7 +131,9 @@ class Export(unittest.TestCase):
         self.assertIn("NOT AVAILABLE", r.stdout)
 
     def test_refusal_writes_nothing(self):
-        for absent in ("toml", "start", "acceptance"):
+        # start/ is optional since 1051 item b: the export builds the
+        # starting tree from the template, so only these two are required.
+        for absent in ("toml", "acceptance"):
             task = make_task(self.tmp, tid=f"bad-{absent}", **{absent: False})
             with self.assertRaises(export_mod.ExportError):
                 export_mod.export(task, os.path.join(self.out, absent))

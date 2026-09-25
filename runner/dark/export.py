@@ -10,11 +10,15 @@ the hidden tests are run) and `solution.sh` (the reference solution).
 `tests/` directory holding the hidden acceptance, for one dark task. The
 instruction is the task's `spec`; the Dockerfile builds on the same base
 image `runner/sandbox/Dockerfile` uses and copies `start/` into the working
-directory; `run-tests.sh` runs the acceptance the way `dark/stager.py` does
-(copy into `.acceptance/`, run `run.sh` from the working directory);
-`solution.sh` applies the `oracle/` overlay onto the working directory. A
-task with no `oracle/` still exports: its `solution.sh` says NOT AVAILABLE
-and exits 1.
+directory, where `start/` is the task's full starting tree: the language
+template, the tree an earlier chain step leaves, and the task's own `start/`,
+built by the same `dark/tasks.py` functions a run uses and committed as one
+git commit inside the image; `run-tests.sh` runs the acceptance the way
+`dark/stager.py` does (copy into `.acceptance/`, run `run.sh` from the
+working directory); `solution.sh` applies the `oracle/` overlay onto the
+working directory as the image's own user, never the uid of the packing
+host. A task with no `oracle/` still exports: its `solution.sh` says NOT
+AVAILABLE and exits 1.
 
 Only the standard library is used, so exporting never needs a dependency.
 """
@@ -28,9 +32,17 @@ import sys
 import tarfile
 import tomllib
 
+from . import tasks as dark_tasks
+
 # The task directory must hold these; a missing one is refused before
-# anything is written.
-REQUIRED = ("task.toml", "start", "acceptance")
+# anything is written. `start/` is optional: `dark/tasks.py` builds the
+# starting tree from the language template plus whatever overlay a task has.
+REQUIRED = ("task.toml", "acceptance")
+
+# The templates live beside the runner in this checkout, resolved the way
+# `dark/tasks.py` and `bench/tools/check_tasks.py` resolve theirs.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+TEMPLATES = os.path.join(REPO, "templates")
 
 # runner/sandbox/Dockerfile builds from this image, and the exported
 # Dockerfile stays on it so a task runs on the base a dark sandbox uses.
@@ -124,16 +136,22 @@ def task_yaml(name, instruction, parser, timeout):
 
 def dockerfile(name):
     """The image the agent works in: the dark sandbox's base and packages,
-    with the task's start/ overlay copied into the working directory."""
+    the full starting tree copied into the working directory, and that tree
+    committed as one git commit, the root commit an acceptance may read."""
     return (f"# Exported from dark task {name}. The base image and packages are the\n"
-            f"# ones runner/sandbox/Dockerfile uses; start/ is the dark task's\n"
-            f"# starting overlay on the language template.\n"
+            f"# ones runner/sandbox/Dockerfile uses; start/ holds the starting tree\n"
+            f"# dark/tasks.py built: the language template, the tree an earlier\n"
+            f"# chain step leaves, and the task's own start/, as one git commit.\n"
             f"FROM {BASE_IMAGE}\n\n"
             f"RUN apt-get update \\\n"
             f"    && apt-get install -y --no-install-recommends {SANDBOX_PACKAGES} \\\n"
             f"    && rm -rf /var/lib/apt/lists/*\n\n"
             f"WORKDIR {WORKDIR}\n\n"
-            f"COPY start/ {WORKDIR}/\n")
+            f"COPY start/ {WORKDIR}/\n\n"
+            f"RUN git init -q -b main \\\n"
+            f"    && git add -A -f \\\n"
+            f"    && git -c user.name=dark-runner -c user.email=dark-runner@localhost \\\n"
+            f"       commit -q -m 'starting tree'\n")
 
 
 def docker_compose(name):
@@ -176,8 +194,10 @@ def run_tests(name):
 def solution_script(name, oracle_dir):
     """The oracle overlay as one self-contained script: Harbor uploads only
     solution.sh into the container, so the oracle files ride inside it as a
-    base64 tar. The tar is laid over the working directory the way
-    dark/tasks.py overlays a work tree: .delete lists paths removed first."""
+    base64 tar, extracted with --no-same-owner so the image's own user owns
+    the result and never the uid of the packing host. The tar is laid over
+    the working directory the way dark/tasks.py overlays a work tree:
+    .delete lists paths removed first."""
     if not os.path.isdir(oracle_dir) or not os.listdir(oracle_dir):
         return SOLUTION_MISSING.format(name=name)
     buf = io.BytesIO()
@@ -194,7 +214,7 @@ def solution_script(name, oracle_dir):
             f'base64 -d >"$tmp/oracle.tar.gz" <<\'DARK_ORACLE_B64\'\n'
             f"{payload}"
             f"DARK_ORACLE_B64\n"
-            f'tar -xzf "$tmp/oracle.tar.gz" -C "$tmp"\n'
+            f'tar -xzf "$tmp/oracle.tar.gz" -C "$tmp" --no-same-owner\n'
             f'rm -f "$tmp/oracle.tar.gz"\n'
             f'if [ -f "$tmp/.delete" ]; then\n'
             f'    while IFS= read -r line; do\n'
@@ -211,6 +231,19 @@ def solution_script(name, oracle_dir):
             f"fi\n"
             f'cp -a "$tmp/." "$work/"\n'
             f'rm -rf "$tmp"\n')
+
+
+def _start_tree(task_dir):
+    """The full starting tree for the exported image, as {path: bytes}: the
+    same `dark/tasks.py` call a run makes, so the export carries the language
+    template, the oracle tree of the step this task follows, and the task's
+    own start/."""
+    task = dark_tasks.load_task(task_dir)
+    base = None
+    if task.after:
+        earlier = dark_tasks.load_task(os.path.join(os.path.dirname(task.dir), task.after))
+        base = dark_tasks.oracle_tree(earlier, TEMPLATES)
+    return dark_tasks.work_tree(task, TEMPLATES, base_tree=base)
 
 
 def _tree_files(root, mode_default):
@@ -237,7 +270,8 @@ def _tree_files(root, mode_default):
 def export(task_dir, out_dir):
     """Write the Terminal-Bench layout for one dark task and return out_dir.
     Refuses (ExportError, nothing written) when the task directory lacks
-    task.toml, start/ or acceptance/."""
+    task.toml or acceptance/, or when dark/tasks.py cannot build the
+    starting tree."""
     task_dir = os.path.abspath(task_dir)
     out_dir = os.path.abspath(out_dir)
     if not os.path.isdir(task_dir):
@@ -259,6 +293,10 @@ def export(task_dir, out_dir):
 
     # Everything below reads the task directory; the write happens after, so
     # a refusal leaves the output directory untouched.
+    try:
+        tree = _start_tree(task_dir)
+    except dark_tasks.TaskError as e:
+        raise ExportError(str(e)) from None
     files = [
         ("task.yaml", task_yaml(name, instruction, parser_name(task_dir), timeout).encode(), 0o644),
         ("Dockerfile", dockerfile(name).encode(), 0o644),
@@ -266,7 +304,11 @@ def export(task_dir, out_dir):
         ("run-tests.sh", run_tests(name).encode(), 0o755),
         ("solution.sh", solution_script(name, os.path.join(task_dir, "oracle")).encode(), 0o755),
     ]
-    for rel, data, mode in _tree_files(os.path.join(task_dir, "start"), 0o644):
+    for rel, data in sorted(tree.items()):
+        # dark/tasks.py's write_tree keeps the executable bit on a .sh file
+        # and writes every other file 0o644; the image's commit needs the
+        # same modes the runner would have written.
+        mode = 0o755 if rel.endswith(".sh") else 0o644
         files.append((os.path.join("start", rel), data, mode))
     for rel, data, mode in _tree_files(os.path.join(task_dir, "acceptance"), 0o644):
         files.append((os.path.join("tests", rel), data, mode))

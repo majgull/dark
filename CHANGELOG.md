@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `python3 -m dark export-harbor` carries a task's full starting tree: the language template, the tree an earlier chain step leaves and the task's own `start/`, built by the same `dark/tasks.py` functions a run uses and committed as one git commit inside the exported image, so the image's working directory is what dark's executor is given. `start/` is now optional in a task record, and `solution.sh` extracts the oracle as the image's own user, never the uid of the packing host.
 - `python3 -m dark ledger-tail [--lines N] [--kind KIND]` prints the last 20 rows of the ledger by default, oldest first, one JSON object per line, keeps only rows of a named event kind, skips a line that is not JSON with one note on standard error, and exits 0 when the ledger is missing or empty.
 - `otlp-gate` in `compose.yaml`: a pinned reverse proxy on `back` and `front` that forwards port 4318 to `DARK_OTLP_UPSTREAM`, so a runner on the internal network can send its spans to a collector elsewhere (`otlp_endpoint = "http://otlp-gate:4318"`).
 - A user-arm run's trace has one child span per browser action, `execute_tool browser.<do>`, with the action, its result and the step number.
