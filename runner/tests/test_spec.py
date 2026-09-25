@@ -5,9 +5,17 @@ from dark import spec
 
 class Classes(unittest.TestCase):
     def test_partition(self):
-        self.assertEqual(set(spec.EXEC_CLASSES) | set(spec.CALL_CLASSES), set(spec.CLASSES))
-        self.assertFalse(set(spec.EXEC_CLASSES) & set(spec.CALL_CLASSES))
-        self.assertEqual(len(spec.CLASSES), 5)
+        groups = (spec.EXEC_CLASSES, spec.CALL_CLASSES, spec.SESSION_CLASSES)
+        self.assertEqual(set().union(*groups), set(spec.CLASSES))
+        self.assertEqual(sum(len(g) for g in groups), len(spec.CLASSES))
+        self.assertEqual(len(spec.CLASSES), 6)
+
+    def test_long_is_a_session_class_not_a_task_class(self):
+        # long runs as one session judged by a reviewer: task.toml intake
+        # (EXEC_CLASSES) and the control-plane calls do not take it
+        self.assertEqual(spec.SESSION_CLASSES, ("long",))
+        self.assertNotIn("long", spec.EXEC_CLASSES)
+        self.assertNotIn("long", spec.CALL_CLASSES)
 
 
 class States(unittest.TestCase):

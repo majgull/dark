@@ -13,7 +13,10 @@ agent-side tag vocabulary can be pinned against agent.py and stager.py
 # --- classes: the kind of work, declared at intake, immutable ----------------
 EXEC_CLASSES = ("additive", "mechanical", "repair")  # run in a VM: execute, verify, stage
 CALL_CLASSES = ("spec", "review")                    # single budgeted control-plane calls
-CLASSES = EXEC_CLASSES + CALL_CLASSES
+# one session for hours in a VM over several repositories, judged by a
+# reviewer session, not by hidden tests; no admission (the operator names the tier)
+SESSION_CLASSES = ("long",)
+CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES
 
 # --- outcomes: the only terminal states of a run, decided by the runner ----
 # delivered: the review class's pass - no hidden acceptance,

@@ -558,6 +558,43 @@ class KeepAwake(Base):
         self.assertEqual(len(r.holds), 2)
         self.assertGreaterEqual(r.holds[1], self.task.stage_timeout + gate.MARGIN_SECONDS)
 
+    def test_a_long_run_takes_its_lease_and_deadline_from_the_long_envelope(self):
+        """long's 14400 s reaches the three places that derive from
+        env.seconds: the keep-awake lease, the executor's own wall limit
+        (max_seconds) and the runner's deadline. The clock is fake and the
+        executor a live heartbeat that never finishes, so the run ends at
+        the runner's deadline and nowhere else."""
+        import dataclasses
+        from tests.test_review_run_driver import ScriptedGitea
+        self.runner([])
+        task = dataclasses.replace(self.task, cls="long")
+        env = budget.envelope(self.bud, self.led, "long")
+        self.assertEqual(env.seconds, 14400)
+        now = [time.time()]
+
+        def iso():
+            return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now[0]))
+
+        class Beating(ScriptedGitea):
+            def comments(self, full, n):
+                return [{"id": 1, "body": "AGENT-ALIVE run\nDARK:" + json.dumps({"v": 2, "ev": "beat", "at": 0, "calls": 1}),
+                         "created_at": iso(), "updated_at": iso()}]
+
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, Beating([]), None, log=lambda *a: None,
+                        shift="s1", clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + 60))
+        sent = {}
+        r.launch = lambda vmid, name, files, runcmd: sent.update(json.loads(files["/opt/task.json"][0]))
+        r._ensure_records_repo = lambda shift=None: "dark-records/s1"
+        t0 = now[0]
+        res = r.run(task, "local-a", env)
+        self.assertEqual(r.holds, [14400 + task.stage_timeout + gate.MARGIN_SECONDS])
+        self.assertEqual(sent["max_seconds"], 14400)
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:budget", "seconds"))
+        self.assertIn("envelope of 14400s exceeded", res.detail)
+        self.assertGreater(now[0] - t0, 14400)
+        self.assertLess(now[0] - t0, 14400 + 180)
+        self.assertEqual(self.led.last("run.start")["envelope"]["think"], "medium")
+
     def test_control_base_is_the_waking_provider_without_v1(self):
         base = gate.control_base(self.cat)
         waking = [p for p in self.cat.providers.values() if p.wake]

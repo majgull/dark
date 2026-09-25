@@ -305,8 +305,9 @@ def load_budgets(path, catalog):
         if not isinstance(headroom, (int, float)) or headroom < 0:
             raise ConfigError(f"{path}: {where}.headroom must be >= 0")
         admit_at = c.get("admit_at")
-        if not isinstance(admit_at, (int, float)) or not 0 < admit_at <= 1:
-            raise ConfigError(f"{path}: {where}.admit_at must be in (0, 1]")
+        # 0 = no admission: every tier may run the class, the operator names it
+        if isinstance(admit_at, bool) or not isinstance(admit_at, (int, float)) or not 0 <= admit_at <= 1:
+            raise ConfigError(f"{path}: {where}.admit_at must be in [0, 1] (0 = no admission)")
         prov = c.get("provisional")
         if not isinstance(prov, list) or not prov:
             raise ConfigError(f"{path}: {where}.provisional must be a non-empty list of model ids")

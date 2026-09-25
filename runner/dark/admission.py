@@ -3,6 +3,8 @@ ledger, never typed.
 
 A (class, tier) pair with at least min_runs runs is admitted iff its pass
 rate over the last last_runs runs is at or above the class's admit_at.
+A class with admit_at 0 has no admission: every tier is admitted (basis
+"operator") and the operator names the one to run.
 With fewer runs it is admitted provisionally iff the class's provisional
 list names it. Order: measured tiers first, cheapest by cost_order, then
 provisional tiers in the list's order (the configured provisional order is
@@ -20,7 +22,7 @@ class Row:
     cls: str
     tier: str
     admitted: bool
-    basis: str        # "measured" | "provisional" | "excluded" | "below-threshold"
+    basis: str        # "measured" | "provisional" | "excluded" | "below-threshold" | "operator"
     rate: float | None
     n: int
     rank: int
@@ -42,7 +44,9 @@ def rows(budgets, catalog, ledger, cls, think=None):
         lvl = think or cb.think or m.think
         legacy = "none" if m.thinking_tokens == 0 else None
         rate, n = ledger.pass_rate(cls, m.id, budgets.last_runs, think=lvl, legacy=legacy)
-        if n >= budgets.min_runs:
+        if cb.admit_at == 0:
+            ok, basis = True, "operator"
+        elif n >= budgets.min_runs:
             ok = rate >= cb.admit_at
             basis = "measured" if ok else "below-threshold"
         else:

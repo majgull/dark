@@ -4,7 +4,7 @@ import unittest
 
 from dark import admission, budget, config
 from dark import ledger as L
-from tests.test_config import BUDGETS, MODELS, write_conf
+from tests.test_config import BUDGETS, HERE, MODELS, write_conf
 from tests.test_ledger import Clock, run_end
 
 
@@ -197,6 +197,32 @@ class Admission(Fixture):
         t = admission.table(self.bud, self.cat, self.led)
         self.assertEqual(set(t), set(self.bud.classes))
         self.assertEqual({r["tier"] for r in t["additive"]}, set(self.cat.models))
+
+
+class LongClass(Fixture):
+    """long: one session for hours, a calls ceiling that never binds, the
+    medium level, and no admission: the operator names the tier."""
+
+    def test_the_shipped_class(self):
+        _, bud = config.load(HERE)
+        c = bud.cls("long")
+        self.assertEqual((c.hard.seconds, c.hard.calls, c.think, c.admit_at), (14400, 2000, "medium", 0.0))
+
+    def test_the_envelope_is_the_hard_cap(self):
+        e = budget.envelope(self.bud, self.led, "long", "local-a", think="medium")
+        self.assertEqual((e.cls, e.seconds, e.calls, e.basis), ("long", 14400, 2000, "hard"))
+
+    def test_every_tier_is_admitted_whatever_its_record(self):
+        # the provisional list names cloud-x only, and local-a fails every run:
+        # with admit_at 0 neither decides anything
+        self.fails(5, cls="long", tier="local-a")
+        rows = admission.rows(self.bud, self.cat, self.led, "long")
+        self.assertEqual({r.tier for r in rows if r.admitted}, set(self.cat.models))
+        self.assertEqual({r.basis for r in rows}, {"operator"})
+
+    def test_admit_at_zero_is_accepted_and_below_zero_refused(self):
+        with self.assertRaises(config.ConfigError):
+            config.load(write_conf(self.tmp, MODELS, BUDGETS.replace("admit_at = 0\n", "admit_at = -0.1\n")))
 
 
 if __name__ == "__main__":

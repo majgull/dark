@@ -80,6 +80,16 @@ headroom = 0.2
 admit_at = 0.7
 provisional = ["example-large"]
 
+# long: one session for hours over several repositories, judged by a reviewer
+# session. The calls ceiling is set never to bind (the seconds do); no
+# admission, the operator names the tier. Not benched: the caps are placeholders.
+[class.long]
+think = "medium"
+hard = { runs = 1, calls = 2000, seconds = 14400, max_reasoning_chars = 40000 }
+headroom = 0.2
+admit_at = 0
+provisional = ["example-large"]
+
 [admission]
 min_runs = 10      # below this a (class, tier) pair is admitted only provisionally
 last_runs = 20     # the pass rate is over the last N runs of the pair
