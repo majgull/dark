@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-09-25
+
+### Added
+
+- `runner/ops/build-runtime.sh` builds the runtime archive the session,
+  long, review and user arms unpack: node from nodejs.org, checked against
+  its published sha256 sums, and the pi package installed with that node.
+  Until now the archive could only be made by hand.
+- `runner/ops/push-runtime.sh` publishes the archive as `<org>/vm-runtime`,
+  and `ops/docker-bootstrap.sh` runs it when `DARK_RUNTIME_ARCHIVE` names a
+  file.
+- `runner/ops/target-net.sh` creates the user arm's target network and
+  limits its egress to named `host:port` addresses with DOCKER-USER rules,
+  idempotently; `runner/ops/dark-target-net.service` applies it at boot.
+
 ## [0.3.0] - 2026-09-25
 
 ### Added

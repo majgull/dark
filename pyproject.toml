@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dark"
-version = "0.3.0"
+version = "0.4.0"
 description = "Run a language model on a coding task in a throwaway machine, judged by tests it never sees"
 readme = "README.md"
 requires-python = ">=3.11"
