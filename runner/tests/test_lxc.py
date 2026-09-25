@@ -5,7 +5,7 @@ snapshot, and a reap that reports a survivor. Nothing here runs `pct`."""
 import inspect
 import unittest
 
-from dark import lxc, sandbox, vm
+from dark import config, lxc, sandbox, vm
 
 LISTING = ("`-> base-snap                   2026-01-01 10:00:00     no-description\n"
            " `-> current                    You are here!\n")
@@ -114,6 +114,7 @@ class Lxc(unittest.TestCase):
             "pct status 9500",
             "pct clone 200 9500 --snapname base-snap --full 1 --hostname dark-x1",
             "pct set 9500 --net0 name=eth0,bridge=vmbr9,firewall=1,ip=dhcp",
+            "pct set 9500 --onboot 0",
             "cat > /etc/pve/firewall/9500.fw",
             "pct start 9500",
             "cat > /tmp/dark-push-9500",
@@ -131,6 +132,37 @@ class Lxc(unittest.TestCase):
             "pct exec 9500 -- /bin/sh /opt/dark-start.sh </dev/null >/dev/null 2>&1 &",
         ])
         self.assertEqual(self.ct.status(9500), "running")
+
+    def test_spawn_joins_the_pool_and_clears_onboot(self):
+        ct = lxc.Lxc("cpu-host", 200, "base-snap", bridge="vmbr9", pool="dark-pool", ssh=self.ssh)
+        ct.spawn(9500, "dark-x1", {}, [])
+        self.assertEqual(self.ssh.cmds, [
+            "pct status 9500",
+            "pct clone 200 9500 --snapname base-snap --full 1 --hostname dark-x1 --pool dark-pool",
+            "pct set 9500 --net0 name=eth0,bridge=vmbr9,firewall=1,ip=dhcp",
+            "pct set 9500 --onboot 0",
+            "cat > /etc/pve/firewall/9500.fw",
+            "pct start 9500",
+            "cat > /tmp/dark-push-9500",
+            "pct exec 9500 -- mkdir -p /opt",
+            "pct push 9500 /tmp/dark-push-9500 /opt/dark-start.sh --perms 0755",
+            "rm -f /tmp/dark-push-9500",
+            "pct exec 9500 -- /bin/sh /opt/dark-start.sh </dev/null >/dev/null 2>&1 &",
+        ])
+        # no pool set: no --pool in the clone, and onboot is cleared before start
+        ct = lxc.Lxc("cpu-host", 200, "base-snap", ssh=self.ssh)
+        self.ssh.cmds = []
+        ct.spawn(9501, "dark-x2", {}, [])
+        clone = [c for c in self.ssh.cmds if c.startswith("pct clone ")][0]
+        self.assertEqual(clone, "pct clone 200 9501 --snapname base-snap --full 1 --hostname dark-x2")
+        self.assertLess(self.ssh.cmds.index("pct set 9501 --onboot 0"),
+                        self.ssh.cmds.index("pct start 9501"))
+
+    def test_make_passes_the_pool_through(self):
+        host = config.Host(backend="lxc", proxmox="cpu-host", sandbox_container="200",
+                           sandbox_snapshot="base", sandbox_bridge="vmbr9", sandbox_pool="dark-pool")
+        ct = sandbox.make(host, 9001)
+        self.assertEqual((ct.pool, ct.bridge), ("dark-pool", "vmbr9"))
 
     def test_spawn_pushes_contents_and_the_start_script(self):
         pushed = []

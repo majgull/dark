@@ -19,11 +19,13 @@ START_SCRIPT = docker.START_SCRIPT
 
 
 class Lxc:
-    def __init__(self, host, source, snapshot, bridge="vmbr0", ssh=None):
+    def __init__(self, host, source, snapshot, bridge="vmbr0", pool="", ssh=None):
         self.host = host
         self.source = str(source)
         self.snapname = str(snapshot)
         self.bridge = bridge
+        # the Proxmox pool the clone is placed in; "" = no pool
+        self.pool = pool
         self._ssh = ssh or (lambda cmd, stdin=None, timeout=120: vm._ssh(host, cmd, stdin, timeout))
 
     def ssh(self, cmd, stdin=None, check=True, timeout=120):
@@ -93,9 +95,10 @@ class Lxc:
 
     def spawn(self, vmid, name, files, runcmd, cls=None):
         """Full-clone the source container from its snapshot, put it on the
-        bridge behind the firewall, start it, push `files` in (modes
-        honoured) and run a start script built from `runcmd` in the
-        background. A container left over under the same id is reaped first.
+        bridge behind the firewall, place it in the pool when one is set,
+        clear onboot, start it, push `files` in (modes honoured) and run a
+        start script built from `runcmd` in the background. A container left
+        over under the same id is reaped first.
         A "user" sandbox is refused before anything is cloned: a clone of a
         service container is not a browser sandbox, and this backend has no
         target rule to let it out to the application."""
@@ -104,9 +107,14 @@ class Lxc:
                              "rule); run user tasks on the docker or proxmox backend")
         if self.status(vmid) is not None:
             self.reap(vmid, name)
-        self.ssh(f"pct clone {self.source} {vmid} --snapname {self.snapname} --full 1 --hostname {name}",
-                 timeout=600)
+        pool = f" --pool {self.pool}" if self.pool else ""
+        self.ssh(f"pct clone {self.source} {vmid} --snapname {self.snapname} --full 1 "
+                 f"--hostname {name}{pool}", timeout=600)
         self.ssh(f"pct set {vmid} --net0 name=eth0,bridge={self.bridge},firewall=1,ip=dhcp")
+        # a full clone inherits the source's onboot, which is usually 1: a
+        # throwaway must not come up with the host (found on a real host,
+        # 2026-09-25). pct set takes this while the container is stopped.
+        self.ssh(f"pct set {vmid} --onboot 0")
         self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=vm.FIREWALL)
         self.ssh(f"pct start {vmid}", timeout=120)
         for path, (content, mode) in files.items():

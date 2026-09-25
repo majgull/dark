@@ -378,7 +378,7 @@ HOST_ENV = {
     "sandbox_cpus": "DARK_SANDBOX_CPUS", "sandbox_memory": "DARK_SANDBOX_MEMORY",
     "sandbox_pids": "DARK_SANDBOX_PIDS",
     "sandbox_container": "DARK_SANDBOX_CONTAINER", "sandbox_snapshot": "DARK_SANDBOX_SNAPSHOT",
-    "sandbox_bridge": "DARK_SANDBOX_BRIDGE",
+    "sandbox_bridge": "DARK_SANDBOX_BRIDGE", "sandbox_pool": "DARK_SANDBOX_POOL",
     "browser_image": "DARK_BROWSER_IMAGE",
     "target_network": "DARK_TARGET_NETWORK", "target_host": "DARK_TARGET_HOST",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
@@ -412,6 +412,9 @@ class Host:
     sandbox_container: str = ""
     sandbox_snapshot: str = ""
     sandbox_bridge: str = "vmbr0"
+    # the Proxmox pool a clone is placed in, so the throwaways are grouped and
+    # never mixed with the containers that serve; "" = no pool
+    sandbox_pool: str = ""
     # the image a user-arm sandbox is created from (runner/sandbox/Dockerfile.browser):
     # the sandbox image plus Chromium and Playwright
     browser_image: str = "dark-sandbox-browser"
@@ -444,6 +447,7 @@ class Host:
         self.sandbox_cpus = "" if self.sandbox_cpus in (None, "") else str(self.sandbox_cpus)
         self.sandbox_memory = "" if self.sandbox_memory in (None, "") else str(self.sandbox_memory)
         self.sandbox_container = "" if self.sandbox_container in (None, "") else str(self.sandbox_container)
+        self.sandbox_pool = "" if self.sandbox_pool in (None, "") else str(self.sandbox_pool)
         try:
             self.sandbox_pids = int(self.sandbox_pids or 0)
         except (TypeError, ValueError):
