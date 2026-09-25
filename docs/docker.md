@@ -222,6 +222,76 @@ Nothing in the checkout changes; `git status --short` stays clean. The
 bundled `ollama` is not started unless the `model` profile is asked for, and
 it is never used when `DARK_MODEL_UPSTREAM` names somewhere else.
 
+## The user arm's target network
+
+One arm of a run, the *user arm*, checks an application that is already
+running the way a person would, through its pages and its API, instead of
+writing code in a checkout. That application lives outside the sandbox, so a
+user-arm sandbox joins a second docker network as well as the internal one.
+This second network is the *target network*; its docker name is the runner's
+`target_network` key (`DARK_TARGET_NETWORK` when set through the environment),
+and the runner connects each user-arm sandbox to it after the container is
+created.
+
+A docker network marked *internal* has no route off the host, which is what
+keeps an ordinary sandbox to Gitea and the model gate. A network that is not
+internal has the host's own route, so a sandbox on it reaches every address
+the host can: the local network, the host itself, the internet. The target
+network must therefore be limited, or the user arm trades its confinement
+for reach. The limit is drawn on the *subnet*, the block of addresses the
+network hands out, written as an IPv4 CIDR — an address, a slash and the
+number of leading bits that name the block, such as `172.30.41.0/24` — in
+the `DOCKER-USER` chain: the iptables chain docker reserves for rules an
+operator adds and reads before its own. One rule drops every connection
+opened from the subnet (*egress* is what the sandbox starts outwards), and
+one rule per `host:port` the application is reached on accepts it and sits
+above that drop.
+
+`runner/ops/target-net.sh` writes and removes those rules:
+
+```
+bash runner/ops/target-net.sh apply  dark_target 172.30.41.0/24 192.168.1.203:631
+bash runner/ops/target-net.sh show   dark_target 172.30.41.0/24
+bash runner/ops/target-net.sh remove dark_target 172.30.41.0/24
+```
+
+`apply` creates the network when it is absent — refusing when it already
+exists with a different subnet — then makes the chain hold exactly one drop
+for the subnet and exactly one accept per named `host:port` above it.
+Running it a second time changes nothing, and an accept for a `host:port` no
+longer named is removed. `show` prints the network and the chain lines for
+the subnet; `remove` deletes the rules and the network. Every argument is
+checked before anything is touched, and iptables runs through `sudo` unless
+the command runs as root.
+
+### Keeping it across reboots
+
+Rules typed by hand are gone after a reboot. Install
+`runner/ops/dark-target-net.service`, a systemd unit (the file systemd reads
+to start a service), which runs the same `apply` once `docker.service` is up
+and takes its arguments from `/etc/dark/target-net.env`. Copy the script to
+the path the unit calls, write the three variables, then enable the unit:
+
+```
+sudo install -m 0755 runner/ops/target-net.sh /usr/local/bin/dark-target-net.sh
+sudo install -d /etc/dark
+sudo tee /etc/dark/target-net.env >/dev/null <<'EOF'
+TARGET_NETWORK=dark_target
+TARGET_SUBNET=172.30.41.0/24
+TARGET_ALLOW=192.168.1.203:631
+EOF
+sudo install -m 0644 runner/ops/dark-target-net.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dark-target-net.service
+```
+
+`TARGET_ALLOW` is the space-separated list of `host:port` addresses, so two
+of them are `TARGET_ALLOW="192.168.1.203:631 192.168.1.204:8080"`. After
+editing the file, `sudo systemctl restart dark-target-net.service` applies
+the change; the work is idempotent, so a restart is always safe. The unit
+creates the network itself; if something else created it first, `apply`
+refuses it unless the subnet matches.
+
 ## What containers keep, weaken and lose against VMs
 
 The Docker column is this deployment. The LXC column is the `lxc` backend
