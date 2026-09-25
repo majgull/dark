@@ -83,6 +83,15 @@ def cmd_bench(args):
     return rc
 
 
+def cmd_mcp(args):
+    """python3 -m dark mcp: a Model Context Protocol server on stdin and
+    stdout (dark/mcp.py). It needs no configuration of its own; the commands
+    it starts read $DARK_CONF from the environment they inherit."""
+    from . import mcp
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    return mcp.serve(sys.stdin, sys.stdout)
+
+
 def cmd_export_harbor(args):
     """python3 -m dark export-harbor <task-dir> <out-dir> — write one dark
     task as a Terminal-Bench task directory (dark/export.py)."""
@@ -757,6 +766,7 @@ def main(argv=None):
     p = sub.add_parser("export-harbor", help="write one dark task as a Terminal-Bench task directory")
     p.add_argument("task_dir", help="the dark task directory (task.toml, start/ and acceptance/)")
     p.add_argument("out_dir", help="the directory to write the Terminal-Bench layout into")
+    sub.add_parser("mcp", help="serve preflight, run, user, long, review and ledger-tail as MCP tools over stdin and stdout")
     p = sub.add_parser("digest", help="render the digest for the last (or given) shift")
     p.add_argument("--shift")
     p = sub.add_parser("void", help="exclude a run from every rate (a fault in the runner or the deployment, not the model); the record stays")
@@ -771,7 +781,7 @@ def main(argv=None):
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
                 "user": cmd_user, "long": cmd_long,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
-                "export-harbor": cmd_export_harbor,
+                "export-harbor": cmd_export_harbor, "mcp": cmd_mcp,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)
     except config.ConfigError as e:
         print(f"config: {e}")

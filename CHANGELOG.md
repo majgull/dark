@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `otlp_endpoint` in `runner/host.toml` (variable `DARK_OTLP_ENDPOINT`, empty by default) sends every finished run to an OpenTelemetry collector as one trace over OTLP/HTTP JSON, standard library only (`runner/dark/otel.py`): a parent span `invoke_agent <task>` and one `execute_tool <tool>` child per tool call in the run's stream, named after the GenAI semantic conventions. A collector that is down is logged and never changes a run; empty sends nothing. See "Traces" in `docs/docker.md`.
+- `python3 -m dark mcp` is a Model Context Protocol server over stdio (`runner/dark/mcp.py`): six tools, `dark_preflight`, `dark_run`, `dark_user`, `dark_long`, `dark_review` and `dark_ledger_tail`, so an agent with an MCP client can drive the factory without a checkout or a shell. Each tool but the last runs the matching `python3 -m dark` command as a subprocess with a `timeout_seconds` limit (default 1800) and returns its output, with `isError` set and the exit code appended when it fails; the last reads the ledger itself. `docs/mcp.md` says how to register the server with Claude Code and Codex and what environment it needs.
 - `python3 -m dark export-harbor` writes one dark task as a Terminal-Bench
   task directory (`runner/dark/export.py`): `task.yaml` from the task's spec
   and its stage timeout, a `Dockerfile` on the sandbox base image that copies
