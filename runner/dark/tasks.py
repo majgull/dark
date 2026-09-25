@@ -100,10 +100,12 @@ def load_task(path):
     if not all(c.isalnum() or c in "-." for c in tid) or tid.startswith("-"):
         raise TaskError(f"{tpath}: id must be [A-Za-z0-9.-]+")
     cls = d.get("class")
-    if cls not in spec.EXEC_CLASSES + spec.USER_CLASSES:
-        raise TaskError(f"{tpath}: class must be one of {spec.EXEC_CLASSES + spec.USER_CLASSES}")
+    if cls not in spec.EXEC_CLASSES + spec.USER_CLASSES + spec.SESSION_CLASSES:
+        raise TaskError(f"{tpath}: class must be one of {spec.EXEC_CLASSES + spec.USER_CLASSES + spec.SESSION_CLASSES}")
     if cls in spec.USER_CLASSES:
         return _load_user_task(path, tpath, tid, cls, d)
+    if cls in spec.SESSION_CLASSES:
+        return _load_long_task(path, tpath, tid, cls, d)
     for key in ("url", "steps"):
         if key in d:
             raise TaskError(f"{tpath}: {key} is for a user task only (class {cls!r})")
@@ -145,6 +147,48 @@ def load_task(path):
         raise TaskError(f"{tpath}: tools must be one of {TOOLS}")
     return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang=lang, spec=text,
                 may_edit=tuple(may_edit), dir=path, stage_timeout=st, after=after, tools=tools)
+
+
+def _load_long_task(path, tpath, tid, cls, d):
+    """A long task: several repositories, a spec, and nothing a hidden
+    acceptance would need. `repos` is required and names each repository the
+    session clones (a name, its url and the branch it starts from). A
+    reviewer session judges the run, so the work-repo and hidden-test fields
+    are refused rather than ignored."""
+    text = d.get("spec")
+    if not isinstance(text, str) or not text.strip():
+        raise TaskError(f"{tpath}: spec must be a non-empty string")
+    repos = d.get("repos")
+    if not isinstance(repos, list) or not repos:
+        raise TaskError(f"{tpath}: a long task needs repos, a non-empty list of tables")
+    out, names = [], set()
+    for i, r in enumerate(repos):
+        if not isinstance(r, dict) or set(r) != {"name", "url", "base"} \
+                or not all(isinstance(v, str) and v.strip() for v in r.values()):
+            raise TaskError(f"{tpath}: repos entry {i} must have exactly name, url and base, as strings")
+        name = r["name"].strip()
+        if name in (".", "..") or "/" in name:
+            raise TaskError(f"{tpath}: repos entry {i}: name {name!r} must be one path segment, not '.' or '..'")
+        if name in names:
+            raise TaskError(f"{tpath}: repos entry {i}: name {name!r} is repeated; each repository needs its own name")
+        if not r["url"].startswith(("http://", "https://", "ssh://")):
+            raise TaskError(f"{tpath}: repos entry {i}: url must start with http://, https:// or ssh://")
+        names.add(name)
+        out.append((name, r["url"], r["base"]))
+    tools = d.get("tools", "reduced")
+    if tools not in TOOLS:
+        raise TaskError(f"{tpath}: tools must be one of {TOOLS}")
+    for key in ("may_edit", "after", "url", "steps"):
+        if d.get(key):
+            raise TaskError(f"{tpath}: a long task is one session judged by a reviewer ({key} is refused)")
+    if os.path.exists(os.path.join(path, "acceptance", "run.sh")):
+        raise TaskError(f"{tpath}: a long task is judged by a reviewer, not hidden tests "
+                        "(acceptance/run.sh is refused)")
+    lang = d.get("lang")
+    if lang is not None and lang not in LANGS:
+        raise TaskError(f"{tpath}: lang must be one of {LANGS}")
+    return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang=lang or "", spec=text,
+                may_edit=(), dir=path, stage_timeout=0, repos=tuple(out), tools=tools)
 
 
 def _load_user_task(path, tpath, tid, cls, d):

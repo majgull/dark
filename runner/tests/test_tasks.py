@@ -364,6 +364,97 @@ def make_user_task(bench, tid="shop", body=None):
     return d
 
 
+def make_long_task(bench, tid="long-1", body=None):
+    """A long task: task.toml only, repositories and a spec, no start/ and
+    no acceptance/."""
+    d = os.path.join(bench, "tasks", tid)
+    os.makedirs(d)
+    if body is None:
+        body = ('repos = [\n'
+                '  {name = "api", url = "https://git.example.test/dark/api.git", base = "main"},\n'
+                '  {name = "web", url = "ssh://git@git.example.test/dark/web.git", base = "main"},\n'
+                ']\n'
+                'spec = """Move both repositories onto the new schema."""\n')
+    with open(os.path.join(d, "task.toml"), "w") as f:
+        f.write(f'id = "{tid}"\nclass = "long"\n{body}')
+    return d
+
+
+class LongTasks(unittest.TestCase):
+    """class = "long": several repositories and a spec, judged by a reviewer
+    session; no hidden acceptance, and the work-repo fields are refused."""
+
+    def setUp(self):
+        self.bench = os.path.join(tempfile.mkdtemp(), "bench")
+
+    def refuse(self, needle, tid, body):
+        d = make_long_task(self.bench, tid, body)
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_task(d)
+        self.assertIn(needle, str(cm.exception))
+
+    def test_a_long_task_loads_with_its_repositories(self):
+        t = tasks.load_task(make_long_task(self.bench))
+        self.assertEqual((t.cls, t.lang, t.may_edit, t.spec, t.tools),
+                         ("long", "", (), "Move both repositories onto the new schema.", "reduced"))
+        self.assertEqual(t.repos, (("api", "https://git.example.test/dark/api.git", "main"),
+                                   ("web", "ssh://git@git.example.test/dark/web.git", "main")))
+        self.assertEqual(t.stage_timeout, 0)  # nothing is staged
+        self.assertFalse(os.path.exists(t.acceptance_dir))
+
+    def test_lang_and_tools_are_optional(self):
+        d = make_long_task(self.bench, "long-lang",
+                           'repos = [{name = "api", url = "https://x/y.git", base = "main"}]\n'
+                           'lang = "python"\ntools = "full"\nspec = "s"\n')
+        t = tasks.load_task(d)
+        self.assertEqual((t.lang, t.tools), ("python", "full"))
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_task(make_long_task(self.bench, "long-bad-tools",
+                                           'repos = [{name = "api", url = "https://x/y.git", base = "main"}]\n'
+                                           'tools = "all"\nspec = "s"\n'))
+        self.assertIn("tools", str(cm.exception))
+
+    def test_repos_is_required_and_non_empty(self):
+        self.refuse("repos", "long-none", 'spec = "s"\n')
+        self.refuse("repos", "long-empty", 'repos = []\nspec = "s"\n')
+
+    def test_a_repo_name_is_one_unique_path_segment(self):
+        for i, name in enumerate((".", "..", "a/b")):
+            with self.subTest(name=name):
+                self.refuse("name", f"long-name{i}",
+                            f'repos = [{{name = "{name}", url = "https://x/y.git", base = "main"}}]\nspec = "s"\n')
+        self.refuse("repeated", "long-dup",
+                    'repos = [{name = "api", url = "https://x/a.git", base = "main"},\n'
+                    '         {name = "api", url = "https://x/b.git", base = "main"}]\nspec = "s"\n')
+
+    def test_a_repo_url_scheme_is_checked(self):
+        self.refuse("url", "long-url",
+                    'repos = [{name = "api", url = "file:///x/y.git", base = "main"}]\nspec = "s"\n')
+
+    def test_a_repo_entry_needs_all_three_keys(self):
+        self.refuse("base", "long-base",
+                    'repos = [{name = "api", url = "https://x/y.git"}]\nspec = "s"\n')
+        self.refuse("exactly", "long-key",
+                    'repos = [{name = "api", url = "https://x/y.git", base = "main", extra = "x"}]\nspec = "s"\n')
+
+    def test_a_long_task_has_no_work_repo_or_hidden_test_fields(self):
+        base = 'repos = [{name = "api", url = "https://x/y.git", base = "main"}]\nspec = "s"\n'
+        for key, value in (("may_edit", '["a.py"]'), ("after", '"other"'),
+                           ("url", '"http://x"'), ("steps", '["x"]')):
+            with self.subTest(key=key):
+                self.refuse(key, f"long-{key}", base + f"{key} = {value}\n")
+
+    def test_acceptance_run_sh_is_refused(self):
+        # acceptance/run.sh exists only for hidden tests, which a long task
+        # does not have: judge it by a reviewer, not by staging
+        d = make_task(self.bench, "long-staged", cls="long", lang="", spec_text="s")
+        with open(os.path.join(d, "task.toml"), "a") as f:
+            f.write('repos = [{name = "api", url = "https://x/y.git", base = "main"}]\n')
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_task(d)
+        self.assertIn("run.sh", str(cm.exception))
+
+
 class UserTasks(unittest.TestCase):
     """class = "user": url required, steps numbered in order, and nothing of
     a work-repo task; url and steps refused on every other class."""
