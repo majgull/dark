@@ -231,11 +231,12 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def push_records(extra_files=None):
+def push_records(extra_files=None, extra_paths=None):
     """Clone the records repo, add stream.jsonl / brief.md / task.json (and,
     in review mode, report.md) under RUN_ID/, commit and push. Never force:
     other runs of the same shift have their own RUN_ID directory in the same
-    repo. (ok, path-or-error)."""
+    repo. `extra_paths` is {name: local file or directory} copied as it is
+    (the user arm's steps.jsonl and screenshots). (ok, path-or-error)."""
     repo = TASK.get("records_repo")
     if not repo:
         return False, "no records_repo in task.json"
@@ -264,6 +265,11 @@ def push_records(extra_files=None):
     for name, content in (extra_files or {}).items():
         with open(os.path.join(run_dir, name), "w") as f:
             f.write(content)
+    for name, src in (extra_paths or {}).items():
+        if os.path.isdir(src):
+            shutil.copytree(src, os.path.join(run_dir, name), dirs_exist_ok=True)
+        elif os.path.exists(src):
+            shutil.copyfile(src, os.path.join(run_dir, name))
     rsh("add", "-A")
     c = rsh("commit", "-qm", f"records: {RUN_ID}")
     if c.returncode != 0 and "nothing to commit" not in (c.stdout + c.stderr):
@@ -277,12 +283,12 @@ def push_records(extra_files=None):
     return True, f"{repo}/{RUN_ID}"
 
 
-def records_kw(extra_files=None):
+def records_kw(extra_files=None, extra_paths=None):
     """{"records": ..., "records_sha256": ...} for a done/fail tag. A push
     failure never raises and never changes the run's outcome; it only says
     so in the field the runner reads."""
     try:
-        ok, info = push_records(extra_files)
+        ok, info = push_records(extra_files, extra_paths)
     except Exception as e:  # noqa: BLE001 — records must never crash the run
         ok, info = False, f"{type(e).__name__}: {e}"
     if ok:

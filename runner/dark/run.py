@@ -248,8 +248,8 @@ class Runner:
         return self._tests or None
 
     # --- VM launch (tests replace this) --------------------------------------
-    def launch(self, vmid, name, files, runcmd):
-        self.px.spawn(vmid, name, files, runcmd)
+    def launch(self, vmid, name, files, runcmd, **spawn_kw):
+        self.px.spawn(vmid, name, files, runcmd, **spawn_kw)
 
     def reap(self, vmid, name):
         try:
@@ -261,16 +261,17 @@ class Runner:
     def net_ip(self, vmid):
         return self.px.guest_ip(vmid)
 
-    def _launch_networked(self, st, vmid, name, files, runcmd):
+    def _launch_networked(self, st, vmid, name, files, runcmd, spawn_kw=None):
         """Spawn, then wait until the guest holds an address. A VM can boot,
         run cloud-init and never reach Gitea, holding no DHCP address; a
         silent VM costs the whole stage timeout and a data point, and a fresh
         clone fixes it. Returns the ip, or None after two silent boots.
-        VMError from the spawn propagates to the caller."""
+        VMError from the spawn propagates to the caller. `spawn_kw` goes to
+        the backend's spawn as it is (a user-arm sandbox's class and image)."""
         wait = self.budgets.watchdog.get("net_wait_seconds", 180)
         for attempt in (1, 2):
             st.launched[name] = vmid
-            self.launch(vmid, name, files, runcmd)
+            self.launch(vmid, name, files, runcmd, **(spawn_kw or {}))
             t0 = self.clock()
             while True:
                 ip = self.net_ip(vmid)
@@ -701,6 +702,7 @@ class Runner:
             "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls,
             "max_tokens": model.max_tokens, "think": think, "think_chars": think_chars,
             "think_api": prov.think_api, "llm_timeout": model.timeout,
+            "chars_per_token": self.budgets.think["chars_per_token"],
             "temperature": self.catalog.defaults.get("temperature"),
             "heartbeat_seconds": self.budgets.watchdog["heartbeat_seconds"],
             "run": run_id, "task": task.id, "class": task.cls, "max_seconds": env.seconds}
@@ -708,6 +710,107 @@ class Runner:
         if self.host.backend == "docker":
             spawn_kw["image"] = self.host.browser_image
         return agent_task, spawn_kw
+
+    def user(self, task, tier, arm="user", shift=None, think=None, env=None, slot=0):
+        """One user-arm run: a fresh browser sandbox gets the task's URL and
+        numbered steps (and no work repository), dark/user.py takes the
+        steps and reports a verdict per step, and the run passes iff every
+        step's verdict is pass. No branch and no staging; the records repo
+        of the shift is the run's issue tracker and its push target, as in
+        review mode. `env` carries a frozen envelope when one was given;
+        else it is computed for the class like any other."""
+        t_queued = self.clock()
+        shift = shift or self.shift
+        run_id = f"{task.id}-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
+        st = _Run(self, task, tier, arm, run_id, branch="", t_queued=t_queued)
+        st.think = think
+        st.meter = self.meter().start()
+        try:
+            st.full = self._ensure_records_repo(shift)
+            return self._user(st, task, slot, shift, env)
+        except L.LedgerError:
+            raise  # never a result without its record (as in run())
+        except Exception as e:  # noqa: BLE001
+            self.log(f"ERROR {run_id}: runner exception {e!r}")
+            st.reap_all()
+            if not st.ended:
+                return st.end("fail:structural", "runner", f"runner: {e!r}")
+            return st.res
+        finally:
+            st.reap_all()
+
+    def _user(self, st, task, slot, shift, env):
+        res, model, tier, full = st.res, st.model, st.tier, st.full
+        st.go("preflight", "shift start")
+        if task.cls not in spec.USER_CLASSES:
+            return st.refuse(f"{task.id} is class {task.cls}, not a user task")
+        steps = "\n".join(f"{n}. {text}" for n, text in enumerate(task.steps, 1))
+        try:
+            res.issue = self.gitea.issue_create(
+                full, f"user {res.run} [{tier}]",
+                f"class: {task.cls}\narm: {st.arm}\ntier: {tier}\nurl: {task.url}\n\n{task.spec}\n\n{steps}")
+        except G.GiteaError as e:
+            return st.end("fail:structural", "gitea", f"gitea: {e}")
+        st.go("ready", "issue ready")
+
+        think = getattr(st, "think", None) or self.budgets.cls(task.cls).think or model.think
+        st.think = think
+        think_chars = self.budgets.think["levels"][think] if think else 0
+        if env is None:
+            legacy = "none" if model.thinking_tokens == 0 else None
+            env = budget.envelope(self.budgets, self.ledger, task.cls, tier, think=think, legacy=legacy)
+        self.hold(env.seconds + gate.MARGIN_SECONDS)
+        envelope = dict(env.as_dict(), **({"think": think, "think_chars": think_chars} if think else {}))
+        self.ledger.emit("run.start", shift=shift, task=task.id, run=res.run, cls=task.cls,
+                         tier=tier, envelope=envelope, arm=st.arm,
+                         **({"frozen": self.frozen} if self.frozen else {}))
+
+        agent_task, spawn_kw = self.user_task(task, tier, env, res.issue, res.run, full, think)
+        files = {"/opt/task.json": (json.dumps(agent_task, indent=1), "0600"),
+                 "/opt/session.py": (self.session_src, "0644"),
+                 "/opt/user.py": (_script("user.py"), "0755")}
+        xvmid = self.budgets.shift["vmid_base"] + slot
+        xname = f"dark-x{slot}"
+        t_spawn = self.clock()
+        try:
+            ip = self._launch_networked(st, xvmid, xname, files,
+                                        [["bash", "-lc", "export HOME=/root; python3 /opt/user.py >/var/log/user.log 2>&1"]],
+                                        spawn_kw=spawn_kw)
+        except vm.VMError as e:
+            return st.end("fail:structural", "env", f"user sandbox: {e}")
+        if not ip:
+            return st.end("fail:structural", "env", "user sandbox: no address after two boots")
+        st.go("executing", f"user sandbox started, {ip}")
+
+        done_tag, verdict, calls_seen = self._watch_executor(st, env, t_spawn)
+        seconds = int(self.clock() - t_spawn)
+        st.reap_all()
+        if verdict is not None:  # deadline / silent / abort / bad tag: the runner decided
+            outcome, kind, detail = verdict
+            return st.end(outcome, kind, detail,
+                          usage={"seconds": seconds, "calls": calls_seen, "tokens_in": None,
+                                 "tokens_out": None, "reasoning_chars": None, "truncated": None,
+                                 "cuts": None, "requests": None, "tool_calls": None})
+        usage = {"seconds": seconds, "calls": int(done_tag.get("calls") or 0),
+                 "tokens_in": int(done_tag.get("tokens_in") or 0), "tokens_out": int(done_tag.get("tokens_out") or 0),
+                 "reasoning_chars": int(done_tag.get("reasoning_chars") or 0),
+                 "truncated": None, "cuts": None, "requests": int(done_tag.get("requests") or 0),
+                 "tool_calls": (int(done_tag["tool_calls"]) if done_tag.get("tool_calls") is not None else None),
+                 "records": done_tag.get("records"), "records_sha256": done_tag.get("records_sha256")}
+        # the steps are the checks of this arm: passed of taken
+        res.checks_ok = int(done_tag.get("steps_ok") or 0)
+        res.checks_total = int(done_tag.get("steps_total") or len(task.steps))
+        body = getattr(st, "done_body", "")
+        # executing -> pass | fail: the verdicts were given where the steps
+        # were taken, as a judging review's are; nothing is staged
+        if done_tag.get("outcome") == "ok":
+            return st.end("pass", None, f"{res.checks_ok}/{res.checks_total} steps pass", usage=usage)
+        kind = done_tag.get("kind") or "crash"
+        outcome = spec.FAIL_KIND_OUTCOME.get(kind, "fail:structural")
+        detail = str(done_tag.get("error") or kind)
+        if body:
+            detail = f"{detail}: …{body[-360:]}" if len(body) > 360 else f"{detail}: {body}"
+        return st.end(outcome, kind, detail, usage=usage)
 
     # --- watching --------------------------------------------------------------
     def _abort_requested(self, run_id):

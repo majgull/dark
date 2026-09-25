@@ -57,8 +57,11 @@ TRANSITIONS = (
     ("preflight", "fail:structural", "the work repo, issue or branch could not be prepared", "runner"),
     ("executing", "delivered", "review mode: report.md landed non-empty", "runner"),
     # review mode as a judge (review_branches): the reviewer's verdict is the
-    # acceptance, so a pass comes from executing, not from a staging VM
-    ("executing", "pass", "review mode with branches: report.md ends VERDICT: pass", "runner"),
+    # acceptance, so a pass comes from executing, not from a staging VM. The
+    # user arm has no staging either: its steps are judged in the sandbox that
+    # took them, and only the runner turns the verdicts into an outcome
+    ("executing", "pass", "review mode with branches: report.md ends VERDICT: pass; "
+     "user arm: every step's verdict was pass", "runner"),
     ("*", "abort", "abort marker file", "runner"),
 )
 
@@ -210,7 +213,9 @@ AGENT_TAGS = {
               "requests", "tool_calls", "records", "records_sha256",
               # verdict: pass | fail from a judging review's report.md last line
               "verdict", "verdict_reason",
-              "distinct_calls", "repeat_calls", "stall_max")),
+              "distinct_calls", "repeat_calls", "stall_max",
+              # the user arm: steps whose verdict was pass, of how many
+              "steps_ok", "steps_total")),
     # env: the staging environment failed (never the work); nonce: the
     # runner's secret for this staging VM, echoed so the executor cannot forge it
     "stage": (("ok", "checks_ok", "checks_total"), ("detail", "seconds", "env", "nonce")),
@@ -248,6 +253,7 @@ FAIL_KIND_OUTCOME = {
     "no_report": "fail:structural",   # review mode: report.md missing or empty
     "verdict": "fail:capability",     # review mode as a judge: report.md ends VERDICT: fail
     "no-verdict": "fail:structural",  # review mode as a judge: no well-formed VERDICT last line
+    "steps": "fail:capability",       # user arm: a step's verdict was fail
     "abort": "abort",
 }
 # Outcomes that may escalate once to the next admitted tier.
