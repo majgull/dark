@@ -52,6 +52,8 @@ python3 bench/tools/check_tasks.py           # every task in both sets
 python3 bench/tools/validate.py              # reference solutions pass, starting trees fail
 ```
 
+`dark user --task <task.toml> --tier <id>` runs one user-arm task: a browser sandbox checks a deployed URL step by step.
+
 `docs/fresh-container.md` records a bare container
 running the checks.
 
