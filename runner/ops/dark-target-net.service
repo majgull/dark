@@ -1,12 +1,13 @@
 [Unit]
 Description=dark: limit egress on the user arm's target network
+Requires=docker.service
 After=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 EnvironmentFile=/etc/dark/target-net.env
-ExecStart=/bin/bash /usr/local/bin/dark-target-net.sh apply ${TARGET_NETWORK} ${TARGET_SUBNET} ${TARGET_ALLOW}
+ExecStart=/bin/bash /usr/local/bin/dark-target-net.sh apply $TARGET_NETWORK $TARGET_SUBNET $TARGET_ALLOW
 
 [Install]
 WantedBy=multi-user.target
