@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `python3 -m dark export-harbor` writes one dark task as a Terminal-Bench
+  task directory (`runner/dark/export.py`): `task.yaml` from the task's spec
+  and its stage timeout, a `Dockerfile` on the sandbox base image that copies
+  `start/` into the working directory, `docker-compose.yaml`, `run-tests.sh`
+  running the hidden acceptance the way the stager does, `solution.sh`
+  carrying the oracle overlay, and the acceptance under `tests/`. A task with
+  no `oracle/` still exports, with a `solution.sh` that says NOT AVAILABLE.
+
 ## [0.4.1] - 2026-09-25
 
 ### Fixed

@@ -325,3 +325,15 @@ docker compose -p dark down -v
 
 This removes the containers, the networks and the named volumes (Gitea data,
 the runner state with tokens and ledger, the pulled models).
+
+## Running a task under other harnesses
+
+`python3 -m dark export-harbor <task-dir> <out-dir>` writes one dark task as a Terminal-Bench task: Terminal-Bench is a public benchmark whose task directory holds `task.yaml` (the instruction and its limits), a `Dockerfile`, `docker-compose.yaml`, `run-tests.sh` (how the hidden tests run) and `solution.sh` (the reference solution). The export adds `tests/` (the hidden acceptance, the test set the agent never sees) and `start/` (the task's starting files), and its `run-tests.sh` copies the acceptance to `.acceptance/` and runs it the way the stager does (the stager is dark's component that runs a run's hidden acceptance in a fresh sandbox).
+Harbor, the harness from the same authors that runs a task in docker, takes the exported directory after a conversion:
+
+```
+harbor tasks migrate -i <out-dir> -o <harbor-dir>
+harbor run --path <harbor-dir>/<task> --agent oracle
+```
+
+The oracle agent runs `solution.sh`, which carries the dark oracle overlay, and Harbor grades the run on the exit code of `run-tests.sh`.
