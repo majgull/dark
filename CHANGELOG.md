@@ -16,6 +16,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   carrying the oracle overlay, and the acceptance under `tests/`. A task with
   no `oracle/` still exports, with a `solution.sh` that says NOT AVAILABLE.
 - The user arm records every run: `trace.zip` (a Playwright trace, opened with `npx playwright show-trace trace.zip`) and `video.webm` are saved beside `steps.jsonl` in the run's records, and `runner/sandbox/Dockerfile.browser` now installs Playwright's ffmpeg so the video can be encoded; rebuild the browser image to get it. A recording that cannot be made is skipped and never changes a step or a verdict. See "Watching a user-arm run" in `docs/docker.md`.
+- `AGENTS.md`, the file every coding agent reads first: what dark is, where the rules and specs are, how to run the gate and how to commit.
+- `memory/constitution.md`, 40 numbered rules the project never breaks, each ending with the file it comes from.
+- `specs/mcp-server/spec.md`, `plan.md` and `tasks.md`, the first feature written in the spec, plan and tasks shape: dark as a Model Context Protocol (MCP) server over stdio. Nothing is built yet; the files say what and how.
+- `CLAUDE.md`, one line that sends Claude Code to `AGENTS.md`.
 
 ## [0.4.1] - 2026-09-25
 
