@@ -8,9 +8,10 @@ progress comment and heartbeat, the same AGENT-DONE tag, the same records
 push.
 
 For each step the model is asked for the next browser action, given the
-step text and the page's accessibility snapshot; the action is performed,
-and the model is asked again until it gives the step a verdict, pass or
-fail, with one line of note. Then a screenshot is taken as
+step text, the notes of the steps already finished, and the page's
+accessibility snapshot; the action is performed, and the model is asked
+again until it gives the step a verdict, pass or fail, with one line of
+note. Then a screenshot is taken as
 <records>/steps/<NN>.png and {step, verdict, note} is appended to
 <records>/steps.jsonl. The run passes when every step's verdict is pass.
 
@@ -56,7 +57,8 @@ SYSTEM = """You check one step of a task in a web application through a browser,
 {"do": "goto", "url": "<address>"}
 {"do": "wait", "seconds": <1 to 5>}
 {"do": "verdict", "verdict": "pass" or "fail", "note": "<one line: what you saw>"}
-Give the verdict as soon as the step is done (pass) or shown not to work (fail). Judge only this step."""
+Give the verdict as soon as the step is done (pass) or shown not to work (fail). Judge only this step.
+When a step refers to something an earlier step made (an order, a job, a code), take it from the earlier steps' notes."""
 
 PROMPT = """TASK:
 {spec}
@@ -64,6 +66,9 @@ PROMPT = """TASK:
 STEP {n} of {total}: {text}
 
 URL: {url}
+
+EARLIER STEPS:
+{earlier}
 
 ACTIONS SO FAR IN THIS STEP:
 {history}
@@ -82,6 +87,13 @@ class BrowserError(Exception):
 
 
 # --- the model ------------------------------------------------------------------
+def earlier_steps(results):
+    """The finished steps as `step N (pass|fail): <note>` lines, or `none`
+    when none has finished yet: the block the prompt shows so that a step
+    which refers to something an earlier step made can read its note."""
+    return "\n".join(f"step {r['step']} ({r['verdict']}): {r['note']}" for r in (results or [])) or "none"
+
+
 def parse_action(text):
     """The first JSON object in a reply, or {"do": "invalid"} with the reply
     kept, so a malformed answer costs a call, never the run."""
@@ -122,9 +134,10 @@ class ChatModel:
             body["temperature"] = t["temperature"]
         return body
 
-    def next_action(self, n, text, url, snapshot, history):
+    def next_action(self, n, text, url, snapshot, history, earlier=None):
         prompt = PROMPT.format(spec=self.t.get("spec", ""), n=n, total=len(self.t.get("steps") or []),
                                text=text, url=url, snapshot=snapshot[:SNAPSHOT_CHARS],
+                               earlier=earlier_steps(earlier),
                                history="\n".join(json.dumps(h, sort_keys=True) for h in history) or "(none)")
         req = urllib.request.Request(
             f"{self.t['llm_url']}/chat/completions", method="POST",
@@ -296,7 +309,7 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             snap = page.snapshot() or ""
             S.STATS["calls"] += 1
             S.STATS["requests"] += 1
-            action = model.next_action(n, text, page.url(), snap, history)
+            action = model.next_action(n, text, page.url(), snap, history, earlier=results)
             entry = {"step": n, "call": S.STATS["calls"], "url": page.url(), "snapshot_chars": len(snap),
                      "action": action}
             if action.get("do") == "verdict":

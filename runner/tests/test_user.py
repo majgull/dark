@@ -38,9 +38,9 @@ class ScriptedModel:
         self.actions = list(actions)
         self.asked = []
 
-    def next_action(self, n, text, url, snapshot, history):
+    def next_action(self, n, text, url, snapshot, history, earlier=None):
         self.asked.append({"step": n, "text": text, "url": url, "snapshot": snapshot,
-                           "history": list(history)})
+                           "history": list(history), "earlier": list(earlier or [])})
         return self.actions.pop(0)
 
 
@@ -236,6 +236,25 @@ class Steps(unittest.TestCase):
         self.assertEqual(model.asked[2]["text"], STEPS[1])
         self.assertTrue(all(q["snapshot"] == page.snapshot() for q in model.asked))
         self.assertEqual((S.STATS["calls"], S.STATS["tool_calls"]), (6, 3))
+
+    def test_the_prompt_carries_each_finished_steps_note_and_none_for_the_first(self):
+        llm = fakes.FakeLLM([
+            {"content": '{"do": "click", "role": "link", "name": "Sign in"}'},
+            {"content": json.dumps({"do": "verdict", "verdict": "pass", "note": "the form is shown",
+                                     "evidence": "Shop"})},
+            {"content": '{"do": "click", "role": "button", "name": "Buy"}'},
+            {"content": json.dumps({"do": "verdict", "verdict": "pass", "note": "the cart holds one item",
+                                     "evidence": "Shop"})}])
+        self.addCleanup(llm.close)
+        model = U.ChatModel({"llm_url": f"{llm.url}/v1", "llm_model": "local-a",
+                             "spec": "Check that a visitor can buy.", "steps": STEPS})
+        results, stop = U.run_steps(model, FakePage(), "https://app.example.test/", STEPS[:2],
+                                    self.records, 20, 1e12)
+        self.assertIsNone(stop)
+        self.assertEqual([r["verdict"] for r in results], ["pass", "pass"])
+        prompts = [r["messages"][1]["content"] for r in llm.requests]
+        self.assertIn("EARLIER STEPS:\nnone", prompts[0])  # step 1: nothing has finished
+        self.assertIn("EARLIER STEPS:\nstep 1 (pass): the form is shown", prompts[2])  # step 2's first call
 
     def test_a_failed_action_is_fed_back_to_the_model_not_fatal(self):
         model = ScriptedModel([{"do": "click", "role": "button", "name": "Gone"}, verdict("fail", "no such button"),
