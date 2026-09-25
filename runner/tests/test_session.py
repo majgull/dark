@@ -17,6 +17,7 @@ import unittest
 from dark import session
 from dark import spec
 from tests import fakes
+from tests.test_run import Base, LocalRunner
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "pi-stream-tools.jsonl")
 
@@ -345,6 +346,102 @@ class SeveralRepositories(unittest.TestCase):
         tag = self.done_tag()
         self.assertEqual((tag["outcome"], tag["kind"]), ("fail", "env"))
         self.assertIsNone(fakes.branch_files(self.tmp, "org/api", "run/r1"))
+
+
+class ToolSet(unittest.TestCase):
+    """tools = "full" launches pi as shipped and online; the default stays
+    reduced: no extensions, skills, prompt templates or context files, and
+    PI_OFFLINE=1."""
+
+    class Popen:
+        seen = []
+
+        def __init__(self, cmd, cwd=None, env=None, **kw):
+            ToolSet.Popen.seen.append((cmd, env))
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    def setUp(self):
+        self.saved = session.subprocess.Popen
+        session.subprocess.Popen = ToolSet.Popen
+        ToolSet.Popen.seen = []
+        session.TASK.clear()
+        session.TASK.update({"token": "", "llm_model": "m"})
+
+    def tearDown(self):
+        session.subprocess.Popen = self.saved
+
+    def argv(self, tools=None):
+        if tools:
+            session.TASK["tools"] = tools
+        session.run_session("node", "cli", "/tmp/h", 1e12, None, work="/tmp")
+        return ToolSet.Popen.seen[-1]
+
+    REDUCED = ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]
+
+    def test_the_default_is_the_reduced_tool_set_offline(self):
+        cmd, env = self.argv()
+        for flag in self.REDUCED:
+            self.assertIn(flag, cmd)
+        self.assertEqual(env["PI_OFFLINE"], "1")
+        self.assertEqual(cmd[-2:-1], ["-p"])
+
+    def test_reduced_named_is_the_same_as_the_default(self):
+        self.assertEqual(self.argv("reduced")[0], self.argv()[0])
+
+    def test_full_drops_the_four_flags_and_the_offline_switch(self):
+        os.environ["PI_OFFLINE"] = "1"   # not even inherited from the VM's own env
+        try:
+            cmd, env = self.argv("full")
+        finally:
+            del os.environ["PI_OFFLINE"]
+        for flag in self.REDUCED:
+            self.assertNotIn(flag, cmd)
+        self.assertNotIn("PI_OFFLINE", env)
+        self.assertEqual(cmd[:2], ["node", "cli"])
+        self.assertIn("--approve", cmd)
+
+
+class ToolSetOnTheLedger(Base):
+    """The run.end row says which tool set a session-arm run had."""
+
+    def session_runner(self, extra=""):
+        r = self.runner([], task_kw={"extra": extra})
+        r.executor = "session"
+        self.sent = {}
+
+        def launch(vmid, name, files, runcmd):
+            task = json.loads(files["/opt/task.json"][0])
+            self.sent = task
+            r.gitea.comment(task["repo"], task["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX + json.dumps(
+                {"v": 2, "ev": "done", "outcome": "fail", "kind": "calls", "calls": 1, "tokens_in": 1,
+                 "tokens_out": 1, "reasoning_chars": 0, "seconds": 1}))
+        r.launch = launch
+        return r
+
+    def test_the_default_is_recorded_as_reduced(self):
+        r = self.session_runner()
+        r.run(self.task, "local-a", self.env())
+        self.assertEqual(self.sent["tools"], "reduced")
+        self.assertEqual(self.led.last("run.end")["tools"], "reduced")
+
+    def test_a_full_task_is_recorded_as_full(self):
+        r = self.session_runner('tools = "full"\n')
+        r.run(self.task, "local-a", self.env())
+        self.assertEqual(self.sent["tools"], "full")
+        self.assertEqual(self.led.last("run.end")["tools"], "full")
+
+    def test_the_pipeline_records_no_tool_set(self):
+        r = self.runner([{"content": "no blocks"}] * 6)
+        r.run(self.task, "local-a", self.env())
+        self.assertIsNone(self.led.last("run.end")["tools"])
 
 
 if __name__ == "__main__":

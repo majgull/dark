@@ -330,6 +330,10 @@ def write_models_json(home):
 # reasoning_effort. A level dark does not set leaves pi's default alone.
 THINK = {"none": "off", "low": "low", "medium": "medium", "high": "high"}
 
+# what the reduced tool set (the default) takes away from pi; a task with
+# tools = "full" runs pi as shipped, and online
+REDUCED_FLAGS = ["--no-context-files", "--no-extensions", "--no-skills", "--no-prompt-templates"]
+
 
 def read_stream(proc, deadline, stream_path=None):
     """Count what pi reports as it reports it, and stop the session when it
@@ -385,7 +389,12 @@ def read_stream(proc, deadline, stream_path=None):
 
 def run_session(node, cli, home, deadline, stream_path, review=False, work=None):
     work = work or WORK
-    env = dict(os.environ, HOME=home, PI_OFFLINE="1", NO_COLOR="1", TERM="dumb")
+    full = TASK.get("tools") == "full"
+    env = dict(os.environ, HOME=home, NO_COLOR="1", TERM="dumb")
+    if full:
+        env.pop("PI_OFFLINE", None)
+    else:
+        env["PI_OFFLINE"] = "1"
     grant = TASK.get("may_edit") or []
     grant = ("Existing files you may rewrite: " + ", ".join(grant) + ". Any other existing file "
              "must stay as it is.\n" if grant else "Add new files only; do not rewrite an "
@@ -399,8 +408,11 @@ def run_session(node, cli, home, deadline, stream_path, review=False, work=None)
     else:
         brief = BRIEF.format(work=work, lang=TASK.get("lang") or "software", spec=SPEC_TEXT, grant=grant)
     cmd = [node, cli, "--provider", "dark", "--model", TASK["llm_model"], "--api-key", "unused",
-           "--mode", "json", "--session-dir", SESSION_DIR, "--no-context-files", "--no-extensions",
-           "--no-skills", "--no-prompt-templates", "--approve", "-p", brief]
+           "--mode", "json", "--session-dir", SESSION_DIR]
+    if not full:
+        # the default, reduced tool set: pi's own tools and nothing it would load
+        cmd += REDUCED_FLAGS
+    cmd += ["--approve", "-p", brief]
     lvl = THINK.get(TASK.get("think") or "")
     if lvl:
         cmd += ["--thinking", lvl]

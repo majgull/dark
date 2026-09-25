@@ -117,6 +117,9 @@ EVENTS = {
                  # capped: the session arm was stopped at the pipeline's wall
                  # cap rather than finishing on its own (tools/arm.sh)
                  "capped",
+                 # tools: the session arm's tool set, "reduced" or "full"
+                 # (a task's `tools`); null for the pipeline, which has none
+                 "tools",
                  # records: the records repository path the session's stream,
                  # brief and task.json were pushed to (dark-records/<shift>/
                  # <run>), or "PUSH FAILED: <error>" when the push did not

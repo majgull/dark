@@ -168,6 +168,7 @@ class _Run:
             power=pw.get("power"), restaged_from=getattr(self, "restaged_from", None),
             reason=spec.structural_reason(kind), asserts=self.asserts(pw),
             capped=getattr(self, "capped", None), tests=self.r.tests_version(),
+            tools=getattr(self, "tools", None),
             records=res.records, records_sha256=res.records_sha256,
             distinct_calls=res.distinct_calls, repeat_calls=res.repeat_calls, stall_max=res.stall_max)
         try:
@@ -361,6 +362,8 @@ class Runner:
             # several repositories for the session arm, beside the one repo
             # above: [{name, url, base}], each pushed to `branch` at the end
             "repos": [{"name": n, "url": u, "base": b} for n, u, b in getattr(task, "repos", ())],
+            # the session arm's tool set, "reduced" unless the task asks for "full"
+            "tools": getattr(task, "tools", "reduced"),
             "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls, "max_stall": env.max_stall,
             "max_tokens": model.max_tokens,
             # with a level the run's cumulative thinking is the level times the
@@ -386,6 +389,9 @@ class Runner:
             # where the session arm pushes its kept stream; only the session
             # executor implements this, so only it gets a repo
             "records_repo": self._ensure_records_repo() if self.executor == "session" else None}
+        # only the session executor has a tool set to choose; the pipeline's
+        # has no tools and records none
+        st.tools = agent_task["tools"] if self.executor == "session" else None
         xvmid = self.budgets.shift["vmid_base"] + slot
         xname = f"dark-x{slot}"
         t_spawn = self.clock()
