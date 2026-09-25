@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-25
+
 ### Added
 
 - `otlp_endpoint` in `runner/host.toml` (variable `DARK_OTLP_ENDPOINT`, empty by default) sends every finished run to an OpenTelemetry collector as one trace over OTLP/HTTP JSON, standard library only (`runner/dark/otel.py`): a parent span `invoke_agent <task>` and one `execute_tool <tool>` child per tool call in the run's stream, named after the GenAI semantic conventions. A collector that is down is logged and never changes a run; empty sends nothing. See "Traces" in `docs/docker.md`.
