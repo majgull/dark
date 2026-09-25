@@ -310,7 +310,13 @@ class Runner:
         shift, so every run of it lands under its own <run-id>/ directory."""
         full = f"{self.host.records_org}/{shift or self.shift}"
         if not self.gitea.repo_exists(full):
-            self.gitea.create_repo(self.host.records_org, shift or self.shift)
+            try:
+                self.gitea.create_repo(self.host.records_org, shift or self.shift)
+            except G.GiteaError:
+                # two runs of one shift started together: the other one
+                # created it between the check and the create (a 409)
+                if not self.gitea.repo_exists(full):
+                    raise
         return full
 
     # --- one run -----------------------------------------------------------------

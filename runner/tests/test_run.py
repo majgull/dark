@@ -689,3 +689,33 @@ class ChainBase(SessionArm):
         with self.assertRaises(L.LedgerError):
             r.run(self.task, "local-a", self.env())
         self.assertEqual([n for _, n in r.launched], ["dark-x0", "dark-s0"])
+
+
+class RecordsRepoRace(unittest.TestCase):
+    """Two runs of one shift create its records repo at once: the loser's
+    create answers 409, and the repo it wanted exists, so it goes on."""
+
+    def call(self, exists_after):
+        from types import SimpleNamespace
+        from dark import gitea as G
+        from dark.run import Runner
+        seen = {"n": 0}
+
+        def repo_exists(full):
+            seen["n"] += 1
+            return seen["n"] > 1 and exists_after
+
+        def create_repo(org, name):
+            raise G.GiteaError(409, "The repository with the same name already exists.")
+
+        stub = SimpleNamespace(host=SimpleNamespace(records_org="dark-records"), shift="s1",
+                               gitea=SimpleNamespace(repo_exists=repo_exists, create_repo=create_repo))
+        return Runner._ensure_records_repo(stub)
+
+    def test_created_by_the_other_run(self):
+        self.assertEqual(self.call(exists_after=True), "dark-records/s1")
+
+    def test_a_real_failure_still_raises(self):
+        from dark import gitea as G
+        with self.assertRaises(G.GiteaError):
+            self.call(exists_after=False)

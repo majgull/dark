@@ -14,7 +14,8 @@
 # checkout's templates into the code org. Safe to run twice.
 #
 # Overridable: DARK_COMPOSE_PROJECT, DARK_GITEA_PORT, DARK_ORG,
-# DARK_WORK_ORG, DARK_ADMIN_USER, DARK_AGENT_USER, DARK_SANDBOX_IMAGE.
+# DARK_WORK_ORG, DARK_RECORDS_ORG, DARK_ADMIN_USER, DARK_AGENT_USER,
+# DARK_SANDBOX_IMAGE.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -22,6 +23,7 @@ PROJECT=${1:-${DARK_COMPOSE_PROJECT:-dark}}
 GITEA_PORT=${DARK_GITEA_PORT:-3410}
 ORG=${DARK_ORG:-dark}
 WORK_ORG=${DARK_WORK_ORG:-dark-runs}
+RECORDS_ORG=${DARK_RECORDS_ORG:-dark-records}
 ADMIN_USER=${DARK_ADMIN_USER:-dark-admin}
 AGENT_USER=${DARK_AGENT_USER:-dark-agent}
 SANDBOX_IMAGE=${DARK_SANDBOX_IMAGE:-dark-sandbox}
@@ -93,6 +95,10 @@ say "org $ORG"
 "${COMPOSE[@]}" exec -T runner bash ops/gitea-bootstrap.sh "$GITEA_IN"
 say "work org $WORK_ORG"
 "${COMPOSE[@]}" exec -T runner bash ops/gitea-bootstrap.sh --work-org "$WORK_ORG" "$GITEA_IN"
+# where session, review and user runs push their records (one repo per
+# shift, created by the runner); without it every such run aborts on a 404
+say "records org $RECORDS_ORG"
+"${COMPOSE[@]}" exec -T runner bash ops/gitea-bootstrap.sh --work-org "$RECORDS_ORG" "$GITEA_IN"
 
 say "sandbox image $SANDBOX_IMAGE"
 docker build -q -t "$SANDBOX_IMAGE" runner/sandbox >/dev/null && say "built"
