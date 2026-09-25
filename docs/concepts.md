@@ -156,3 +156,5 @@ run with it off, which forces one named tier to do the whole task.
 
 **provisional order**: the configured cheapest-first tier order used for a
 (class, tier) pair until it has enough measured runs to be judged.
+
+**MCP server**: `python3 -m dark mcp`, the program that speaks the Model Context Protocol over standard input and output, so an MCP client can list and call the six tools that drive dark's commands; `docs/mcp.md` says how to start and register it.

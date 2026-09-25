@@ -15,7 +15,7 @@ This is the spec for one feature. A spec says what to build and why; its plan, `
 
 ## Purpose
 
-dark is driven today by typing `python3 -m dark` commands on the machine that hosts the runner. This feature adds `python3 -m dark mcp`, a Model Context Protocol server over stdio, so that any MCP client can drive the factory without other tooling: it lists six tools and each tool runs the matching dark CLI command as a subprocess and returns what that command printed. The server adds no behaviour of its own to the factory. It is a door to the commands that already exist, plus one read-only command, `dark ledger-tail`, which the ledger tool needs because the CLI has no command that prints ledger rows; everything a run does, records and judges stays where it is.
+dark is driven today by typing `python3 -m dark` commands on the machine that hosts the runner. This feature adds `python3 -m dark mcp`, a Model Context Protocol server over stdio, so that any MCP client can drive the factory without other tooling: it lists six tools. Five run the matching dark CLI command as a subprocess and return what that command printed; the sixth, `dark_ledger_tail`, reads the ledger itself and returns the rows it read. The server adds no behaviour of its own to the factory; everything a run does, records and judges stays where it is.
 
 ## The user
 
@@ -27,26 +27,26 @@ The server speaks JSON-RPC 2.0 over stdio, one message per line with no newline 
 
 ## The tools
 
-Each tool takes an object of arguments and returns one content item of type `text` holding the standard output of the command it ran. Every path names a file or directory on the machine where the server runs. Arguments not listed are refused. Arguments in bold are required.
+Each tool takes an object of arguments and returns one content item of type `text`: the standard output of the command it ran, or the ledger rows it read. Every path names a file or directory on the machine where the server runs. Arguments not listed are refused. Arguments in bold are required. The five tools that run a command also take `timeout_seconds`, an integer from 1 to 86400 (default 1800), after which the command is killed and the result says it timed out.
 
 | tool | arguments | command it runs | text it returns |
 |---|---|---|---|
-| `dark_preflight` | `no_vm` boolean, `no_model` boolean | `dark preflight` | one line per check, then `preflight OK` or the refusal line |
-| `dark_run` | **`task_dir`** string, **`tier`** string, `think` one of `none`, `low`, `medium`, `high` | `dark shift --task-dir --tier --no-push` | the digest of the one-task shift and its one-line summary |
-| `dark_user` | **`task`** string, **`tier`** string, `arm` string, `shift` string, `think` as above, `slot` integer | `dark user` | one JSON line: `run`, `outcome`, `fail_kind`, `detail`, `issue`, `records`, `steps_ok`, `steps_total` |
-| `dark_long` | **`task`** string, **`tier`** string, `judge_tier` string, `arm` string, `slot` integer | `dark long` | the lines `long: <outcome>` and `judge: <outcome>`, or `judge: none (no branch pushed)` |
-| `dark_review` | **`brief`** string, **`tier`** string, **`arm`** string, `files` array of strings, `shift` string, `think` as above, `frozen` string, `review_branches` string | `dark review` | one JSON line: `run`, `outcome`, `fail_kind`, `detail`, `issue`, `records` |
-| `dark_ledger_tail` | `lines` integer from 1 to 200 (default 20), `kind` string | `dark ledger-tail` | the last rows of the ledger, oldest first, one JSON object per line |
+| `dark_preflight` | `timeout_seconds` as above | `dark preflight` | one line per check, then `preflight OK` or the refusal line |
+| `dark_run` | **`task`** string, **`tier`** string, `arm` string, `slot` integer from 0, `timeout_seconds` as above | `dark shift --no-push` | the digest of the one-task shift and its one-line summary |
+| `dark_user` | **`task`** string, **`tier`** string, `timeout_seconds` as above | `dark user` | one JSON line: `run`, `outcome`, `fail_kind`, `detail`, `issue`, `records`, `steps_ok`, `steps_total` |
+| `dark_long` | **`task`** string, **`tier`** string, `judge_tier` string, `timeout_seconds` as above | `dark long` | the lines `long: <outcome>` and `judge: <outcome>`, or `judge: none (no branch pushed)` |
+| `dark_review` | **`task`** string, **`tier`** string, `review_branches` string, `timeout_seconds` as above | `dark review --arm=review` | one JSON line: `run`, `outcome`, `fail_kind`, `detail`, `issue`, `records` |
+| `dark_ledger_tail` | `n` integer from 1 to 200 (default 10) | nothing: the server reads the ledger itself | the last rows of the ledger, oldest first, one JSON object per line |
 
-For `dark_run`, `task_dir` is one task directory, and the shift never pushes its digest; publishing it stays an operator action. For `dark_review`, `brief` is the path of a Markdown file holding the review's instructions, `files` are paths staged read-only for the session, `frozen` is a pinned envelope file and `review_branches` is the path of a JSON list of `{name, url, branch}`. For `dark_ledger_tail`, `kind` keeps only rows of that kind, such as `run.end`.
+For `dark_run`, `task` is one task directory, and the shift never pushes its digest; publishing it stays an operator action. `arm` is the run's arm name and `slot` its sandbox slot. For `dark_review`, `task` is the path of a Markdown file holding the review's instructions and becomes `--brief`, and `review_branches` is JSON text holding a list of `{name, url, branch}` objects, one repository each, which the server writes to a temporary file for `--review-branches`. For `dark_ledger_tail`, `n` is how many rows the server prints.
 
-A tool call is a success when the command exits 0. When it exits with another code the result has `isError` set to true, its first content item is still the standard output, and a second content item says `exit code N`. When the `dark` command cannot be started the result has `isError` true and one content item that says so. The command's standard input is empty, so it cannot read the protocol stream, and its standard error is passed through to the server's own standard error.
+A tool call is a success when the command exits 0: `isError` is false and the content item holds the command's standard output, while its standard error is logged to the server's own standard error. When the command exits with another code, `isError` is true and the one content item holds its standard output, its standard error and a last line `exit code N`. When the command runs past `timeout_seconds` it is killed and the text ends `timed out after N seconds; the command was killed`. When the `dark` command cannot be started the result has `isError` true and one content item that says so. The command's standard input is empty, so it cannot read the protocol stream.
 
 ## Out of scope
 
 - Authentication: whoever can start the server can call every tool, and access control is that of whatever carries the stdio, such as an ssh key.
 - Remote transport: no HTTP, no server-sent events, no listening socket. The server is a process that talks over its standard input and output and nothing else.
-- Progress notifications, cancellation, timeouts on a tool call, and answering a second request while a long call, such as `dark_long`, is still running.
+- Progress notifications, cancellation, and answering a second request while a long call, such as `dark_long`, is still running.
 - MCP resources, prompts and logging, and requests from the server to the client.
 - JSON-RPC batches, which the `2025-06-18` protocol does not have.
 - A `--conf` given to `dark mcp`: the commands the server runs read their configuration from `DARK_CONF` in the environment, as `docs/docker.md` describes.

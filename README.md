@@ -75,6 +75,7 @@ docs/        concepts.md (the terms the code uses), history.md (where it came fr
 ## Documentation
 
 - `docs/concepts.md` defines every term the code uses.
+- `docs/mcp.md` says how to start and register the MCP server.
 - `docs/history.md` says where the code came from.
 - [Contributing](CONTRIBUTING.md) says how to run the tests and the task checks.
 - [dark-tasks](https://github.com/majgull/dark-tasks) is the 31-task set with its hidden tests.
