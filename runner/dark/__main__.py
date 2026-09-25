@@ -92,6 +92,37 @@ def cmd_mcp(args):
     return mcp.serve(sys.stdin, sys.stdout)
 
 
+def cmd_ledger_tail(args):
+    """python3 -m dark ledger-tail [--lines N] [--kind KIND]: the last N rows
+    of the ledger (default 20), oldest first, one JSON object per line. --kind
+    keeps rows whose `kind` field matches. A missing or empty ledger prints
+    nothing and exits 0; a line that is not a JSON object is skipped with one
+    note on stderr."""
+    host = config.load_host(os.path.join(args.conf, "host.toml"))
+    try:
+        with open(host.ledger_path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().split("\n")
+    except FileNotFoundError:
+        return 0
+    rows = []
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            rec = None
+        if not isinstance(rec, dict):
+            print(f"ledger-tail: {host.ledger_path}:{i + 1}: skipping a line that is not JSON", file=sys.stderr)
+            continue
+        if args.kind is not None and rec.get("kind") != args.kind:
+            continue
+        rows.append(line)
+    for line in (rows[-args.lines:] if args.lines > 0 else []):
+        print(line)
+    return 0
+
+
 def cmd_export_harbor(args):
     """python3 -m dark export-harbor <task-dir> <out-dir> — write one dark
     task as a Terminal-Bench task directory (dark/export.py)."""
@@ -767,6 +798,9 @@ def main(argv=None):
     p.add_argument("task_dir", help="the dark task directory (task.toml, start/ and acceptance/)")
     p.add_argument("out_dir", help="the directory to write the Terminal-Bench layout into")
     sub.add_parser("mcp", help="serve preflight, run, user, long, review and ledger-tail as MCP tools over stdin and stdout")
+    p = sub.add_parser("ledger-tail", help="the last rows of the ledger, oldest first, one JSON object per line")
+    p.add_argument("--lines", type=int, default=20, help="how many rows to print (default 20)")
+    p.add_argument("--kind", help="keep only rows whose event kind is this")
     p = sub.add_parser("digest", help="render the digest for the last (or given) shift")
     p.add_argument("--shift")
     p = sub.add_parser("void", help="exclude a run from every rate (a fault in the runner or the deployment, not the model); the record stays")
@@ -781,7 +815,7 @@ def main(argv=None):
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
                 "user": cmd_user, "long": cmd_long,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
-                "export-harbor": cmd_export_harbor, "mcp": cmd_mcp,
+                "export-harbor": cmd_export_harbor, "mcp": cmd_mcp, "ledger-tail": cmd_ledger_tail,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)
     except config.ConfigError as e:
         print(f"config: {e}")
