@@ -379,6 +379,7 @@ HOST_ENV = {
     "sandbox_pids": "DARK_SANDBOX_PIDS",
     "sandbox_container": "DARK_SANDBOX_CONTAINER", "sandbox_snapshot": "DARK_SANDBOX_SNAPSHOT",
     "sandbox_bridge": "DARK_SANDBOX_BRIDGE",
+    "browser_image": "DARK_BROWSER_IMAGE",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
     "wake_timeout": "DARK_WAKE_TIMEOUT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
@@ -410,6 +411,9 @@ class Host:
     sandbox_container: str = ""
     sandbox_snapshot: str = ""
     sandbox_bridge: str = "vmbr0"
+    # the image a user-arm sandbox is created from (runner/sandbox/Dockerfile.browser):
+    # the sandbox image plus Chromium and Playwright
+    browser_image: str = "dark-sandbox-browser"
     ntfy_url: str = ""
     state_dir: str = "~/.dark"
     templates_dir: str = "~/dark-templates"

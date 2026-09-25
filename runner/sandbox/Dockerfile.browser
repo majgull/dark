@@ -1,0 +1,30 @@
+# The image a user-arm sandbox is created from: the sandbox image plus
+# Chromium and Playwright for Python, so dark/user.py can open a URL, act on
+# the page and take a screenshot per step. Chromium comes from the image's
+# own package manager (apt), never from Playwright's browser download, and
+# dark/user.py points Playwright at it; nothing is fetched at run time.
+#
+# Both are pinned. The Chromium pin is an apt version and has no default: the
+# stable mirror drops superseded versions, so the pin is read from the base
+# image when the image is built, and a build without it is refused. Read the
+# candidate with
+#   docker run --rm dark-sandbox sh -c 'apt-get update -qq && apt-cache policy chromium'
+#
+# Build it, after the sandbox image:
+#   docker build -t dark-sandbox runner/sandbox
+#   docker build -t dark-sandbox-browser -f runner/sandbox/Dockerfile.browser \
+#     --build-arg CHROMIUM_VERSION=<the candidate above> runner/sandbox
+ARG BASE=dark-sandbox
+FROM ${BASE}
+
+ARG CHROMIUM_VERSION
+ARG PLAYWRIGHT_VERSION=1.63.0
+
+RUN test -n "$CHROMIUM_VERSION" || { echo "CHROMIUM_VERSION is required (see the header)" >&2; exit 1; } \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends "chromium=${CHROMIUM_VERSION}" python3-pip \
+    && python3 -m pip install --no-cache-dir --break-system-packages "playwright==${PLAYWRIGHT_VERSION}" \
+    && rm -rf /var/lib/apt/lists/*
+
+# where dark/user.py finds the browser Playwright drives
+ENV DARK_CHROMIUM=/usr/bin/chromium

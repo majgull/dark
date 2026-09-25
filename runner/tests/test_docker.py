@@ -117,11 +117,15 @@ class DockerTest(unittest.TestCase):
             return f.read()
 
     def test_matches_the_sandbox_protocol(self):
+        # the protocol's parameters first, in order; anything after them has a
+        # default, so a caller of the seam never has to know it is there
         for name in ("reachable", "template_ok", "spawn", "guest_ip", "reap", "snapshot", "rollback"):
             with self.subTest(method=name):
-                want = inspect.signature(getattr(sandbox.Sandbox, name))
-                have = inspect.signature(getattr(D.Docker, name))
-                self.assertEqual(list(want.parameters), list(have.parameters))
+                want = list(inspect.signature(getattr(sandbox.Sandbox, name)).parameters)
+                have = inspect.signature(getattr(D.Docker, name)).parameters
+                self.assertEqual(list(have)[:len(want)], want)
+                for extra in list(have)[len(want):]:
+                    self.assertIsNot(have[extra].default, inspect.Parameter.empty, extra)
 
     def test_spawn_argv(self):
         self.d.spawn(9500, "dark-x1", self.files(), self.runcmd())
@@ -134,6 +138,14 @@ class DockerTest(unittest.TestCase):
         cp = [l for l in lines if l[0] == "cp"][0]
         self.assertEqual(cp[2], "dark-x1:/")
         self.assertEqual(lines[-1], ["start", "dark-x1"])
+
+    def test_spawn_takes_the_image_per_spawn(self):
+        self.d.spawn(9500, "dark-x1", {}, [], image="dark-sandbox-browser")
+        self.d.spawn(9501, "dark-x2", {}, [])
+        creates = [l for l in self.fake.lines() if l[0] == "create"]
+        self.assertEqual(creates[0][-3:], ["dark-sandbox-browser", "/bin/sh", "/opt/dark-start.sh"])
+        # no image given: the backend's own, host.sandbox_image
+        self.assertEqual(creates[1][-3:], [IMAGE, "/bin/sh", "/opt/dark-start.sh"])
 
     def test_spawn_without_limits_omits_the_flags(self):
         D.Docker(IMAGE, network=NET).spawn(9500, "dark-x1", {}, [])

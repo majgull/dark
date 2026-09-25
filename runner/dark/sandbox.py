@@ -11,6 +11,10 @@ backends today.
 `spawn` takes the files to write and the command to run, not a rendered
 cloud-init document: rendering is Proxmox's business, and a backend without
 cloud-init would have no use for one.
+
+A backend's `spawn` may take keyword parameters beyond the protocol's, each
+with a default that keeps the protocol's behaviour: `docker.Docker` takes
+the image per spawn. A caller that passes one knows which backend it has.
 """
 
 from typing import Protocol

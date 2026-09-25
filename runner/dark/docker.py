@@ -67,10 +67,12 @@ class Docker:
         out += [" ".join(shlex.quote(a) for a in cmd) for cmd in runcmd]
         return "\n".join(out) + "\n"
 
-    def spawn(self, vmid, name, files, runcmd):
+    def spawn(self, vmid, name, files, runcmd, image=None):
         """Create the container, write `files` in (modes honoured), copy in a
         start script built from `runcmd` and start it. A container of the same
-        name left over from an earlier run is removed first."""
+        name left over from an earlier run is removed first. `image` is the
+        image for this one sandbox (a user-arm run's browser image); None is
+        the backend's own, host.sandbox_image."""
         if self._exists(name):
             self.reap(vmid, name)
         self._names[vmid] = name
@@ -95,7 +97,7 @@ class Docker:
                 args += ["--memory", str(self.memory)]
             if self.pids:
                 args += ["--pids-limit", str(self.pids)]
-            args += [self.image, "/bin/sh", START_SCRIPT]
+            args += [image or self.image, "/bin/sh", START_SCRIPT]
             self.run(args, timeout=300)
             self.run(["cp", tmp + "/.", f"{name}:/"], timeout=120)
         finally:

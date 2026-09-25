@@ -292,6 +292,31 @@ class LxcHostKeys(unittest.TestCase):
         config.load_host(os.path.join(HERE, "host.toml"), environ={})
 
 
+class HostKeys(unittest.TestCase):
+    """host.toml keys: the default, the file value, and the environment
+    override named in the example file."""
+
+    def load_host(self, body, environ=None):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "host.toml")
+        with open(p, "w") as f:
+            f.write(body)
+        return config.load_host(p, environ={} if environ is None else environ)
+
+    def test_browser_image(self):
+        self.assertEqual(config.Host().browser_image, "dark-sandbox-browser")
+        self.assertEqual(self.load_host('[host]\nbrowser_image = "img-a"\n').browser_image, "img-a")
+        self.assertEqual(self.load_host('[host]\nbrowser_image = "img-a"\n',
+                                        {"DARK_BROWSER_IMAGE": "img-b"}).browser_image, "img-b")
+
+    def test_the_example_host_file_names_every_key_and_its_variable(self):
+        with open(os.path.join(HERE, "host.toml")) as f:
+            text = f.read()
+        for key in ("browser_image",):
+            with self.subTest(key=key):
+                self.assertRegex(text, rf"(?m)^{key} = .*# {config.HOST_ENV[key]}\b")
+
+
 class ConfDirDefault(unittest.TestCase):
     """--conf, else $DARK_CONF, else beside the package (the runner's checked-in
     toml files). DARK_CONF lets a deployment keep its real endpoints outside the
