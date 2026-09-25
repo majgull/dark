@@ -292,6 +292,24 @@ the change; the work is idempotent, so a restart is always safe. The unit
 creates the network itself; if something else created it first, `apply`
 refuses it unless the subnet matches.
 
+## Watching a user-arm run
+
+Every user-arm run records its browser twice, beside `steps.jsonl` and the `steps/` screenshots, in the *records repository*: the Gitea repository `dark-records/<shift>`, which holds one directory per run named `<run id>`; the run's `records` field (for example `dark-records/s1/shop-user-1`) names it. A *Playwright trace* is `trace.zip`: for every action the browser took, the page's DOM as it was, a screencast frame (one still picture of the screen), the console output and the network calls. A *video* is `video.webm`, a screen recording of the whole run at 1280 by 720.
+
+```
+<run id>/steps.jsonl   <run id>/steps/01.png   <run id>/trace.zip   <run id>/video.webm
+```
+
+Clone the records repository and open the trace on your own machine (it needs Node.js, which provides `npx`):
+
+```
+npx playwright show-trace <run id>/trace.zip
+```
+
+The same file opens in a browser tab at `https://trace.playwright.dev`, which "loads the trace entirely in your browser and does not transmit any data externally". The video plays in any player that reads WebM, such as `mpv <run id>/video.webm` or a browser.
+
+Either file can be missing: a browser that died before it could save the trace leaves none, and an image built without ffmpeg (the program that encodes the video; `Dockerfile.browser` installs it) leaves no video. `steps.jsonl` is written either way, and a missing recording never changes a verdict. The trace also holds the pages' request headers and response bodies, so treat the records repository as readable by everyone who can open it.
+
 ## What containers keep, weaken and lose against VMs
 
 The Docker column is this deployment. The LXC column is the `lxc` backend

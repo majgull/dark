@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   running the hidden acceptance the way the stager does, `solution.sh`
   carrying the oracle overlay, and the acceptance under `tests/`. A task with
   no `oracle/` still exports, with a `solution.sh` that says NOT AVAILABLE.
+- The user arm records every run: `trace.zip` (a Playwright trace, opened with `npx playwright show-trace trace.zip`) and `video.webm` are saved beside `steps.jsonl` in the run's records, and `runner/sandbox/Dockerfile.browser` now installs Playwright's ffmpeg so the video can be encoded; rebuild the browser image to get it. A recording that cannot be made is skipped and never changes a step or a verdict. See "Watching a user-arm run" in `docs/docker.md`.
 
 ## [0.4.1] - 2026-09-25
 

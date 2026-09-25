@@ -1,6 +1,7 @@
 # The image a user-arm sandbox is created from: the sandbox image plus
 # Chromium and Playwright for Python, so dark/user.py can open a URL, act on
-# the page and take a screenshot per step. Chromium comes from the image's
+# the page and take a screenshot per step, and record a trace and a video of
+# the run (see the ffmpeg line at the end). Chromium comes from the image's
 # own package manager (apt), never from Playwright's browser download, and
 # dark/user.py points Playwright at it; nothing is fetched at run time.
 #
@@ -28,3 +29,12 @@ RUN test -n "$CHROMIUM_VERSION" || { echo "CHROMIUM_VERSION is required (see the
 
 # where dark/user.py finds the browser Playwright drives
 ENV DARK_CHROMIUM=/usr/bin/chromium
+
+# The one thing Playwright's own download still supplies: ffmpeg, the small
+# build it pipes its screencast frames into to write video.webm (Playwright
+# looks for it in its browsers directory and has no setting for another
+# path). It is fetched here, at build time, at the revision the pinned
+# Playwright names; no browser is downloaded and nothing is fetched at run
+# time. Without it dark/user.py still runs and writes trace.zip, but no video.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN python3 -m playwright install ffmpeg

@@ -4,12 +4,17 @@ step, pass only when every verdict is pass, and the records pushed with the
 session arm's own push, with no token in them. Then the run driver
 (Runner.user) turning the executor's report into an outcome."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
+import sys
 import tempfile
 import time
+import types
 import unittest
+from unittest import mock
 
 from dark import budget, config, spec, tasks
 from dark import gitea as G
@@ -72,6 +77,103 @@ class FakePage:
 
     def close(self):
         self.closed = True
+
+
+class RecordedPage(FakePage):
+    """A page that, like PlaywrightPage, leaves its recordings in the records
+    directory when it is closed."""
+
+    def __init__(self, records_dir, trace=True, video=True, **kw):
+        super().__init__(**kw)
+        self.records_dir, self.trace, self.video = records_dir, trace, video
+
+    def close(self):
+        for wanted, name, data in ((self.trace, "trace.zip", b"PK trace"), (self.video, "video.webm", b"webm")):
+            if wanted:
+                with open(os.path.join(self.records_dir, name), "wb") as f:
+                    f.write(data)
+        super().close()
+
+
+class FakePlaywright:
+    """playwright.sync_api as PlaywrightPage uses it, keeping every call in
+    `calls` as (name, kwargs). no_video: a context that records a video
+    refuses its page, as Playwright does without its ffmpeg. no_trace:
+    tracing.start refuses. dies: tracing.stop, closing the context, the
+    browser and Playwright all raise, as they do once the browser crashed."""
+
+    def __init__(self, no_video=False, no_trace=False, dies=False):
+        self.no_video, self.no_trace, self.dies = no_video, no_trace, dies
+        self.calls = []
+        self.chromium = self  # sync_playwright().start().chromium.launch(...) -> a browser, also this object
+        self.contexts = []
+
+    def install(self, case):
+        module = types.ModuleType("playwright.sync_api")
+        module.sync_playwright = lambda: types.SimpleNamespace(start=lambda: self)
+        patch = mock.patch.dict(sys.modules, {"playwright": types.ModuleType("playwright"),
+                                              "playwright.sync_api": module})
+        patch.start()
+        case.addCleanup(patch.stop)
+        return self
+
+    def _call(self, name, **kw):
+        self.calls.append((name, kw))
+        if self.dies and name in ("tracing.stop", "context.close", "browser.close", "stop"):
+            raise RuntimeError("Target closed")
+
+    def launch(self, **kw):
+        self._call("launch", **kw)
+        return self
+
+    def new_context(self, **kw):
+        self._call("new_context", **kw)
+        ctx = FakeContext(self, kw)
+        self.contexts.append(ctx)
+        return ctx
+
+    def close(self):
+        self._call("browser.close")
+
+    def stop(self):
+        self._call("stop")
+
+    def names(self):
+        return [name for name, _ in self.calls]
+
+    def kwargs(self, name):
+        return [kw for n, kw in self.calls if n == name]
+
+
+class FakeContext:
+    def __init__(self, pw, kw):
+        self.pw, self.kw = pw, kw
+        self.tracing = self
+
+    def start(self, **kw):  # tracing.start
+        self.pw._call("tracing.start", **kw)
+        if self.pw.no_trace:
+            raise RuntimeError("tracing is not available")
+
+    def stop(self, **kw):  # tracing.stop
+        self.pw._call("tracing.stop", **kw)
+        with open(kw["path"], "wb") as f:
+            f.write(b"PK trace")
+
+    def new_page(self):
+        self.pw._call("new_page")
+        page = types.SimpleNamespace(video=None)
+        if self.kw.get("record_video_dir"):
+            if self.pw.no_video:
+                raise RuntimeError("Executable doesn't exist at /root/.cache/ms-playwright/ffmpeg-1011/ffmpeg-linux")
+            path = os.path.join(self.kw["record_video_dir"], "0a1b2c.webm")
+            with open(path, "wb") as f:
+                f.write(b"webm")
+            page.video = types.SimpleNamespace(path=lambda: path)
+        return page
+
+    def close(self):
+        self.pw._call("context.close")
 
 
 def verdict(v="pass", note="as asked"):
@@ -172,6 +274,79 @@ class Steps(unittest.TestCase):
         self.assertEqual(U.parse_action('{"verdict": "pass"}')["do"], "invalid")
 
 
+class Recording(unittest.TestCase):
+    """PlaywrightPage, over a fake playwright.sync_api, records a trace and a
+    video into the records directory, and never lets the recording change the
+    run: what goes wrong with it is skipped."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.records = os.path.join(self.tmp, "records")
+        os.makedirs(self.records)
+
+    def page(self, **kw):
+        self.pw = FakePlaywright(**kw).install(self)
+        with contextlib.redirect_stderr(io.StringIO()) as self.err:
+            return U.PlaywrightPage(self.records)
+
+    def test_the_trace_starts_before_the_page_and_both_files_land_beside_steps_jsonl(self):
+        page = self.page()
+        video_dir = self.pw.kwargs("new_context")[0]["record_video_dir"]
+        self.assertEqual(self.pw.names(), ["launch", "new_context", "tracing.start", "new_page"])
+        self.assertEqual(self.pw.kwargs("tracing.start"), [{"screenshots": True, "snapshots": True}])
+        # the video is as large as the viewport the screenshots are taken in
+        self.assertEqual(self.pw.kwargs("new_context")[0],
+                         {"viewport": U.VIEWPORT, "record_video_dir": video_dir, "record_video_size": U.VIEWPORT})
+        page.close()
+        self.assertEqual(self.pw.names()[4:], ["tracing.stop", "context.close", "browser.close", "stop"])
+        self.assertEqual(self.pw.kwargs("tracing.stop"), [{"path": os.path.join(self.records, "trace.zip")}])
+        self.assertEqual(sorted(os.listdir(self.records)), ["trace.zip", "video.webm"])
+        with open(os.path.join(self.records, "video.webm"), "rb") as f:
+            self.assertEqual(f.read(), b"webm")
+        self.assertFalse(os.path.exists(video_dir))  # the scratch directory the video was written in
+
+    def test_the_names_are_the_records_index(self):
+        self.assertEqual((U.TRACE_FILE, U.VIDEO_FILE), ("trace.zip", "video.webm"))
+        paths = U.records_paths("/r")
+        self.assertEqual(sorted(paths), ["steps", "steps.jsonl", "trace.zip", "video.webm"])
+        self.assertEqual((paths["trace.zip"], paths["video.webm"]), ("/r/trace.zip", "/r/video.webm"))
+
+    def test_without_a_records_directory_nothing_is_recorded(self):
+        FakePlaywright().install(self)
+        page = U.PlaywrightPage()
+        page.close()
+        self.assertEqual(os.listdir(self.records), [])
+
+    def test_a_trace_that_cannot_start_is_skipped_and_the_video_is_kept(self):
+        self.page(no_trace=True).close()
+        self.assertIn("trace not started", self.err.getvalue())
+        self.assertNotIn("tracing.stop", self.pw.names())
+        self.assertEqual(sorted(os.listdir(self.records)), ["video.webm"])
+
+    def test_a_video_that_cannot_be_recorded_is_skipped_and_the_trace_is_kept(self):
+        page = self.page(no_video=True)  # an image without Playwright's ffmpeg
+        self.assertIn("video recording unavailable", self.err.getvalue())
+        self.assertEqual(self.pw.names().count("new_context"), 2)
+        self.assertNotIn("record_video_dir", self.pw.kwargs("new_context")[1])
+        page.close()
+        self.assertEqual(sorted(os.listdir(self.records)), ["trace.zip"])
+
+    def test_a_browser_that_died_closes_without_raising_and_leaves_no_trace(self):
+        page = self.page(dies=True)
+        video_dir = self.pw.kwargs("new_context")[0]["record_video_dir"]
+        page.close()
+        self.assertNotIn("trace.zip", os.listdir(self.records))
+        self.assertEqual(self.pw.names()[-4:], ["tracing.stop", "context.close", "browser.close", "stop"])
+        self.assertFalse(os.path.exists(video_dir))
+
+    def test_a_browser_that_will_not_start_is_still_the_environment(self):
+        FakePlaywright().install(self)
+        with mock.patch.object(FakePlaywright, "launch", side_effect=RuntimeError("no display")):
+            with self.assertRaises(U.BrowserError):
+                U.PlaywrightPage(self.records)
+
+
 class Model(unittest.TestCase):
     """ChatModel asks the provider entry the session arm uses."""
 
@@ -269,6 +444,42 @@ class Executor(unittest.TestCase):
         self.assertEqual([json.loads(l)["verdict"] for l in files[run + "steps.jsonl"].decode().splitlines()],
                          ["pass", "pass", "pass"])
         self.assertTrue(files[run + "steps/02.png"].startswith(PNG))
+
+    def test_the_trace_and_the_video_are_pushed_beside_steps_jsonl(self):
+        rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), RecordedPage(S.RECORDS_DIR))
+        self.assertEqual(rc, 0)
+        files = self.records()
+        run = "shop-user-1/"
+        self.assertEqual((files[run + "trace.zip"], files[run + "video.webm"]), (b"PK trace", b"webm"))
+        # the recording added files; the steps, verdicts and screenshot names are the ones without it
+        for name in ("steps.jsonl", "steps/01.png", "steps/02.png", "steps/03.png"):
+            self.assertIn(run + name, files)
+        self.assertEqual(sorted(k[len(run):] for k in files if k.startswith(run + "steps/")),
+                         ["steps/01.png", "steps/02.png", "steps/03.png"])
+
+    def test_a_missing_trace_does_not_fail_the_run(self):
+        rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), RecordedPage(S.RECORDS_DIR, trace=False))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.done_tag()[1]["outcome"], "ok")
+        files = self.records()
+        self.assertIn("shop-user-1/video.webm", files)
+        self.assertNotIn("shop-user-1/trace.zip", files)
+        self.assertIn("shop-user-1/steps.jsonl", files)
+
+    def test_a_browser_that_dies_mid_run_still_writes_steps_jsonl(self):
+        class Dies(RecordedPage):
+            def screenshot(self, path):
+                if os.path.basename(path) == "02.png":
+                    raise U.BrowserError("Target page, context or browser has been closed")
+                super().screenshot(path)
+        rc = U.main(ScriptedModel([verdict(), verdict()]), Dies(S.RECORDS_DIR, video=False))
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.done_tag()[1]["kind"], "env")
+        files = self.records()
+        self.assertEqual([json.loads(l)["step"] for l in files["shop-user-1/steps.jsonl"].decode().splitlines()], [1])
+        self.assertIn("shop-user-1/steps/01.png", files)
+        self.assertIn("shop-user-1/trace.zip", files)  # what the browser managed to save before it died
+        self.assertNotIn("shop-user-1/video.webm", files)
 
     def test_no_token_appears_in_the_records(self):
         page = FakePage(snapshot=f"- text \"session {TOKEN}\"")

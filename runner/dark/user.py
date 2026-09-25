@@ -14,6 +14,11 @@ fail, with one line of note. Then a screenshot is taken as
 <records>/steps/<NN>.png and {step, verdict, note} is appended to
 <records>/steps.jsonl. The run passes when every step's verdict is pass.
 
+The real browser also records the whole run: a Playwright trace as
+<records>/trace.zip and a video as <records>/video.webm, both written when
+the page is closed. A recording that cannot be made or saved is skipped and
+never changes a step, a verdict or a screenshot name.
+
 The model is reached through `ChatModel` and the browser through
 `PlaywrightPage`; both sit behind a small interface (`next_action`, and
 goto/url/snapshot/act/screenshot/close), so tests drive `run_steps` and
@@ -25,7 +30,9 @@ real page is opened.
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -38,6 +45,8 @@ except ImportError:  # injected as /opt/user.py beside /opt/session.py and run a
 
 SNAPSHOT_CHARS = 12000  # the page as the model sees it, cut to this
 ACTION_TIMEOUT_MS = 10000
+VIEWPORT = {"width": 1280, "height": 720}  # Playwright's default, spelled out: the video is this size too
+TRACE_FILE, VIDEO_FILE = "trace.zip", "video.webm"  # beside steps.jsonl in the records
 
 SYSTEM = """You check one step of a task in a web application through a browser, the way a user would. You see the page as an accessibility snapshot. Reply with exactly one JSON object and nothing else, one of:
 {"do": "click", "role": "<role>", "name": "<accessible name>"}
@@ -140,21 +149,53 @@ class ChatModel:
 # --- the browser ----------------------------------------------------------------
 class PlaywrightPage:
     """The driver interface over Playwright's sync API and the image's own
-    Chromium (DARK_CHROMIUM); Playwright never downloads a browser."""
+    Chromium (DARK_CHROMIUM); Playwright never downloads a browser.
 
-    def __init__(self):
+    With `records_dir` the run is also recorded: a trace (a DOM snapshot and a
+    screencast frame per action, console output and network calls) is started
+    before the page opens and saved as <records_dir>/trace.zip by close(), and
+    the context records a video, saved as <records_dir>/video.webm by close().
+    Both are best effort: one that cannot start or be saved is skipped."""
+
+    def __init__(self, records_dir=None):
         try:
             from playwright.sync_api import sync_playwright
         except ImportError as e:
             raise BrowserError(f"playwright is not installed (wrong image?): {e}") from None
+        self._records = records_dir
+        self._video_dir = tempfile.mkdtemp(prefix="dark-video-") if records_dir else None
+        self._video = self._tracing = False
         try:
             self._pw = sync_playwright().start()
             exe = os.environ.get("DARK_CHROMIUM", "/usr/bin/chromium")
             self._browser = self._pw.chromium.launch(
                 executable_path=exe if os.path.exists(exe) else None, args=["--no-sandbox"])
-            self.page = self._browser.new_page()
+            try:
+                self._open(video=bool(records_dir))
+            except Exception as e:  # noqa: BLE001
+                if not records_dir:
+                    raise
+                # an image without Playwright's ffmpeg cannot record a video: the run goes on without one
+                print(f"video recording unavailable, opening the page without it: {e}", file=sys.stderr)
+                self._open(video=False)
         except Exception as e:  # noqa: BLE001 — any launch failure is the environment's
             raise BrowserError(f"chromium did not start: {e}") from None
+
+    def _open(self, video):
+        kw = {"viewport": dict(VIEWPORT)}
+        if video:
+            kw.update(record_video_dir=self._video_dir, record_video_size=dict(VIEWPORT))
+        self._context = self._browser.new_context(**kw)
+        self._video, self._tracing = video, False
+        if self._records:
+            try:
+                # before the page is created, so the first navigation is in the trace
+                self._context.tracing.start(screenshots=True, snapshots=True)
+                self._tracing = True
+            except Exception as e:  # noqa: BLE001
+                # no trace, and the run goes on
+                print(f"trace not started: {e}", file=sys.stderr)
+        self.page = self._context.new_page()
 
     def goto(self, url):
         try:
@@ -198,12 +239,24 @@ class PlaywrightPage:
     def screenshot(self, path):
         self.page.screenshot(path=path, full_page=True)
 
+    def _save_trace(self):
+        if self._tracing:
+            self._context.tracing.stop(path=os.path.join(self._records, TRACE_FILE))
+
+    def _save_video(self):
+        # the file exists once the context is closed; a browser that died leaves none
+        if self._video:
+            shutil.move(self.page.video.path(), os.path.join(self._records, VIDEO_FILE))
+
     def close(self):
-        for f in (lambda: self._browser.close(), lambda: self._pw.stop()):
+        for f in (self._save_trace, lambda: self._context.close(), self._save_video,
+                  lambda: self._browser.close(), lambda: self._pw.stop()):
             try:
                 f()
             except Exception:  # noqa: BLE001
                 pass
+        if self._video_dir:
+            shutil.rmtree(self._video_dir, ignore_errors=True)
 
 
 # --- the steps ------------------------------------------------------------------
@@ -271,9 +324,13 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
 
 
 def records_paths(records_dir):
-    """What the records push adds beside stream.jsonl, brief.md, task.json."""
+    """What the records push adds beside stream.jsonl, brief.md, task.json.
+    trace.zip and video.webm are listed always; the push skips a path that
+    does not exist, so a recording that was not made is not an error."""
     return {"steps.jsonl": os.path.join(records_dir, "steps.jsonl"),
-            "steps": os.path.join(records_dir, "steps")}
+            "steps": os.path.join(records_dir, "steps"),
+            TRACE_FILE: os.path.join(records_dir, TRACE_FILE),
+            VIDEO_FILE: os.path.join(records_dir, VIDEO_FILE)}
 
 
 def fail(kind, text, **kw):
@@ -305,19 +362,20 @@ def _main(model, page):
     if not url or not steps:
         return fail("env", "task.json carries no url or no steps")
     try:
-        page = page or PlaywrightPage()
+        page = page or PlaywrightPage(records)
     except BrowserError as e:
         return fail("env", str(e))
     model = model or ChatModel(t)
     deadline = S.T0 + int(t.get("max_seconds") or 900)
     try:
-        results, stop = run_steps(model, page, url, steps, records, max_calls, deadline)
+        try:
+            results, stop = run_steps(model, page, url, steps, records, max_calls, deadline)
+        finally:
+            page.close()  # before any fail() below pushes the records: this is what saves trace.zip and video.webm
     except BrowserError as e:
         return fail("env", str(e))
     except ModelError as e:
         return fail("llm", str(e))
-    finally:
-        page.close()
     ok = sum(1 for r in results if r["verdict"] == "pass")
     kw = {"steps_ok": ok, "steps_total": len(steps)}
     if stop == "calls":
