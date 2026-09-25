@@ -5,7 +5,8 @@ layout by `python3 -m dark export-harbor <task-dir> <out-dir>`: one sample per
 subdirectory, its Dockerfile as that sample's sandbox, its `task.yaml`
 instruction as the prompt.
 
-  inspect eval bench/inspect/dark_tasks.py -T tasks_dir=DIR --model mockllm/model
+  inspect eval bench/inspect/dark_tasks.py -T tasks_dir=DIR --solver oracle --model mockllm/model
+  inspect eval bench/inspect/dark_tasks.py -T tasks_dir=DIR --model openai/MODEL
 
 `tasks_dir` may be left out when DARK_TB_DIR names the directory, and
 `source_dir` (the dark-tasks checkout the export was made from) when
@@ -29,9 +30,11 @@ from pathlib import Path
 
 import yaml
 from inspect_ai import Task, task
+from inspect_ai.agent import react
 from inspect_ai.dataset import Sample
 from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, accuracy, scorer, stderr
 from inspect_ai.solver import Generate, Solver, TaskState, solver
+from inspect_ai.tool import bash
 from inspect_ai.util import SandboxEnvironment, sandbox
 
 REPO = Path(__file__).resolve().parents[2]
@@ -48,6 +51,11 @@ TEST_DIR = "/tests"
 # export-harbor writes both timeouts from the dark task's stage_timeout, and
 # ten minutes is dark's default when a task sets none.
 DEFAULT_TIMEOUT = 600
+
+AGENT_PROMPT = (
+    f"You work in a Linux container. The task's repository is in {WORKDIR}. "
+    "Read it, change it with bash commands until the task is done, then call submit()."
+)
 
 
 def _sample(directory: Path, source: str) -> Sample:
@@ -138,6 +146,12 @@ def oracle() -> Solver:
     return solve
 
 
+@solver
+def react_bash() -> Solver:
+    """Inspect's ReAct agent with the bash tool, in the sample's sandbox."""
+    return react(prompt=AGENT_PROMPT, tools=[bash(timeout=180)])
+
+
 @scorer(metrics=[accuracy(), stderr()])
 def run_tests():
     """CORRECT when the hidden tests, run in the sandbox, exit 0."""
@@ -178,6 +192,6 @@ def dark_tasks(tasks_dir: str | None = None, source_dir: str | None = None) -> T
     return Task(
         dataset=[_sample(d, index[d.name][1]) for d in directories],
         setup=starting_tree(),
-        solver=oracle(),
+        solver=react_bash(),
         scorer=run_tests(),
     )

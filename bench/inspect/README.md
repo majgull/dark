@@ -18,4 +18,8 @@ The export holds a task's own `start/` only, so the task's `setup` step lays dar
 
     DARK_TASKS=... /tmp/fx/venv-inspect/bin/inspect eval bench/inspect/dark_tasks.py -T tasks_dir=/tmp/fx/tb --solver oracle --model mockllm/model --log-dir /tmp/fx/inspect-logs
 
+The default solver is Inspect's `react()` agent with the `bash()` tool. Any OpenAI-compatible endpoint works through the `openai` provider (`pip install openai` in the same environment): `OPENAI_BASE_URL` sets the endpoint, and `OPENAI_API_KEY` only has to be non-empty for a local one. `--message-limit` caps the conversation:
+
+    DARK_TASKS=... OPENAI_BASE_URL=http://HOST:PORT/v1 OPENAI_API_KEY=unused /tmp/fx/venv-inspect/bin/inspect eval bench/inspect/dark_tasks.py -T tasks_dir=/tmp/fx/tb --model openai/MODEL --limit 2 --message-limit 30 --log-dir /tmp/fx/inspect-logs
+
 Read a log with `inspect log dump FILE` or `inspect view --log-dir /tmp/fx/inspect-logs`. Keep `--log-dir` outside the tree: `runner/ops/no-binaries.sh` refuses a committed `.eval` file.
