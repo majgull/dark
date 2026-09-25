@@ -4,6 +4,37 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] - 2026-09-25
+
+### Added
+
+- An `lxc` backend: a sandbox is a full clone of a named snapshot of a real
+  Proxmox container, fenced by the same default-drop firewall as a VM.
+  `sandbox_pool` places each clone in a pool, and `sandbox_allow_in` opens
+  it to named `<ipv4>:<port>` clients. Clones do not start with the host.
+- `snapshot` and `rollback` on the sandbox interface (lxc and Proxmox; docker
+  refuses).
+- The long arm: a task of class `long` names several repositories, one
+  session works across them for up to four hours, and
+  `python3 -m dark long` hands the branches it pushed to a judging review.
+- A review run can judge branches (`--review-branches`): the last line of its
+  `report.md`, `VERDICT: pass` or `VERDICT: fail`, is the outcome.
+- `tools = "full"` in a task gives the session arm pi's full tool set.
+- The user arm: a task of class `user` gives a fresh browser sandbox a URL
+  and numbered steps, and `python3 -m dark user` records a verdict and a
+  screenshot per step. `runner/sandbox/Dockerfile.browser` builds its image.
+
+### Fixed
+
+- `ops/docker-bootstrap.sh` creates the records organisation. Without it
+  every session, review and user run stopped at its first Gitea call.
+- Two runs of one shift starting together no longer abort on creating the
+  shift's records repository.
+- The docker sandbox image includes `libatomic1`, which the session arm's
+  node needs to start.
+- The review class allows 40 calls instead of 4, so a judge can read before
+  it writes its verdict.
+
 ## [0.2.0] - 2026-09-24
 
 ### Added
