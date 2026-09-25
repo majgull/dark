@@ -6,10 +6,10 @@ import os
 import tempfile
 import unittest
 
-from dark import config, sandbox, vm
+from dark import config, lxc, sandbox, vm
 from dark import docker as docker_mod
 
-METHODS = ("reachable", "template_ok", "spawn", "guest_ip", "reap")
+METHODS = ("reachable", "template_ok", "spawn", "guest_ip", "reap", "snapshot", "rollback")
 
 
 class ProtocolConformance(unittest.TestCase):
@@ -33,6 +33,18 @@ class ProtocolConformance(unittest.TestCase):
         self.assertIsInstance(d, docker_mod.Docker)
         self.assertEqual((d.image, d.network, d.cpus, d.memory, d.pids),
                          ("sandbox-img", "sandbox-net", "2", "1g", 256))
+
+    def test_make_builds_lxc_from_the_host(self):
+        host = config.Host(backend="lxc", proxmox="cpu-host", sandbox_container="200",
+                           sandbox_snapshot="base", sandbox_bridge="vmbr9")
+        ct = sandbox.make(host, 9001)
+        self.assertIsInstance(ct, lxc.Lxc)
+        self.assertEqual((ct.host, ct.source, ct.snapname, ct.bridge),
+                         ("cpu-host", "200", "base", "vmbr9"))
+
+    def test_lxc_is_a_backend(self):
+        self.assertIn("lxc", config.BACKENDS)
+        config.check_backend("lxc")
 
 
 class BackendRefusal(unittest.TestCase):
@@ -59,7 +71,14 @@ class BackendRefusal(unittest.TestCase):
                 self.assertIn("nomad", str(cm.exception))
                 self.assertIn("proxmox", str(cm.exception))
                 self.assertIn("docker", str(cm.exception))
+                self.assertIn("lxc", str(cm.exception))
                 self.assertNotIn("\n", str(cm.exception))
+
+    def test_lxc_is_accepted_at_load(self):
+        for where, loader in (("file", lambda: self.load_host('[host]\nbackend = "lxc"\n')),
+                              ("env", lambda: self.load_host("[host]\n", environ={"DARK_BACKEND": "lxc"}))):
+            with self.subTest(where=where):
+                self.assertEqual(loader().backend, "lxc")
 
     def test_factory_refuses_an_unknown_backend(self):
         host = config.Host()

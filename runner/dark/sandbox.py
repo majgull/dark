@@ -2,9 +2,11 @@
 
 A sandbox is one throwaway machine the runner injects a script into and
 discards afterwards: today a Proxmox VM, later also a container. The runner
-uses only the five methods below, so a new backend implements them and the
-callers do not change. `vm.Proxmox` and `docker.Docker` are the backends
-today.
+uses only the first five methods below, so a new backend implements them and
+the callers do not change. `snapshot` and `rollback` are on the seam for the
+applier that will rehearse a change on a clone; the runner does not call
+them. `vm.Proxmox`, `docker.Docker` and `lxc.Lxc` are the
+backends today.
 
 `spawn` takes the files to write and the command to run, not a rendered
 cloud-init document: rendering is Proxmox's business, and a backend without
@@ -15,6 +17,7 @@ from typing import Protocol
 
 from . import config
 from . import docker
+from . import lxc
 from . import vm
 
 
@@ -43,15 +46,29 @@ class Sandbox(Protocol):
         """Stop and remove the sandbox. True iff it is gone."""
         ...
 
+    def snapshot(self, vmid, name) -> None:
+        """Take a snapshot `name` of the sandbox. Raise on failure, or with
+        NotImplementedError where the backend has no snapshots."""
+        ...
+
+    def rollback(self, vmid, name) -> None:
+        """Roll the sandbox back to its snapshot `name`. Raise on failure, or
+        with NotImplementedError where the backend has no snapshots."""
+        ...
+
 
 def make(host, template):
     """The one place the runner builds a backend object, chosen by
     host.backend. A name this build does not implement is refused by
     config.check_backend, never guessed. `template` names the VM a Proxmox
-    sandbox is cloned from; docker sandboxes come from host.sandbox_image."""
+    sandbox is cloned from; docker sandboxes come from host.sandbox_image and
+    lxc sandboxes from host.sandbox_container at host.sandbox_snapshot."""
     config.check_backend(host.backend)
     if host.backend == "docker":
         return docker.Docker(host.sandbox_image, network=host.sandbox_network,
                              cpus=host.sandbox_cpus, memory=host.sandbox_memory,
                              pids=host.sandbox_pids)
+    if host.backend == "lxc":
+        return lxc.Lxc(host.proxmox, host.sandbox_container, host.sandbox_snapshot,
+                       bridge=host.sandbox_bridge)
     return vm.Proxmox(host.proxmox, template)

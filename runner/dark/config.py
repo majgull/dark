@@ -376,6 +376,8 @@ HOST_ENV = {
     "sandbox_image": "DARK_SANDBOX_IMAGE", "sandbox_network": "DARK_SANDBOX_NETWORK",
     "sandbox_cpus": "DARK_SANDBOX_CPUS", "sandbox_memory": "DARK_SANDBOX_MEMORY",
     "sandbox_pids": "DARK_SANDBOX_PIDS",
+    "sandbox_container": "DARK_SANDBOX_CONTAINER", "sandbox_snapshot": "DARK_SANDBOX_SNAPSHOT",
+    "sandbox_bridge": "DARK_SANDBOX_BRIDGE",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
     "wake_timeout": "DARK_WAKE_TIMEOUT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
@@ -392,7 +394,7 @@ class Host:
     git_lan_url: str = ""     # where VMs clone/push from; "" = gitea_lan_url
     admin_token_file: str = "~/.dark/dark-admin.token"
     agent_token_file: str = "~/.dark/dark-agent.token"
-    backend: str = "proxmox"  # the compute plane: "proxmox" or "docker"
+    backend: str = "proxmox"  # the compute plane: "proxmox", "docker" or "lxc"
     proxmox: str = "cpu-host"
     # docker backend (dark/docker.py): the image a sandbox is created from,
     # the network it joins, and the limits its container gets. "" = no limit.
@@ -401,6 +403,12 @@ class Host:
     sandbox_cpus: str = "2"
     sandbox_memory: str = "2g"
     sandbox_pids: int = 512
+    # lxc backend (dark/lxc.py): the container a sandbox is a full clone of,
+    # the snapshot it is cloned from, and the bridge its net0 joins. The
+    # container and snapshot have no default; preflight refuses them empty.
+    sandbox_container: str = ""
+    sandbox_snapshot: str = ""
+    sandbox_bridge: str = "vmbr0"
     ntfy_url: str = ""
     state_dir: str = "~/.dark"
     templates_dir: str = "~/dark-templates"
@@ -423,6 +431,7 @@ class Host:
         self.work_org = self.work_org or self.org
         self.sandbox_cpus = "" if self.sandbox_cpus in (None, "") else str(self.sandbox_cpus)
         self.sandbox_memory = "" if self.sandbox_memory in (None, "") else str(self.sandbox_memory)
+        self.sandbox_container = "" if self.sandbox_container in (None, "") else str(self.sandbox_container)
         try:
             self.sandbox_pids = int(self.sandbox_pids or 0)
         except (TypeError, ValueError):
@@ -446,7 +455,7 @@ class Host:
         return os.path.join(self.state_dir, "scratch")
 
 
-BACKENDS = ("proxmox", "docker")  # implementations of the dark/sandbox.Sandbox protocol
+BACKENDS = ("proxmox", "docker", "lxc")  # implementations of the dark/sandbox.Sandbox protocol
 
 
 def check_backend(name):

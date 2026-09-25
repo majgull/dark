@@ -193,6 +193,18 @@ class Preflight(unittest.TestCase):
         self.assertIn("sandbox-img", by["sandbox image"].detail)
         self.assertNotIn("vm template", by)
 
+    def test_lxc_preflight_reports_the_container_snapshot(self):
+        self.host.backend = "lxc"
+        self.host.sandbox_container = "200"
+        self.host.sandbox_snapshot = "base"
+        by = {c.name: c for c in self.pre().run()}
+        self.assertIn("proxmox", by)
+        self.assertIn("container snapshot", by)
+        self.assertIn("200", by["container snapshot"].detail)
+        self.assertNotIn("vm template", by)
+        by = {c.name: c for c in self.pre(FakePx(template=(False, "container 200 has no snapshot 'base'"))).run()}
+        self.assertFalse(by["container snapshot"].ok)
+
     def test_no_admitted_tier(self):
         for i in range(3):
             self.led.emit("run.end", **run_end(run=f"m{i}", cls="mechanical", tier="local-a", outcome="fail:capability"))
