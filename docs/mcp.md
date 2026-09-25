@@ -44,7 +44,7 @@ The five tools that run a command also take `timeout_seconds` (default 1800), af
 `->` is what the client writes and `<-` what the server answers; the ledger holds one example row.
 
     -> {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"demo","version":"0"}}}
-    <- {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"dark","version":"0.4.1"}}}
+    <- {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"dark","version":"0.5.0"}}}
     -> {"jsonrpc":"2.0","method":"notifications/initialized"}
     -> {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dark_ledger_tail","arguments":{"n":1}}}
     <- {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"kind\":\"run.end\",\"run\":\"hello-1\",\"task\":\"hello\",\"tier\":\"mid\",\"outcome\":\"pass\"}\n"}],"isError":false}}
