@@ -20,6 +20,14 @@ timestamp), tool_execution_start (toolName, args), tool_execution_end
 tool finished). tool_execution_start and tool_execution_end carry no time of
 their own, so a call starts at the timestamp of the assistant message that
 asked for it, which includes the model's time to write the call.
+
+A user-arm run (dark/user.py) writes stream.jsonl too, but its rows are shaped
+{"action": {...}, "call": N, "result": {...}, "snapshot_chars": N, "step":
+N, "url": "..."}: one row per browser action. Each such row becomes one child
+span `execute_tool browser.<do>`, with the action as the arguments and the
+result as the result. The rows carry no time of their own, so the spans are
+spaced evenly across the parent span; a row that does carry start_ms/end_ms is
+honored.
 """
 
 import hashlib
@@ -41,7 +49,7 @@ def _ids(run):
     run id so that exporting one run twice lands on the same trace."""
     def h(nbytes, *parts):
         return hashlib.sha256("\0".join(parts).encode()).hexdigest()[:nbytes * 2]
-    return h(16, "trace", run), h(8, "run", run), lambda i, call: h(8, "tool", run, str(i), call)
+    return h(16, "trace", run), h(8, "run", run), lambda i, call: h(8, "tool", run, str(i), call or "")
 
 
 def _number(v):
@@ -83,12 +91,22 @@ def _text(v):
 
 def tool_calls(stream_rows):
     """One dict per tool call that ran, in stream order: id, name, args, result,
-    start_ms, end_ms (None where the stream does not say). A call is found by its
-    tool_execution_start or tool_execution_end row, the same rows session.py counts
-    as tool_calls; rows without a toolCallId are not calls."""
-    asked, ended, calls = {}, {}, {}
+    step, start_ms, end_ms (None where the stream does not say). A pi call is
+    found by its tool_execution_start or tool_execution_end row, the same rows
+    session.py counts as tool_calls; rows without a toolCallId are not calls.
+    A user-arm row, which carries `action` and `step` instead, is one call named
+    browser.<do> with no id and no time of its own."""
+    asked, ended, calls, by_id = {}, {}, [], {}
     for row in stream_rows:
         if not isinstance(row, dict):
+            continue
+        action = row.get("action")
+        if action is not None and row.get("step") is not None:
+            action = action if isinstance(action, dict) else {}
+            do = action.get("do")
+            calls.append({"id": None, "name": f"browser.{do}" if do else None,
+                          "args": action, "result": row.get("result"), "step": row.get("step"),
+                          "start_ms": row.get("start_ms"), "end_ms": row.get("end_ms")})
             continue
         kind = row.get("type")
         msg = row.get("message") if isinstance(row.get("message"), dict) else {}
@@ -99,14 +117,23 @@ def tool_calls(stream_rows):
         elif kind == "message_end" and msg.get("role") == "toolResult" and msg.get("toolCallId"):
             ended[msg["toolCallId"]] = msg.get("timestamp")
         elif kind in ("tool_execution_start", "tool_execution_end") and row.get("toolCallId"):
-            call = calls.setdefault(row["toolCallId"], {"id": row["toolCallId"]})
+            cid = row["toolCallId"]
+            call = by_id.get(cid)
+            if call is None:
+                call = {"id": cid, "name": None, "args": None, "result": None, "step": None,
+                        "start_ms": None, "end_ms": None}
+                by_id[cid] = call
+                calls.append(call)
             call["name"] = call.get("name") or row.get("toolName")
             if kind == "tool_execution_start":
                 call["args"] = row.get("args")
             else:
                 call["result"] = row.get("result")
-    return [{"name": None, "args": None, "result": None, **c,
-             "start_ms": asked.get(c["id"]), "end_ms": ended.get(c["id"])} for c in calls.values()]
+    for call in calls:
+        if call["id"] is not None:
+            call["start_ms"] = asked.get(call["id"])
+            call["end_ms"] = ended.get(call["id"])
+    return calls
 
 
 def build_body(run_row, stream_rows):
@@ -117,10 +144,24 @@ def build_body(run_row, stream_rows):
     end = _ns(run_row["ts"] if _number(run_row.get("ts")) else time.time())
     took = run_row["wall_seconds"] if _number(run_row.get("wall_seconds")) else run_row.get("seconds")
     start = end - _ns(took) if _number(took) else end
+    calls = tool_calls(stream_rows)
+    # A user-arm row carries no time of its own (dark/user.py writes the step,
+    # the action and the result but no timestamp), so those child spans are
+    # spaced evenly across the parent's window, in stream order; a user row
+    # that does carry start_ms/end_ms keeps them.
+    untimed = [i for i, c in enumerate(calls)
+               if c["step"] is not None and c["start_ms"] is None and c["end_ms"] is None]
+    slots = {}
+    if untimed:
+        width = (end - start) / len(untimed)
+        for n, i in enumerate(untimed):
+            slots[i] = (start + round(n * width), start + round((n + 1) * width))
     children = []
-    for i, call in enumerate(tool_calls(stream_rows)):
+    for i, call in enumerate(calls):
         c_start = _ms_ns(call["start_ms"])
         c_end = _ms_ns(call["end_ms"])
+        if i in slots and c_start is None and c_end is None:
+            c_start, c_end = slots[i]
         c_start = start if c_start is None else c_start
         c_end = max(end if c_end is None else c_end, c_start)
         children.append({
@@ -131,7 +172,8 @@ def build_body(run_row, stream_rows):
                                   ("gen_ai.tool.name", call["name"]),
                                   ("gen_ai.tool.call.id", call["id"]),
                                   ("gen_ai.tool.call.arguments", _text(call["args"])),
-                                  ("gen_ai.tool.call.result", _text(call["result"]))])})
+                                  ("gen_ai.tool.call.result", _text(call["result"])),
+                                  ("dark.step", call["step"])])})
     # the tool times are the sandbox's clock and the run.end time the runner's: the
     # parent widens to hold its children rather than exporting a child outside it
     start = min([start] + [int(c["startTimeUnixNano"]) for c in children])
