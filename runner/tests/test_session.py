@@ -17,6 +17,7 @@ import unittest
 from dark import session
 from dark import spec
 from tests import fakes
+from tests.test_run import Base, LocalRunner
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "pi-stream-tools.jsonl")
 
@@ -268,6 +269,179 @@ class ReviewMode(unittest.TestCase):
     def test_the_default_mode_is_task_not_review(self):
         session.TASK.clear()
         self.assertEqual(session.TASK.get("mode", "task"), "task")
+
+
+class SeveralRepositories(unittest.TestCase):
+    """A task with `repos`: each is cloned to /work/<name> on its base, and at
+    the end HEAD of each is pushed to the delivery branch in its own origin.
+    git is real, against bare origins over file://; pi is stood in for by a
+    session that commits one file in each tree."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.base = fakes.make_origin(self.tmp, "org/api", {"README.md": "api\n"})
+        fakes.make_origin(self.tmp, "org/web", {"README.md": "web\n"}, branch="trunk")
+        self.saved = {k: getattr(session, k) for k in
+                      ("MULTI_WORK", "PIHOME", "RECORDS_DIR", "STREAM_PATH", "fetch_runtime",
+                       "write_models_json", "run_session", "comment")}
+        session.MULTI_WORK = os.path.join(self.tmp, "work")
+        session.PIHOME = os.path.join(self.tmp, "pihome")
+        session.RECORDS_DIR = os.path.join(self.tmp, "records")
+        session.STREAM_PATH = os.path.join(session.RECORDS_DIR, "stream.jsonl")
+        session.fetch_runtime = lambda: ("node", "cli")
+        session.write_models_json = lambda home: None
+        self.comments = []
+        session.comment = lambda body: self.comments.append(body)
+        session.PROGRESS.cid = None
+        for k in session.STATS:
+            session.STATS[k] = 0
+        session.TASK.clear()
+        session.TASK.update({
+            "token": "tok", "llm_model": "m", "branch": "run/r1", "run": "r1", "task": "t",
+            "repos": [{"name": "api", "url": f"{self.base}/org/api.git", "base": "main"},
+                      {"name": "web", "url": f"{self.base}/org/web.git", "base": "trunk"}]})
+
+        def fake_session(node, cli, home, deadline, stream_path, review=False, work=None):
+            self.work = work
+            for name in ("api", "web"):
+                d = os.path.join(work, name)
+                with open(os.path.join(d, "change.txt"), "w") as f:
+                    f.write(f"{name} changed\n")
+            session.STATS["calls"] = 1
+            return None, "", "", 0
+        session.run_session = fake_session
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(session, k, v)
+        session.PROGRESS.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def done_tag(self):
+        body = [b for b in self.comments if b.startswith("AGENT-DONE")][-1]
+        line = [l for l in body.splitlines() if l.startswith("DARK:")][-1]
+        return json.loads(line[len("DARK:"):])
+
+    def test_each_repository_is_cloned_on_its_base_and_pushed_to_the_delivery_branch(self):
+        self.assertEqual(session._main_task(), 0, self.comments)
+        self.assertEqual(self.work, session.MULTI_WORK)
+        self.assertEqual(fakes.branch_files(self.tmp, "org/api", "run/r1"), {"README.md", "change.txt"})
+        self.assertEqual(fakes.branch_files(self.tmp, "org/web", "run/r1"), {"README.md", "change.txt"})
+        self.assertEqual(fakes.branch_file(self.tmp, "org/web", "run/r1", "README.md"), "web\n")
+        # two pushes, and the bases stay where they were
+        self.assertEqual(fakes.branch_files(self.tmp, "org/api", "main"), {"README.md"})
+        self.assertEqual(fakes.branch_files(self.tmp, "org/web", "trunk"), {"README.md"})
+
+    def test_the_done_tag_lists_the_branches_pushed(self):
+        session._main_task()
+        tag = self.done_tag()
+        self.assertTrue(spec.tag_ok("done", tag))
+        self.assertEqual(tag["outcome"], "ok")
+        self.assertEqual(tag["branches"], [{"repo": "api", "branch": "run/r1"},
+                                           {"repo": "web", "branch": "run/r1"}])
+
+    def test_a_base_that_does_not_exist_is_an_env_failure_before_the_session(self):
+        session.TASK["repos"][1]["base"] = "nope"
+        self.assertEqual(session._main_task(), 1)
+        tag = self.done_tag()
+        self.assertEqual((tag["outcome"], tag["kind"]), ("fail", "env"))
+        self.assertIsNone(fakes.branch_files(self.tmp, "org/api", "run/r1"))
+
+
+class ToolSet(unittest.TestCase):
+    """tools = "full" launches pi as shipped and online; the default stays
+    reduced: no extensions, skills, prompt templates or context files, and
+    PI_OFFLINE=1."""
+
+    class Popen:
+        seen = []
+
+        def __init__(self, cmd, cwd=None, env=None, **kw):
+            ToolSet.Popen.seen.append((cmd, env))
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            self.returncode = 0
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    def setUp(self):
+        self.saved = session.subprocess.Popen
+        session.subprocess.Popen = ToolSet.Popen
+        ToolSet.Popen.seen = []
+        session.TASK.clear()
+        session.TASK.update({"token": "", "llm_model": "m"})
+
+    def tearDown(self):
+        session.subprocess.Popen = self.saved
+
+    def argv(self, tools=None):
+        if tools:
+            session.TASK["tools"] = tools
+        session.run_session("node", "cli", "/tmp/h", 1e12, None, work="/tmp")
+        return ToolSet.Popen.seen[-1]
+
+    REDUCED = ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]
+
+    def test_the_default_is_the_reduced_tool_set_offline(self):
+        cmd, env = self.argv()
+        for flag in self.REDUCED:
+            self.assertIn(flag, cmd)
+        self.assertEqual(env["PI_OFFLINE"], "1")
+        self.assertEqual(cmd[-2:-1], ["-p"])
+
+    def test_reduced_named_is_the_same_as_the_default(self):
+        self.assertEqual(self.argv("reduced")[0], self.argv()[0])
+
+    def test_full_drops_the_four_flags_and_the_offline_switch(self):
+        os.environ["PI_OFFLINE"] = "1"   # not even inherited from the VM's own env
+        try:
+            cmd, env = self.argv("full")
+        finally:
+            del os.environ["PI_OFFLINE"]
+        for flag in self.REDUCED:
+            self.assertNotIn(flag, cmd)
+        self.assertNotIn("PI_OFFLINE", env)
+        self.assertEqual(cmd[:2], ["node", "cli"])
+        self.assertIn("--approve", cmd)
+
+
+class ToolSetOnTheLedger(Base):
+    """The run.end row says which tool set a session-arm run had."""
+
+    def session_runner(self, extra=""):
+        r = self.runner([], task_kw={"extra": extra})
+        r.executor = "session"
+        self.sent = {}
+
+        def launch(vmid, name, files, runcmd):
+            task = json.loads(files["/opt/task.json"][0])
+            self.sent = task
+            r.gitea.comment(task["repo"], task["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX + json.dumps(
+                {"v": 2, "ev": "done", "outcome": "fail", "kind": "calls", "calls": 1, "tokens_in": 1,
+                 "tokens_out": 1, "reasoning_chars": 0, "seconds": 1}))
+        r.launch = launch
+        return r
+
+    def test_the_default_is_recorded_as_reduced(self):
+        r = self.session_runner()
+        r.run(self.task, "local-a", self.env())
+        self.assertEqual(self.sent["tools"], "reduced")
+        self.assertEqual(self.led.last("run.end")["tools"], "reduced")
+
+    def test_a_full_task_is_recorded_as_full(self):
+        r = self.session_runner('tools = "full"\n')
+        r.run(self.task, "local-a", self.env())
+        self.assertEqual(self.sent["tools"], "full")
+        self.assertEqual(self.led.last("run.end")["tools"], "full")
+
+    def test_the_pipeline_records_no_tool_set(self):
+        r = self.runner([{"content": "no blocks"}] * 6)
+        r.run(self.task, "local-a", self.env())
+        self.assertIsNone(self.led.last("run.end")["tools"])
 
 
 if __name__ == "__main__":

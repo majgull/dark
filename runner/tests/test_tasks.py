@@ -71,6 +71,7 @@ class Load(unittest.TestCase):
         self.refuse("lang", tid="b", lang="rust")
         self.refuse("additive", tid="c", may_edit=("x",))
         self.refuse("stage_timeout", tid="d", extra="stage_timeout = 0\n")
+        self.refuse("tools", tid="g", extra='tools = "all"\n')
         d = make_task(self.bench, "e")
         os.remove(os.path.join(d, "acceptance", "run.sh"))
         with self.assertRaises(tasks.TaskError) as cm:

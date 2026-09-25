@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from . import spec
 
 LANGS = ("go", "python")
+TOOLS = ("reduced", "full")
 # the work repo of task <id> is <REPO_PREFIX><id>. Two arms on the same
 # task at once force-push each other's starting tree (the bench's session
 # arms and a shift share dark/t-<id>), so an arm that runs beside a shift
@@ -53,6 +54,12 @@ class Task:
     dir: str
     stage_timeout: int
     after: str | None = None
+    # several repositories for one session-arm run: ((name, url, base), ...),
+    # each cloned to /work/<name> on base; empty = the one work repo
+    repos: tuple = ()
+    # the session arm's tool set: "reduced" (pi without extensions, skills,
+    # prompt templates or context files, offline) or "full" (pi as shipped)
+    tools: str = "reduced"
 
     @property
     def repo_name(self):
@@ -122,8 +129,11 @@ def load_task(path):
             raise TaskError(f"{tpath}: after {after!r} is {prev.lang}, this task is {lang} (a chain keeps one language)")
         if not os.path.isdir(prev.oracle_dir) or not os.listdir(prev.oracle_dir):
             raise TaskError(f"{tpath}: after {after!r} has no oracle/ to fall back to when it fails")
+    tools = d.get("tools", "reduced")
+    if tools not in TOOLS:
+        raise TaskError(f"{tpath}: tools must be one of {TOOLS}")
     return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang=lang, spec=text,
-                may_edit=tuple(may_edit), dir=path, stage_timeout=st, after=after)
+                may_edit=tuple(may_edit), dir=path, stage_timeout=st, after=after, tools=tools)
 
 
 def predecessors(task):

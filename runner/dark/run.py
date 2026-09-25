@@ -168,6 +168,7 @@ class _Run:
             power=pw.get("power"), restaged_from=getattr(self, "restaged_from", None),
             reason=spec.structural_reason(kind), asserts=self.asserts(pw),
             capped=getattr(self, "capped", None), tests=self.r.tests_version(),
+            tools=getattr(self, "tools", None),
             records=res.records, records_sha256=res.records_sha256,
             distinct_calls=res.distinct_calls, repeat_calls=res.repeat_calls, stall_max=res.stall_max)
         try:
@@ -358,6 +359,11 @@ class Runner:
         agent_task = {
             "gitea": self.host.gitea_lan_url, "git_url": self._git_url(), "repo": full, "issue": res.issue,
             "branch": res.branch, "token": self.host.agent_token,
+            # several repositories for the session arm, beside the one repo
+            # above: [{name, url, base}], each pushed to `branch` at the end
+            "repos": [{"name": n, "url": u, "base": b} for n, u, b in getattr(task, "repos", ())],
+            # the session arm's tool set, "reduced" unless the task asks for "full"
+            "tools": getattr(task, "tools", "reduced"),
             "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls, "max_stall": env.max_stall,
             "max_tokens": model.max_tokens,
             # with a level the run's cumulative thinking is the level times the
@@ -383,6 +389,9 @@ class Runner:
             # where the session arm pushes its kept stream; only the session
             # executor implements this, so only it gets a repo
             "records_repo": self._ensure_records_repo() if self.executor == "session" else None}
+        # only the session executor has a tool set to choose; the pipeline's
+        # has no tools and records none
+        st.tools = agent_task["tools"] if self.executor == "session" else None
         xvmid = self.budgets.shift["vmid_base"] + slot
         xname = f"dark-x{slot}"
         t_spawn = self.clock()
@@ -543,13 +552,19 @@ class Runner:
             st.reap_all()
 
     # --- review mode: brief and files in, report.md out -------------------------
-    def review(self, brief_text, files, tier, arm, shift=None, think=None, env=None, slot=0):
+    def review(self, brief_text, files, tier, arm, shift=None, think=None, env=None, slot=0,
+               review_branches=None):
         """A session-arm run whose input is a brief and a set of files to
         read and whose deliverable is report.md; no hidden acceptance, no
         branch, no staging. The records repo is both this run's issue
         tracker (there is no per-task work repo) and its push target.
         `env` carries a frozen envelope when one was given; else computed
-        from the "review" class the same way an exec class's envelope is."""
+        from the "review" class the same way an exec class's envelope is.
+
+        `review_branches` ([{name, url, branch}]) makes the review a judge:
+        each branch is cloned into the sandbox before the session starts,
+        and the outcome is the verdict on report.md's last line (pass, or
+        fail:capability), or fail:structural "no-verdict" without one."""
         t_queued = self.clock()
         shift = shift or self.shift
         run_id = f"review-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
@@ -561,7 +576,7 @@ class Runner:
         st.think = think
         st.meter = self.meter().start()
         try:
-            return self._review(st, task, files, slot, shift, env)
+            return self._review(st, task, files, slot, shift, env, list(review_branches or []))
         except L.LedgerError:
             raise  # never a result without its record (as in run())
         except Exception as e:  # noqa: BLE001
@@ -573,7 +588,7 @@ class Runner:
         finally:
             st.reap_all()
 
-    def _review(self, st, task, files, slot, shift, env):
+    def _review(self, st, task, files, slot, shift, env, review_branches=()):
         res, model, tier, full = st.res, st.model, st.tier, st.full
         wd = self.budgets.watchdog
         st.go("preflight", "shift start")
@@ -602,6 +617,7 @@ class Runner:
             "gitea": self.host.gitea_lan_url, "git_url": self._git_url(), "repo": full,
             "records_repo": full, "issue": res.issue, "token": self.host.agent_token,
             "mode": "review", "spec": task.spec, "review_files": sorted(files),
+            "review_branches": [dict(b) for b in review_branches],
             "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls,
             "max_tokens": model.max_tokens,
             "max_reasoning_chars": think_chars * env.calls if think else env.max_reasoning_chars,
@@ -646,8 +662,16 @@ class Runner:
                  "cuts": int(done_tag.get("cuts") or 0), "requests": int(done_tag.get("requests") or 0),
                  "tool_calls": (int(done_tag["tool_calls"]) if done_tag.get("tool_calls") is not None else None),
                  "records": done_tag.get("records"), "records_sha256": done_tag.get("records_sha256")}
-        if done_tag.get("outcome") == "ok":
+        if done_tag.get("outcome") == "ok" and not review_branches:
             return st.end("delivered", None, "", usage=usage)
+        if done_tag.get("outcome") == "ok":
+            # a judge: only the verdict decides, and an ok without one is none
+            reason = str(done_tag.get("verdict_reason") or "")
+            if done_tag.get("verdict") == "pass":
+                return st.end("pass", None, reason, usage=usage)
+            if done_tag.get("verdict") == "fail":
+                return st.end("fail:capability", "verdict", reason, usage=usage)
+            return st.end("fail:structural", "no-verdict", "AGENT-DONE ok without a verdict", usage=usage)
         kind = done_tag.get("kind") or "crash"
         outcome = spec.FAIL_KIND_OUTCOME.get(kind, "fail:structural")
         detail = str(done_tag.get("error") or kind)

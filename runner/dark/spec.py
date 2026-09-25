@@ -13,7 +13,10 @@ agent-side tag vocabulary can be pinned against agent.py and stager.py
 # --- classes: the kind of work, declared at intake, immutable ----------------
 EXEC_CLASSES = ("additive", "mechanical", "repair")  # run in a VM: execute, verify, stage
 CALL_CLASSES = ("spec", "review")                    # single budgeted control-plane calls
-CLASSES = EXEC_CLASSES + CALL_CLASSES
+# one session for hours in a VM over several repositories, judged by a
+# reviewer session, not by hidden tests; no admission (the operator names the tier)
+SESSION_CLASSES = ("long",)
+CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES
 
 # --- outcomes: the only terminal states of a run, decided by the runner ----
 # delivered: the review class's pass - no hidden acceptance,
@@ -50,6 +53,9 @@ TRANSITIONS = (
     ("staging", "fail:structural", "staging VM never reported or could not build", "runner"),
     ("preflight", "fail:structural", "the work repo, issue or branch could not be prepared", "runner"),
     ("executing", "delivered", "review mode: report.md landed non-empty", "runner"),
+    # review mode as a judge (review_branches): the reviewer's verdict is the
+    # acceptance, so a pass comes from executing, not from a staging VM
+    ("executing", "pass", "review mode with branches: report.md ends VERDICT: pass", "runner"),
     ("*", "abort", "abort marker file", "runner"),
 )
 
@@ -114,6 +120,9 @@ EVENTS = {
                  # capped: the session arm was stopped at the pipeline's wall
                  # cap rather than finishing on its own (tools/arm.sh)
                  "capped",
+                 # tools: the session arm's tool set, "reduced" or "full"
+                 # (a task's `tools`); null for the pipeline, which has none
+                 "tools",
                  # records: the records repository path the session's stream,
                  # brief and task.json were pushed to (dark-records/<shift>/
                  # <run>), or "PUSH FAILED: <error>" when the push did not
@@ -193,8 +202,11 @@ AGENT_TAGS = {
     "verify": (("ok", "iter", "calls"), ("started",)),
     "refused": (("paths", "iter"), ()),
     "done": (("outcome", "calls", "tokens_in", "tokens_out", "reasoning_chars", "seconds"),
-             ("kind", "iter", "error", "files", "deletes", "branch", "truncated", "cuts",
+             # branches: [{repo, branch}] the session arm pushed, one per repository
+             ("kind", "iter", "error", "files", "deletes", "branch", "branches", "truncated", "cuts",
               "requests", "tool_calls", "records", "records_sha256",
+              # verdict: pass | fail from a judging review's report.md last line
+              "verdict", "verdict_reason",
               "distinct_calls", "repeat_calls", "stall_max")),
     # env: the staging environment failed (never the work); nonce: the
     # runner's secret for this staging VM, echoed so the executor cannot forge it
@@ -231,6 +243,8 @@ FAIL_KIND_OUTCOME = {
     "silent": "fail:structural",      # watchdog kill
     "stage": "fail:structural",       # staging VM never reported / could not build
     "no_report": "fail:structural",   # review mode: report.md missing or empty
+    "verdict": "fail:capability",     # review mode as a judge: report.md ends VERDICT: fail
+    "no-verdict": "fail:structural",  # review mode as a judge: no well-formed VERDICT last line
     "abort": "abort",
 }
 # Outcomes that may escalate once to the next admitted tier.
@@ -260,6 +274,7 @@ STRUCTURAL_REASONS = {
     "stage": "the staging VM never reported or could not build",
     "runner": "a defect in the runner itself",
     "no_report": "review mode ended without a non-empty report.md",
+    "no-verdict": "a judging review ended without a VERDICT: pass|fail last line in report.md",
 }
 
 

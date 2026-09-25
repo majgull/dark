@@ -75,6 +75,11 @@ provisional = ["cloud-x"]
 hard = { runs = 1, calls = 4, seconds = 1800, max_reasoning_chars = 120000 }
 admit_at = 0.7
 provisional = ["cloud-x"]
+[class.long]
+think = "medium"
+hard = { runs = 1, calls = 2000, seconds = 14400, max_reasoning_chars = 40000 }
+admit_at = 0
+provisional = ["cloud-x"]
 [admission]
 min_runs = 3
 last_runs = 5
