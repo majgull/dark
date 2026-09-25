@@ -71,6 +71,12 @@ writes exactly one opening record and one closing record.
 against the branch a run pushed. Its verdict is trusted only when it carries a
 one-time value the executor never saw.
 
+**container target**: a sandbox that is a full clone of a real container,
+taken from a named snapshot of it, on a bridge that reaches only the service
+host. The `lxc` backend builds one, so a change to a running service can be
+rehearsed on a copy of the container that runs it before it is applied to the
+real one.
+
 **admission**: the rule that decides which tiers may run which class, from the
 ledger's measured pass rates, before any human tuning.
 

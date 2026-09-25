@@ -198,24 +198,28 @@ it is never used when `DARK_MODEL_UPSTREAM` names somewhere else.
 
 ## What containers keep, weaken and lose against VMs
 
-| Property | Verdict |
-|---|---|
-| A fresh disk per run, discarded at the end | Kept: a fresh writable layer per container, removed with force afterwards |
-| A second fresh sandbox for staging | Kept: a second container |
-| Egress denied, the service host only | Kept: the internal network has no route off the host; Gitea and the model gate are reachable by name, and the gate is the only model URL |
-| DNS and DHCP inside the sandbox | Kept, mechanism changed: docker's own DNS, no DHCP |
-| Ingress denied | Weakened: any container on the network can open a port to another; a Proxmox firewall dropped inbound |
-| Kernel isolation from the runner host | Weakened, the largest difference: the container shares the host kernel, so an escape is a host compromise, not a guest one |
-| Root inside the sandbox is not the runner host's root | Weakened: container root is bounded by namespaces and dropped capabilities, but it is not a hypervisor boundary |
-| Resource limits | Lost unless the backend sets them: the docker backend passes `--cpus`, `--memory` and `--pids-limit` from `host.toml` |
-| Snapshot and rollback | Unchanged: the code never asks for one |
-| Keep-awake lease and wake | Lost, harmless: there is no sleeping compute plane |
-| Energy metering | Weakened: it needs a readable sensor and reports null, never a guess, when there is none |
-| VM id as identity | Changed: the container name is the identity; no MAC is needed |
-| Address discovery | Changed: `docker inspect` instead of a guest agent |
-| The executor holds only the agent token, never the acceptance | Kept |
-| Verdict nonce and post-spawn timestamps | Kept |
-| The runner reaches the compute plane | Equivalent privilege, different shape: the runner container holds the docker socket, which is host-equivalent. The sandboxes never get the socket |
+The Docker column is this deployment. The LXC column is the `lxc` backend
+(`runner/dark/lxc.py`, `backend = "lxc"`), where each sandbox is a full clone
+of a real container on the Proxmox host, taken from a named snapshot.
+
+| Property | Docker | LXC |
+|---|---|---|
+| A fresh disk per run, discarded at the end | Kept: a fresh writable layer per container, removed with force afterwards | Kept: a full clone of the source container's snapshot per run, destroyed with `--purge` afterwards |
+| A second fresh sandbox for staging | Kept: a second container | Kept: a second full clone |
+| Egress denied, the service host only | Kept: the internal network has no route off the host; Gitea and the model gate are reachable by name, and the gate is the only model URL | Kept: the same default-drop firewall file with `GROUP agentfw`, on a bridge that reaches only the service host |
+| DNS and DHCP inside the sandbox | Kept, mechanism changed: docker's own DNS, no DHCP | Kept: `ip=dhcp` on the clone's net0; DNS as the source container resolves it |
+| Ingress denied | Weakened: any container on the network can open a port to another; a Proxmox firewall dropped inbound | Kept: the firewall file drops inbound |
+| Kernel isolation from the runner host | Weakened, the largest difference: the container shares the host kernel, so an escape is a host compromise, not a guest one | Weakened, as with docker: the container shares the Proxmox host's kernel, so an escape is a compromise of that host |
+| Root inside the sandbox is not the runner host's root | Weakened: container root is bounded by namespaces and dropped capabilities, but it is not a hypervisor boundary | Inherited from the source: an unprivileged source gives a user-namespaced root; a privileged one gives the Proxmox host's root |
+| Resource limits | Lost unless the backend sets them: the docker backend passes `--cpus`, `--memory` and `--pids-limit` from `host.toml` | Inherited: the clone keeps the source container's cores, memory and swap |
+| Snapshot and rollback | Refused: `snapshot` and `rollback` raise `NotImplementedError`; the runner never calls them | Available: `pct snapshot` and `pct rollback`; the runner does not call them yet |
+| Keep-awake lease and wake | Lost, harmless: there is no sleeping compute plane | Kept: the containers live on the Proxmox host, woken as for VMs |
+| Energy metering | Weakened: it needs a readable sensor and reports null, never a guess, when there is none | Kept: the same package counter on the Proxmox host |
+| VM id as identity | Changed: the container name is the identity; no MAC is needed | Kept: the container id is the sandbox id, the run name its hostname |
+| Address discovery | Changed: `docker inspect` instead of a guest agent | Changed: `pct exec <id> -- hostname -I` instead of a guest agent |
+| The executor holds only the agent token, never the acceptance | Kept | Kept for what the runner injects; the clone also carries whatever the source container holds, so the source's snapshot must hold no secret the executor may not see |
+| Verdict nonce and post-spawn timestamps | Kept | Kept |
+| The runner reaches the compute plane | Equivalent privilege, different shape: the runner container holds the docker socket, which is host-equivalent. The sandboxes never get the socket | Kept: ssh to the Proxmox host, as for VMs |
 
 ## Cleanup
 
