@@ -118,7 +118,8 @@ class Preflight:
         if not need_vm:
             return out
         # 8. the compute plane is reachable. A docker plane never sleeps, so
-        # only a Proxmox miss is worth waking the local-model host for.
+        # only a Proxmox miss (VMs or containers) is worth waking the
+        # local-model host for.
         is_docker = self.host.backend == "docker"
         plane = "docker" if is_docker else "proxmox"
         target = self.host.sandbox_image if is_docker else self.host.proxmox
@@ -130,6 +131,9 @@ class Preflight:
             ok, why = self.px.template_ok()
             if is_docker:
                 add("sandbox image", ok, why or f"image {self.host.sandbox_image} present")
+            elif self.host.backend == "lxc":
+                add("container snapshot", ok, why or f"container {self.host.sandbox_container} "
+                    f"has snapshot {self.host.sandbox_snapshot}")
             else:
                 add("vm template", ok, why or f"VM {self.budgets.shift['vm_template']} is a template")
         return out

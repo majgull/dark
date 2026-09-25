@@ -13,13 +13,16 @@ git_lan_url = ""                                    # DARK_GIT_LAN     (where VM
 admin_token_file = "~/.dark/dark-admin.token"       # DARK_ADMIN_TOKEN_FILE
 agent_token_file = "~/.dark/dark-agent.token"       # DARK_AGENT_TOKEN_FILE
 agent_user = "dark-agent"                           # DARK_AGENT_USER  (the Gitea user executor VMs push as)
-backend = "proxmox"                                 # DARK_BACKEND     (the compute plane; "proxmox" or "docker")
+backend = "proxmox"                                 # DARK_BACKEND     (the compute plane; "proxmox", "docker" or "lxc")
 proxmox = "cpu-host"                                # DARK_PROXMOX     (example role name for the Proxmox host)
 sandbox_image = "dark-sandbox"                      # DARK_SANDBOX_IMAGE   (docker backend: the image a sandbox is created from; build it with `docker build -t dark-sandbox runner/sandbox`)
 sandbox_network = "dark"                            # DARK_SANDBOX_NETWORK (docker backend: the network a sandbox joins; compose.yaml names it <project>_back and sets this env var itself)
 sandbox_cpus = "2"                                  # DARK_SANDBOX_CPUS    (docker backend: --cpus; "" = no limit)
 sandbox_memory = "2g"                               # DARK_SANDBOX_MEMORY  (docker backend: --memory; "" = no limit)
 sandbox_pids = 512                                  # DARK_SANDBOX_PIDS    (docker backend: --pids-limit; 0 = no limit)
+sandbox_container = ""                              # DARK_SANDBOX_CONTAINER (lxc backend: the id of the container a sandbox is a full clone of, e.g. "200")
+sandbox_snapshot = ""                               # DARK_SANDBOX_SNAPSHOT  (lxc backend: the snapshot of that container to clone from, e.g. "base")
+sandbox_bridge = "vmbr0"                            # DARK_SANDBOX_BRIDGE    (lxc backend: the bridge the clone's net0 joins; one that reaches only the service host)
 ntfy_url = ""                                       # DARK_NTFY        (optional; "" = no push)
 state_dir = "~/.dark"                               # DARK_STATE       (ledger, abort markers, scratch)
 templates_dir = "~/dark-templates"                  # DARK_TEMPLATES   (a checkout of dark/templates)
