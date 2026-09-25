@@ -73,9 +73,11 @@ headroom = 0.2
 admit_at = 0.7
 provisional = ["example-large"]
 
+# 40 calls: a review session reads files with tools, one call per read, and a
+# judge that spends its calls reading ends with no verdict
 [class.review]
 think = "high"
-hard = { runs = 1, calls = 4, seconds = 1800, max_reasoning_chars = 120000 }
+hard = { runs = 1, calls = 40, seconds = 1800, max_reasoning_chars = 120000 }
 headroom = 0.2
 admit_at = 0.7
 provisional = ["example-large"]
