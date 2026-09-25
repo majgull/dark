@@ -35,6 +35,7 @@ fatal: it cannot change the run's outcome.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,9 +95,15 @@ TASK:
 REVIEW_BRIEF = """You are reviewing material in the directory {work}. Read the files listed below, already present in that directory, and write your findings to report.md in {work}. That file is your only deliverable: do not modify any other file, and do not create a git repository.
 
 Files to read: {files}
-
+{judge}
 BRIEF:
 {spec}
+"""
+
+# review mode as a judge: the branches under review are cloned into {work}
+# before the session starts, and report.md's last line is the verdict
+REVIEW_JUDGE = """
+You are the judge of the work on these branches, each already cloned into its own directory under {work}: {branches}. Read them; do not modify them and do not push. The LAST line of report.md must be exactly `VERDICT: pass — <one line of reason>` or `VERDICT: fail — <one line of reason>`; anything else counts as no verdict.
 """
 
 
@@ -400,7 +407,10 @@ def run_session(node, cli, home, deadline, stream_path, review=False, work=None)
              "must stay as it is.\n" if grant else "Add new files only; do not rewrite an "
              "existing file unless the task says so.\n")
     if review:
-        brief = REVIEW_BRIEF.format(work=work, spec=SPEC_TEXT,
+        judged = TASK.get("review_branches") or []
+        judge = REVIEW_JUDGE.format(work=work, branches=", ".join(
+            f"{b['name']}/ ({b['branch']})" for b in judged)) if judged else ""
+        brief = REVIEW_BRIEF.format(work=work, spec=SPEC_TEXT, judge=judge,
                                     files=", ".join(TASK.get("review_files") or []))
     elif TASK.get("repos"):
         brief = MULTI_BRIEF.format(work=work, names=", ".join(r["name"] for r in TASK["repos"]),
@@ -571,8 +581,39 @@ def review_outcome(report):
     return False, "no_report", "report.md missing or empty"
 
 
+VERDICT_LINE = re.compile(r"^VERDICT: (pass|fail)\s*(?:—|–|-|:)\s*(\S.*)$")
+
+
+def review_verdict(report):
+    """(verdict, reason) from report.md's last line, which must be
+    `VERDICT: pass — <reason>` or `VERDICT: fail — <reason>`; a missing
+    report, a missing line or a malformed one is (None, why)."""
+    lines = [l.strip() for l in report.splitlines() if l.strip()]
+    if not lines:
+        return None, "report.md missing or empty: no VERDICT line"
+    m = VERDICT_LINE.match(lines[-1])
+    if not m:
+        return None, f"the last line of report.md is not a verdict: {lines[-1][:120]!r}"
+    return m.group(1), m.group(2).strip()
+
+
+def clone_review_branches():
+    """Each of `review_branches` ({name, url, branch}) cloned to WORK/<name>
+    before the session starts. "" on success, else why."""
+    for b in TASK.get("review_branches") or []:
+        d = os.path.join(WORK, b["name"])
+        r = subprocess.run(["git", "clone", "-q", "--branch", b["branch"], "--single-branch",
+                            with_token(b["url"]), d], capture_output=True, text=True)
+        if r.returncode != 0:
+            return f"clone {b['name']} ({b['branch']}) failed: " + scrub(r.stderr[-300:])
+    return ""
+
+
 def _main_review():
     os.makedirs(WORK, exist_ok=True)
+    why = clone_review_branches()
+    if why:
+        return fail("env", why)
     PROGRESS.start(f"AGENT-ALIVE run {TASK.get('run')} model {TASK['llm_model']} "
                    f"envelope {MAX_CALLS} calls (review mode)\n"
                    + tag("start", model=TASK["llm_model"], calls_max=MAX_CALLS))
@@ -598,6 +639,19 @@ def _main_review():
         return fail("llm", f"pi made no model call (rc {rc})\n```\n{err[-600:]}\n```")
 
     report = read_report()
+    if TASK.get("review_branches"):
+        # a judge: the outcome is the verdict on report.md's last line
+        verdict, reason = review_verdict(report)
+        if verdict is None:
+            return fail("no-verdict", reason)
+        if verdict == "fail":
+            comment(f"AGENT-DONE fail (verdict): {reason}\n"
+                    + done("fail", "verdict", verdict="fail", verdict_reason=reason,
+                           **records_kw({"report.md": report})))
+            return 1
+        comment(f"AGENT-DONE ok verdict=pass calls={STATS['calls']}: {reason}\n"
+                + done("ok", verdict="pass", verdict_reason=reason, **records_kw({"report.md": report})))
+        return 0
     ok, kind, text = review_outcome(report)
     if not ok:
         return fail(kind, text)

@@ -206,5 +206,98 @@ class ProgressTagsDriveTransitions(Base):
                             f"{e['frm']} -> {e['to']} is not a spec.TRANSITIONS row")
 
 
+class ReviewAsJudgeRun(Base):
+    """Runner.review with review_branches: the branches reach the sandbox
+    to be cloned there, and the run's outcome is the verdict the session
+    read off report.md's last line. launch() stands in for the VM and posts
+    what a real session.py would have posted."""
+
+    BRANCHES = [{"name": "api", "url": "https://git.example/org/api.git", "branch": "run/r1"},
+                {"name": "web", "url": "https://git.example/org/web.git", "branch": "run/r1"}]
+
+    def judge_runner(self, done_fields):
+        r = self.runner([])
+        self.sent = {}
+
+        def launch(vmid, name, files, runcmd):
+            task = json.loads(files["/opt/task.json"][0])
+            self.sent = task
+            r.gitea.comment(task["repo"], task["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX + json.dumps(
+                {"v": 2, "ev": "done", "calls": 1, "tokens_in": 10, "tokens_out": 5,
+                 "reasoning_chars": 0, "seconds": 3, **done_fields}))
+        r.launch = launch
+        return r
+
+    def judge(self, done_fields):
+        r = self.judge_runner(done_fields)
+        return r.review("judge these", {}, "local-a", "review-x", shift="s1", review_branches=self.BRANCHES)
+
+    def test_the_branches_reach_the_sandbox_to_be_cloned(self):
+        self.judge({"outcome": "ok", "verdict": "pass", "verdict_reason": "fine"})
+        self.assertEqual(self.sent["review_branches"], self.BRANCHES)
+        self.assertEqual(self.sent["mode"], "review")
+
+    def test_verdict_pass_is_a_pass(self):
+        res = self.judge({"outcome": "ok", "verdict": "pass", "verdict_reason": "both do what was asked"})
+        self.assertEqual((res.outcome, res.fail_kind), ("pass", None))
+        self.assertEqual(res.detail, "both do what was asked")
+        end = self.led.last("run.end")
+        self.assertEqual((end["outcome"], end["cls"]), ("pass", "review"))
+        self.assertEqual(self.transitions(res.run)[-1], ("executing", "pass"))
+
+    def test_verdict_fail_is_a_capability_failure(self):
+        res = self.judge({"outcome": "fail", "kind": "verdict", "verdict": "fail",
+                          "verdict_reason": "web drops the migration"})
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:capability", "verdict"))
+        self.assertEqual(self.led.last("run.end")["fail_kind"], "verdict")
+
+    def test_a_missing_verdict_is_no_verdict(self):
+        res = self.judge({"outcome": "fail", "kind": "no-verdict",
+                          "error": "report.md missing or empty: no VERDICT line"})
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "no-verdict"))
+        end = self.led.last("run.end")
+        self.assertEqual((end["fail_kind"], end["reason"]), ("no-verdict", spec.STRUCTURAL_REASONS["no-verdict"]))
+
+    def test_an_ok_without_a_verdict_is_no_verdict_not_delivered(self):
+        res = self.judge({"outcome": "ok"})
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "no-verdict"))
+
+    def test_an_unknown_verdict_is_no_verdict(self):
+        res = self.judge({"outcome": "ok", "verdict": "maybe"})
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "no-verdict"))
+
+    def test_without_branches_an_ok_is_still_delivered(self):
+        r = self.judge_runner({"outcome": "ok"})
+        res = r.review("read this", {}, "local-a", "review-x", shift="s1")
+        self.assertEqual(res.outcome, "delivered")
+        self.assertEqual(self.sent["review_branches"], [])
+
+
+class ReviewBranchesFile(unittest.TestCase):
+    """`dark review --review-branches FILE`: a JSON list of {name, url, branch}."""
+
+    def load(self, doc):
+        import tempfile
+        from dark import __main__ as M
+        path = os.path.join(tempfile.mkdtemp(), "b.json")
+        with open(path, "w") as f:
+            f.write(doc if isinstance(doc, str) else json.dumps(doc))
+        return M._review_branches(path)
+
+    def test_a_good_list(self):
+        doc = [{"name": "api", "url": "https://git.example/org/api.git", "branch": "run/r1"}]
+        self.assertEqual(self.load(doc), (doc, ""))
+
+    def test_refusals(self):
+        for doc in ("not json", [], {"name": "a"}, [{"name": "a", "url": "u"}],
+                    [{"name": "a", "url": "u", "branch": "b", "extra": 1}],
+                    [{"name": "a/b", "url": "u", "branch": "b"}],
+                    [{"name": "a", "url": "u", "branch": "b"}, {"name": "a", "url": "v", "branch": "c"}]):
+            with self.subTest(doc=doc):
+                branches, why = self.load(doc)
+                self.assertEqual(branches, [])
+                self.assertTrue(why)
+
+
 if __name__ == "__main__":
     unittest.main()

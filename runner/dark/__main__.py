@@ -307,6 +307,10 @@ def cmd_review(args):
             return 2
         name = os.path.basename(path) or f"file{i}"
         files[f"{i}-{name}" if name in files else name] = content
+    branches, why = _review_branches(args.review_branches)
+    if why:
+        print(f"review: {why}")
+        return 2
     fr, why = _frozen(args, budgets)
     if why:
         print(why)
@@ -320,10 +324,37 @@ def cmd_review(args):
     runner.frozen = fr.as_dict() if fr else None
     env = fr.envelope("review") if fr else None
     think = (fr.think("review") if fr else None) or args.think
-    res = runner.review(brief_text, files, args.tier, args.arm, shift=args.shift, think=think, env=env)
+    res = runner.review(brief_text, files, args.tier, args.arm, shift=args.shift, think=think, env=env,
+                        review_branches=branches)
     print(json.dumps({"run": res.run, "outcome": res.outcome, "fail_kind": res.fail_kind,
                       "detail": res.detail, "issue": res.issue, "records": res.records}))
-    return 0 if res.outcome == "delivered" else 1
+    return 0 if res.outcome in ("delivered", "pass") else 1
+
+
+def _review_branches(path):
+    """([{name, url, branch}], why) from a JSON file, or ([], "") with none.
+    Each name becomes a directory in the review sandbox, so it is one plain
+    path segment."""
+    if not path:
+        return [], ""
+    try:
+        with open(path) as f:
+            doc = json.load(f)
+    except OSError as e:
+        return [], f"{path}: {e.strerror}"
+    except ValueError as e:
+        return [], f"{path}: not valid JSON: {e}"
+    if not isinstance(doc, list) or not doc:
+        return [], f"{path}: must be a non-empty list of {{name, url, branch}}"
+    names = set()
+    for i, b in enumerate(doc):
+        if not isinstance(b, dict) or set(b) != {"name", "url", "branch"} \
+                or not all(isinstance(v, str) and v for v in b.values()):
+            return [], f"{path}: entry {i} must have exactly name, url and branch, as strings"
+        if b["name"] in names or b["name"] in (".", "..") or "/" in b["name"]:
+            return [], f"{path}: entry {i}: name {b['name']!r} must be one unique path segment"
+        names.add(b["name"])
+    return doc, ""
 
 
 WORK_PREFIXES = ("t-", "tl-", "session-")
@@ -568,6 +599,9 @@ def main(argv=None):
     p.add_argument("--shift", help="ledger shift id (default: adhoc); also names the dark-records repo")
     p.add_argument("--think", choices=["none", "low", "medium", "high"])
     p.add_argument("--frozen", metavar="FILE", help="a pinned envelope file for the review class")
+    p.add_argument("--review-branches", metavar="FILE",
+                   help="JSON list of {name, url, branch} to clone and judge; the outcome is then "
+                        "report.md's last line, VERDICT: pass|fail")
     p = sub.add_parser("done", help="the verdict a shift already holds for a task (session-side resume); exit 0 on a valid pass")
     p.add_argument("--shift", required=True)
     p.add_argument("--task", required=True)

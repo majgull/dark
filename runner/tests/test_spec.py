@@ -48,7 +48,13 @@ class States(unittest.TestCase):
         self.assertTrue(spec.transition_ok("staging", "pass"))
         self.assertTrue(spec.transition_ok("executing", "abort"))
         self.assertFalse(spec.transition_ok("queued", "pass"))
-        self.assertFalse(spec.transition_ok("executing", "pass"))  # only via staging
+        # a pass comes from a staging VM, or from a judging review's verdict
+        # (review mode with review_branches); never straight out of verifying
+        self.assertFalse(spec.transition_ok("verifying", "pass"))
+        self.assertTrue(spec.transition_ok("executing", "pass"))
+        pass_rows = [(f, trig) for f, t, trig, _ in spec.TRANSITIONS if t == "pass"]
+        self.assertEqual([f for f, _ in pass_rows], ["staging", "executing"])
+        self.assertIn("VERDICT: pass", pass_rows[1][1])
         self.assertFalse(spec.transition_ok("pass", "executing"))
 
     def test_structural_never_escalates(self):
