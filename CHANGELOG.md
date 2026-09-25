@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-25
+
 ### Fixed
 
 - `python3 -m dark long` prints `judge: none (no branch pushed)` when the
