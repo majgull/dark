@@ -32,10 +32,11 @@ measure the thing they claim to.
 **arm**: one way of putting a model to a task. The two arms here are `agent`
 (the runner's own executor) and `session` (a coding-agent CLI solving the task
 as a free session). The `user` arm checks a deployed application instead of
-writing code (see user arm).
+writing code (see user arm), and the `long` arm runs one session over several
+repositories and has a reviewer session judge it (see long arm).
 
 **class**: the kind of work a task declares at intake: `additive`,
-`mechanical`, `repair`, `spec`, `review` or `user`. The class decides the limits and
+`mechanical`, `repair`, `spec`, `review`, `long` or `user`. The class decides the limits and
 the admission rules.
 
 **tier**: one model entry in `models.toml`: a provider, a cost kind, a speed
@@ -115,6 +116,14 @@ runs with `dark user --task <task.toml> --tier <id>`.
 one line of note, recorded with a screenshot as `steps/<NN>.png` and a line
 of `steps.jsonl` in the records repository. A user-arm run passes when every
 step's verdict is pass; a failed step is `fail:capability`.
+
+**long arm**: an arm that runs one session for hours over several
+repositories and has a reviewer session judge it. A long task (class `long`)
+is a spec and `repos`, each naming a repository (`name`, `url` and `base`);
+nothing stages it, and its deliverable is the branches the session pushes.
+A reviewer session then reads those branches and ends `report.md` with one
+final `VERDICT: pass` or `VERDICT: fail` line, and that verdict is the run's
+outcome. It runs with `python3 -m dark long --task <dir> --tier <id>`.
 
 **pi**: the coding-agent CLI the session arm drives inside the machine.
 

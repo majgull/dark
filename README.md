@@ -22,7 +22,11 @@ available: [docs/docker.md](docs/docker.md) builds the runner image, starts Gite
 the runner on one internal network with `compose.yaml`, and spawns each sandbox as a
 sibling container, so the runner can be deployed without Proxmox. A third backend,
 `lxc`, makes each sandbox a full clone of a snapshot of a real container on the Proxmox
-host, named by `sandbox_container` and `sandbox_snapshot` in `runner/host.toml`. A
+host, named by `sandbox_container` and `sandbox_snapshot` in `runner/host.toml`. Its
+`sandbox_pool` (default `""`, no Proxmox pool) is the pool each clone is placed in, so
+the throwaways stay grouped, and its `sandbox_allow_in` (default `""`) is a
+comma-separated list of `"<ipv4>:<tcp port>"` clients the clone's default-drop firewall
+lets in besides the service host. A
 sandbox reaches Gitea and one model gate, and `DARK_CONF_DIR` keeps the three toml
 files, with your own endpoints and model ids, outside the checkout.
 
@@ -53,6 +57,8 @@ python3 bench/tools/validate.py              # reference solutions pass, startin
 ```
 
 `dark user --task <task.toml> --tier <id>` runs one user-arm task: a browser sandbox checks a deployed URL step by step.
+
+`python3 -m dark long --task <dir> --tier <id>` runs one long-arm task: a session executor works in the task's several repositories and a reviewer session judges the branches it pushed.
 
 `docs/fresh-container.md` records a bare container
 running the checks.

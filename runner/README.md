@@ -42,11 +42,41 @@ python3 -m dark shift [--tasks a,b] [--tier <id>] [--max-runs N] [--arm factory]
 python3 -m dark digest [--shift <id>]
 python3 -m dark abort <run-id>|all
 python3 -m dark user --task <task.toml> --tier <id>   # one user-arm run: a browser checks a URL step by step
+python3 -m dark long --task <dir> --tier <id>         # one long-arm run: a session over several repositories, judged by a reviewer
 ```
 
 Detached with an unbuffered log: `bash ops/shift.sh [shift args]` (prints the log path under `~/.dark/logs/`). A session arm is driven by the bench's `tools/arm.sh`, which ends in `python3 -m dark stage ... --slot 1` here, so a session arm can be staged while a shift is running on slot 0.
 
 `shift` runs preflight, computes admission, runs every task on the first open admitted tier (the seed order in `budgets.toml` until a (class, tier) pair has `min_runs` of data, then measured pass rate and cost order), escalates once on `fail:capability`, blocks on `fail:structural`, parks on `fail:budget`, then commits the digest into the bench checkout and sends one ntfy line. `--tier` forces a tier for the bench: admission is skipped, envelopes and windows are not.
+
+## A long task
+
+A `long` task is one session over several repositories, judged by a reviewer
+session instead of hidden tests. It is only a `task.toml`; `repos` is required
+and each entry has exactly `name`, `url` and `base`:
+
+```toml
+id = "rework"
+class = "long"
+spec = """
+Move both repositories onto the new schema, keeping the public API.
+"""
+
+repos = [
+  {name = "api", url = "https://git.example.test/dark/api.git", base = "main"},
+  {name = "web", url = "ssh://git@git.example.test/dark/web.git", base = "main"},
+]
+```
+
+`name` is one path segment (not `.`, `..` or a `/`) and unique within the
+task; `url` starts with `http://`, `https://` or `ssh://`; `base` is the
+branch the clone starts from. `spec` is required; `lang` (one of `go`,
+`python`) and `tools` (`reduced`, the default, or `full`) are optional. The
+loader refuses `may_edit`, `after`, `url` and `steps`, and refuses an
+`acceptance/run.sh`: a long task has no work repo and nothing is staged, so
+nothing is judged by hidden tests. `python3 -m dark long --task <dir> --tier
+<id>` gives the session every repository and hands the branches it pushed to a
+judging review.
 
 ## The run, in one screen
 
