@@ -427,6 +427,7 @@ def cmd_long(args):
     # branches), with each repository's url from the task itself
     branches = _long_branches(task, res.branches)
     if not branches:
+        print("judge: none (no branch pushed)")
         return 1  # nothing was pushed: there is nothing to judge
     judge = runner.review(_long_brief(task), {}, judge_tier, args.arm, slot=args.slot,
                           review_branches=branches)

@@ -102,8 +102,15 @@ class LongCommand(unittest.TestCase):
         self.branches = []
         rc, out = self.cli("--task", self.task_dir, "--tier", "cloud-x")
         self.assertEqual(rc, 1)
-        self.assertEqual(out, ["long: delivered"])
+        self.assertEqual(out, ["long: delivered", "judge: none (no branch pushed)"])
         self.assertEqual([c["phase"] for c in self.calls], ["long"])  # no judge call
+
+    def test_no_branch_pushed_prints_the_judge_none_line(self):
+        self.branches = []
+        rc, out = self.cli("--task", self.task_dir, "--tier", "cloud-x")
+        self.assertEqual(rc, 1)
+        self.assertIn("judge: none (no branch pushed)", out)
+        self.assertEqual([c["phase"] for c in self.calls], ["long"])
 
     def test_a_task_that_is_not_a_long_task_is_refused(self):
         d = make_task(self.bench, "hello")

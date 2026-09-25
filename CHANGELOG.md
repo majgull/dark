@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- `python3 -m dark long` prints `judge: none (no branch pushed)` when the
+  long run pushed no branch, so a caller reading its output can tell that
+  case from a run that is still going.
+
 ## [0.4.0] - 2026-09-25
 
 ### Added
