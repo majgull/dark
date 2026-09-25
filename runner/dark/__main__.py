@@ -391,6 +391,76 @@ def cmd_user(args):
     return 0 if res.outcome == "pass" else 1
 
 
+def cmd_long(args):
+    """Launch one long-arm run and judge it: the session executor gets every
+    repository the task names, then a reviewer session reads the branches it
+    pushed and ends report.md with a VERDICT. The judge's verdict is the
+    command's exit code; a run that pushed no branch has nothing to judge.
+    --task names the task's task.toml or its directory."""
+    path = os.path.abspath(args.task)
+    if os.path.isfile(path):
+        if os.path.basename(path) != "task.toml":
+            print(f"long: {args.task}: --task names a task.toml or the directory holding one")
+            return 2
+        path = os.path.dirname(path)
+    try:
+        task = tasks.load_task(path)
+    except tasks.TaskError as e:
+        print(f"long: {e}")
+        return 2
+    if task.cls not in spec.SESSION_CLASSES:
+        print(f"long: {task.id} is class {task.cls}, not a long task")
+        return 2
+    catalog, budgets, host, ledger, gitea, px = _ctx(args)
+    catalog.model(args.tier)  # an unknown tier is one config line, before anything starts
+    judge_tier = args.judge_tier or args.tier
+    catalog.model(judge_tier)
+    pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px, shift="adhoc")
+    if not px.reachable() and not pre.wake():
+        print(json.dumps({"run": None, "outcome": "refused", "detail": f"{host.proxmox}: unreachable and the wake failed"}))
+        return 2
+    from .run import Runner
+    runner = Runner(catalog, budgets, host, ledger, gitea, px, shift="adhoc", arm=args.arm)
+    res = runner.long(task, args.tier, arm=args.arm, slot=args.slot)
+    print(f"long: {res.outcome}")
+    # the judge reads the branches the session pushed (the done tag's
+    # branches), with each repository's url from the task itself
+    branches = _long_branches(task, res.branches)
+    if not branches:
+        return 1  # nothing was pushed: there is nothing to judge
+    judge = runner.review(_long_brief(task), {}, judge_tier, args.arm, slot=args.slot,
+                          review_branches=branches)
+    print(f"judge: {judge.outcome}")
+    return 0 if judge.outcome == "pass" else 1
+
+
+def _long_branches(task, pushed):
+    """[{name, url, branch}], the review_branches of the judge run, from the
+    session's pushed branches (each {repo, branch}) and the task's own
+    repository urls. A pushed name the task does not name is dropped: the
+    task's repos are what the session was given."""
+    urls = {name: url for name, url, _ in task.repos}
+    out = []
+    for b in pushed or []:
+        name, branch = b.get("repo"), b.get("branch")
+        if name in urls and branch:
+            out.append({"name": name, "url": urls[name], "branch": branch})
+    return out
+
+
+def _long_brief(task):
+    """The judge's brief: the task's spec, and the one line report.md must
+    end with (dark/session.py reads it as the verdict)."""
+    return (f"Judge the long task {task.id}.\n\n"
+            f"The task spec was:\n\n{task.spec}\n\n"
+            "The branches named above are the session's work, each checked out "
+            "in this sandbox. Read them and decide whether they satisfy the "
+            "spec. End report.md with exactly one final line, either\n"
+            "VERDICT: pass — <one line of reason>\n"
+            "or\n"
+            "VERDICT: fail — <one line of reason>\n")
+
+
 WORK_PREFIXES = ("t-", "tl-", "session-")
 
 
@@ -636,6 +706,12 @@ def main(argv=None):
     p.add_argument("--review-branches", metavar="FILE",
                    help="JSON list of {name, url, branch} to clone and judge; the outcome is then "
                         "report.md's last line, VERDICT: pass|fail")
+    p = sub.add_parser("long", help="launch one long-arm run over several repositories, then judge it with a reviewer session")
+    p.add_argument("--task", required=True, help="the long task's task.toml (or its directory)")
+    p.add_argument("--tier", required=True, help="the model id the session runs on (must be in models.toml)")
+    p.add_argument("--judge-tier", help="the model id the judging review runs on (default: --tier)")
+    p.add_argument("--arm", default="long", help="arm name on the run's records (default long)")
+    p.add_argument("--slot", type=int, default=0, help="VM slot (executor VM = vmid_base + slot)")
     p = sub.add_parser("user", help="launch one user-arm run: a browser sandbox checks a URL step by step, a verdict per step")
     p.add_argument("--task", required=True, help="the user task's task.toml (or its directory)")
     p.add_argument("--tier", required=True, help="the model id to use (must be in models.toml)")
@@ -682,7 +758,7 @@ def main(argv=None):
         return {"check-config": cmd_check_config, "preflight": cmd_preflight, "admission": cmd_admission,
                 "status": cmd_status, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
-                "user": cmd_user,
+                "user": cmd_user, "long": cmd_long,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)
     except config.ConfigError as e:

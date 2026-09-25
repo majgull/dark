@@ -66,6 +66,10 @@ class RunResult:
     checks_total: int = 0
     issue: int | None = None
     branch: str = ""
+    # branches: the pushed branches of a long run, one {repo, branch} per
+    # repository the session delivered; empty for every other class. The
+    # `long` command turns them into the judge's review_branches.
+    branches: list = field(default_factory=list)
     transitions: list = field(default_factory=list)
     # records: the records-repo path the session's stream, brief and task.json
     # were pushed to, or "PUSH FAILED: <error>"; records_sha256: sha256 of
@@ -454,6 +458,12 @@ class Runner:
 
         if st.state != "verifying":
             st.go("verifying", "verify.sh green (reported with AGENT-DONE ok)")
+        if task.cls in spec.SESSION_CLASSES:
+            # a long run is judged by a reviewer session, not by hidden
+            # acceptance: the branches its session pushed are the deliverable
+            # and nothing stages it (the `long` command runs the judge).
+            res.branches = list(done_tag.get("branches") or [])
+            return st.end("delivered", None, "", usage=usage, reserved=reserved)
         st.go("staging", "branch pushed; staging VM started")
         return self._stage(st, task, slot, usage=usage, reserved=reserved)
 
@@ -682,6 +692,42 @@ class Runner:
         if body:
             detail = f"{detail}: …{body[-360:]}" if len(body) > 360 else f"{detail}: {body}"
         return st.end(outcome, kind, detail, usage=usage)
+
+    # --- the long arm: several repositories, judged by a reviewer session -------
+    def long(self, task, tier, arm="long", shift=None, think=None, env=None, slot=0):
+        """One long-arm run: the session executor gets the task's repositories
+        and its spec, and pushes the run branch into each of them. Nothing
+        stages it: the branches are the deliverable, and the `long` command
+        hands them to a judging review. The records repo of the shift is the
+        run's issue tracker (a long task has no single work repo). `env`
+        carries a frozen envelope when one was given; else it is computed for
+        the class like any other."""
+        t_queued = self.clock()
+        shift = shift or self.shift
+        run_id = f"{task.id}-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
+        st = _Run(self, task, tier, arm, run_id, branch=f"run/{run_id}", t_queued=t_queued)
+        self.executor = "session"  # a long task is one session in the VM, never the pipeline
+        try:
+            st.full = self._ensure_records_repo(shift)
+            # the class's own level (budgets [class.long] think = "medium"), else the tier's
+            think = think or self.budgets.cls(task.cls).think or st.model.think
+            st.think = think
+            if env is None:
+                legacy = "none" if st.model.thinking_tokens == 0 else None
+                env = budget.envelope(self.budgets, self.ledger, task.cls, tier, think=think, legacy=legacy)
+            self.hold(env.seconds + gate.MARGIN_SECONDS)
+            st.meter = self.meter().start()  # energy over the whole window, executor to verdict
+            return self._run(st, task, tier, env, slot)
+        except L.LedgerError:
+            raise  # never a result without its record (as in run())
+        except Exception as e:  # noqa: BLE001
+            self.log(f"ERROR {run_id}: runner exception {e!r}")
+            st.reap_all()
+            if not st.ended:
+                return st.end("fail:structural", "runner", f"runner: {e!r}")
+            return st.res
+        finally:
+            st.reap_all()
 
     # --- the user arm: a URL and numbered steps in, a verdict per step out -------
     def user_task(self, task, tier, env, issue, run_id, records_repo, think=None):

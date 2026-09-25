@@ -56,6 +56,10 @@ TRANSITIONS = (
     ("staging", "fail:structural", "staging VM never reported or could not build", "runner"),
     ("preflight", "fail:structural", "the work repo, issue or branch could not be prepared", "runner"),
     ("executing", "delivered", "review mode: report.md landed non-empty", "runner"),
+    # a long run's branches are its deliverable: no hidden acceptance judges
+    # them here, the `long` command hands them to a judging review after the
+    # run, so nothing stages it
+    ("verifying", "delivered", "long arm: the branches the session pushed are the deliverable", "runner"),
     # review mode as a judge (review_branches): the reviewer's verdict is the
     # acceptance, so a pass comes from executing, not from a staging VM. The
     # user arm has no staging either: its steps are judged in the sandbox that
