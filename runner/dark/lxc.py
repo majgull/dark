@@ -91,11 +91,17 @@ class Lxc:
         self.ssh(f"pct push {vmid} {tmp} {path} --perms {mode}")
         self.ssh(f"rm -f {tmp}", check=False)
 
-    def spawn(self, vmid, name, files, runcmd):
+    def spawn(self, vmid, name, files, runcmd, cls=None):
         """Full-clone the source container from its snapshot, put it on the
         bridge behind the firewall, start it, push `files` in (modes
         honoured) and run a start script built from `runcmd` in the
-        background. A container left over under the same id is reaped first."""
+        background. A container left over under the same id is reaped first.
+        A "user" sandbox is refused before anything is cloned: a clone of a
+        service container is not a browser sandbox, and this backend has no
+        target rule to let it out to the application."""
+        if cls == "user":
+            raise vm.VMError("the lxc backend has no user-arm sandbox (no browser image, no target "
+                             "rule); run user tasks on the docker or proxmox backend")
         if self.status(vmid) is not None:
             self.reap(vmid, name)
         self.ssh(f"pct clone {self.source} {vmid} --snapname {self.snapname} --full 1 --hostname {name}",

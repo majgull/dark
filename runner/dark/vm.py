@@ -63,9 +63,11 @@ def user_data(hostname, files, runcmd):
 
 
 class Proxmox:
-    def __init__(self, host, template, ssh=None, sleep=time.sleep):
+    def __init__(self, host, template, ssh=None, sleep=time.sleep, target_host=""):
         self.host = host
         self.template = int(template)
+        # the one address a user-arm VM may reach besides the service host
+        self.target_host = target_host
         self._ssh = ssh or (lambda cmd, stdin=None, timeout=120: _ssh(host, cmd, stdin, timeout))
         self.sleep = sleep
 
@@ -130,10 +132,19 @@ class Proxmox:
             return re.sub(r"virtio=[0-9A-Fa-f:]+", f"virtio={self.mac_for(vmid)}", m.group(1))
         return f"virtio={self.mac_for(vmid)},bridge=vmbr0,firewall=1"
 
-    def spawn(self, vmid, name, files, runcmd):
+    @staticmethod
+    def firewall(target_host=""):
+        """The VM's firewall file: drop by default, the agentfw group (the
+        service host), and for a user-arm VM one more rule out to the
+        application it checks."""
+        extra = f"OUT ACCEPT -dest {target_host}\n" if target_host else ""
+        return FIREWALL + extra
+
+    def spawn(self, vmid, name, files, runcmd, cls=None):
         """Clone, configure and start a VM. `files` is {path: (content, mode)}
         and `runcmd` a list of argv lists; the cloud-init document is rendered
-        here, so callers of the seam never build one."""
+        here, so callers of the seam never build one. A "user" VM's firewall
+        also lets it out to target_host."""
         cloud_config = user_data(name, files, runcmd)
         if self.status(vmid) is not None:
             self.reap(vmid, name)
@@ -144,7 +155,8 @@ class Proxmox:
         self.ssh(f"qm clone {self.template} {vmid} --name {name}", timeout=300)
         self.ssh(f"qm set {vmid} --net0 {self.net0_for(vmid)}")
         self.ssh(f"qm set {vmid} --cicustom user=local:snippets/{name}.yaml,network=local:snippets/{name}-net.yaml")
-        self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=FIREWALL)
+        fw = self.firewall(self.target_host if cls == "user" else "")
+        self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=fw)
         self.ssh(f"qm start {vmid}", timeout=120)
 
     def snapshot(self, vmid, name):

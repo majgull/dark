@@ -11,6 +11,10 @@ backends today.
 `spawn` takes the files to write and the command to run, not a rendered
 cloud-init document: rendering is Proxmox's business, and a backend without
 cloud-init would have no use for one.
+
+A backend's `spawn` may take keyword parameters beyond the protocol's, each
+with a default that keeps the protocol's behaviour: `docker.Docker` takes
+the image per spawn. A caller that passes one knows which backend it has.
 """
 
 from typing import Protocol
@@ -33,9 +37,11 @@ class Sandbox(Protocol):
         """(ok, why) for the image a sandbox is cloned from."""
         ...
 
-    def spawn(self, vmid, name, files, runcmd) -> None:
+    def spawn(self, vmid, name, files, runcmd, cls=None) -> None:
         """Start a sandbox for `vmid`/`name`; `files` is {path: (content, mode)}
-        and `runcmd` is a list of argv lists. Raise on failure."""
+        and `runcmd` is a list of argv lists. `cls` is the run's class when
+        the class changes the sandbox (a "user" sandbox may reach the
+        application it checks); None for every other run. Raise on failure."""
         ...
 
     def guest_ip(self, vmid) -> str | None:
@@ -67,8 +73,8 @@ def make(host, template):
     if host.backend == "docker":
         return docker.Docker(host.sandbox_image, network=host.sandbox_network,
                              cpus=host.sandbox_cpus, memory=host.sandbox_memory,
-                             pids=host.sandbox_pids)
+                             pids=host.sandbox_pids, target_network=host.target_network)
     if host.backend == "lxc":
         return lxc.Lxc(host.proxmox, host.sandbox_container, host.sandbox_snapshot,
                        bridge=host.sandbox_bridge)
-    return vm.Proxmox(host.proxmox, template)
+    return vm.Proxmox(host.proxmox, template, target_host=host.target_host)

@@ -31,10 +31,11 @@ measure the thing they claim to.
 
 **arm**: one way of putting a model to a task. The two arms here are `agent`
 (the runner's own executor) and `session` (a coding-agent CLI solving the task
-as a free session).
+as a free session). The `user` arm checks a deployed application instead of
+writing code (see user arm).
 
 **class**: the kind of work a task declares at intake: `additive`,
-`mechanical`, `repair`, `spec` or `review`. The class decides the limits and
+`mechanical`, `repair`, `spec`, `review` or `user`. The class decides the limits and
 the admission rules.
 
 **tier**: one model entry in `models.toml`: a provider, a cost kind, a speed
@@ -101,6 +102,19 @@ session with its own tools, inside the same task machine the runner builds.
 
 **review mode**: a session-arm run whose input is a brief and a set of files
 and whose only deliverable is `report.md`; no branch and no hidden tests.
+
+**user arm**: an arm that checks a deployed application the way a user
+would, from something that never saw its source. A user task (class `user`)
+is a URL and a task written as numbered steps; a fresh sandbox built from the
+browser image gets only those, no work repo and nothing to clone, and
+`dark/user.py` asks the model for one browser action at a time, given the
+step and the page's accessibility snapshot, until the step has a verdict. It
+runs with `dark user --task <task.toml> --tier <id>`.
+
+**step verdict**: the user arm's judgement of one step, `pass` or `fail` with
+one line of note, recorded with a screenshot as `steps/<NN>.png` and a line
+of `steps.jsonl` in the records repository. A user-arm run passes when every
+step's verdict is pass; a failed step is `fail:capability`.
 
 **pi**: the coding-agent CLI the session arm drives inside the machine.
 

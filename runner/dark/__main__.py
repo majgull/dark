@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, sandbox, tasks
+from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, sandbox, spec, tasks
 from . import gitea as G
 from . import ledger as L
 from . import vm
@@ -357,6 +357,40 @@ def _review_branches(path):
     return doc, ""
 
 
+def cmd_user(args):
+    """Launch one user-arm run: a fresh browser sandbox gets the task's URL
+    and numbered steps, and dark/user.py reports a verdict per step. The
+    outcome is pass iff every step's verdict is pass. --task names the
+    task's task.toml or its directory."""
+    path = os.path.abspath(args.task)
+    if os.path.isfile(path):
+        if os.path.basename(path) != "task.toml":
+            print(f"user: {args.task}: --task names a task.toml or the directory holding one")
+            return 2
+        path = os.path.dirname(path)
+    try:
+        task = tasks.load_task(path)
+    except tasks.TaskError as e:
+        print(f"user: {e}")
+        return 2
+    if task.cls not in spec.USER_CLASSES:
+        print(f"user: {task.id} is class {task.cls}, not a user task")
+        return 2
+    catalog, budgets, host, ledger, gitea, px = _ctx(args)
+    catalog.model(args.tier)  # an unknown tier is one config line, before anything starts
+    pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px, shift=args.shift or "adhoc")
+    if not px.reachable() and not pre.wake():
+        print(json.dumps({"run": None, "outcome": "refused", "detail": f"{host.proxmox}: unreachable and the wake failed"}))
+        return 2
+    from .run import Runner
+    runner = Runner(catalog, budgets, host, ledger, gitea, px, shift=args.shift or "adhoc", arm=args.arm)
+    res = runner.user(task, args.tier, arm=args.arm, shift=args.shift, think=args.think, slot=args.slot)
+    print(json.dumps({"run": res.run, "outcome": res.outcome, "fail_kind": res.fail_kind,
+                      "detail": res.detail, "issue": res.issue, "records": res.records,
+                      "steps_ok": res.checks_ok, "steps_total": res.checks_total}))
+    return 0 if res.outcome == "pass" else 1
+
+
 WORK_PREFIXES = ("t-", "tl-", "session-")
 
 
@@ -602,6 +636,13 @@ def main(argv=None):
     p.add_argument("--review-branches", metavar="FILE",
                    help="JSON list of {name, url, branch} to clone and judge; the outcome is then "
                         "report.md's last line, VERDICT: pass|fail")
+    p = sub.add_parser("user", help="launch one user-arm run: a browser sandbox checks a URL step by step, a verdict per step")
+    p.add_argument("--task", required=True, help="the user task's task.toml (or its directory)")
+    p.add_argument("--tier", required=True, help="the model id to use (must be in models.toml)")
+    p.add_argument("--arm", default="user", help="arm name on the run's records (default user)")
+    p.add_argument("--shift", help="ledger shift id (default: adhoc); also names the dark-records repo")
+    p.add_argument("--think", choices=["none", "low", "medium", "high"])
+    p.add_argument("--slot", type=int, default=1, help="VM slot (sandbox = vmid_base + slot); a shift uses slot 0")
     p = sub.add_parser("done", help="the verdict a shift already holds for a task (session-side resume); exit 0 on a valid pass")
     p.add_argument("--shift", required=True)
     p.add_argument("--task", required=True)
@@ -641,6 +682,7 @@ def main(argv=None):
         return {"check-config": cmd_check_config, "preflight": cmd_preflight, "admission": cmd_admission,
                 "status": cmd_status, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
+                "user": cmd_user,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)
     except config.ConfigError as e:

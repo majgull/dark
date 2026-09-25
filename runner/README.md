@@ -41,6 +41,7 @@ python3 -m dark status                     # windows, watts, envelopes today
 python3 -m dark shift [--tasks a,b] [--tier <id>] [--max-runs N] [--arm factory] [--no-push]
 python3 -m dark digest [--shift <id>]
 python3 -m dark abort <run-id>|all
+python3 -m dark user --task <task.toml> --tier <id>   # one user-arm run: a browser checks a URL step by step
 ```
 
 Detached with an unbuffered log: `bash ops/shift.sh [shift args]` (prints the log path under `~/.dark/logs/`). A session arm is driven by the bench's `tools/arm.sh`, which ends in `python3 -m dark stage ... --slot 1` here, so a session arm can be staged while a shift is running on slot 0.

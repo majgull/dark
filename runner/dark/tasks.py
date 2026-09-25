@@ -6,6 +6,10 @@ work repo.
     tasks/<id>/acceptance/      hidden: run.sh plus fixtures; never in the executor VM
     tasks/<id>/oracle/          reference overlay, used only to validate acceptance
 
+A user task (class `user`) is only its task.toml: a `url` to open and
+`steps`, the numbered step texts a browser sandbox checks one by one. It has
+no language, no start/, no acceptance/ and no work repo.
+
 The work repo for a task is dark/t-<id>: the template for its language plus
 start/, force-pushed to main before every run so each run starts from the
 same tree. Run branches are run/<run id>.
@@ -60,6 +64,8 @@ class Task:
     # the session arm's tool set: "reduced" (pi without extensions, skills,
     # prompt templates or context files, offline) or "full" (pi as shipped)
     tools: str = "reduced"
+    url: str | None = None  # the user arm only: the deployed application to open
+    steps: tuple = ()       # the user arm only: step texts, numbered from 1 in order
 
     @property
     def repo_name(self):
@@ -94,8 +100,13 @@ def load_task(path):
     if not all(c.isalnum() or c in "-." for c in tid) or tid.startswith("-"):
         raise TaskError(f"{tpath}: id must be [A-Za-z0-9.-]+")
     cls = d.get("class")
-    if cls not in spec.EXEC_CLASSES:
-        raise TaskError(f"{tpath}: class must be one of {spec.EXEC_CLASSES}")
+    if cls not in spec.EXEC_CLASSES + spec.USER_CLASSES:
+        raise TaskError(f"{tpath}: class must be one of {spec.EXEC_CLASSES + spec.USER_CLASSES}")
+    if cls in spec.USER_CLASSES:
+        return _load_user_task(path, tpath, tid, cls, d)
+    for key in ("url", "steps"):
+        if key in d:
+            raise TaskError(f"{tpath}: {key} is for a user task only (class {cls!r})")
     lang = d.get("lang")
     if lang not in LANGS:
         raise TaskError(f"{tpath}: lang must be one of {LANGS}")
@@ -134,6 +145,27 @@ def load_task(path):
         raise TaskError(f"{tpath}: tools must be one of {TOOLS}")
     return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang=lang, spec=text,
                 may_edit=tuple(may_edit), dir=path, stage_timeout=st, after=after, tools=tools)
+
+
+def _load_user_task(path, tpath, tid, cls, d):
+    """A user task: a URL, numbered steps and a spec, nothing else. The
+    fields of a work-repo task are refused rather than ignored."""
+    url = d.get("url")
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        raise TaskError(f"{tpath}: a user task needs url, an http:// or https:// address")
+    steps = d.get("steps")
+    if (not isinstance(steps, list) or not steps
+            or not all(isinstance(x, str) and x.strip() for x in steps)):
+        raise TaskError(f"{tpath}: a user task needs steps, a non-empty list of step texts")
+    text = d.get("spec")
+    if not isinstance(text, str) or not text.strip():
+        raise TaskError(f"{tpath}: spec must be a non-empty string")
+    for key in ("may_edit", "after", "lang", "stage_timeout"):
+        if d.get(key):
+            raise TaskError(f"{tpath}: a user task has no work repo ({key} is refused)")
+    return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang="", spec=text,
+                may_edit=(), dir=path, stage_timeout=0,  # nothing is staged
+                url=url, steps=tuple(x.strip() for x in steps))
 
 
 def predecessors(task):
