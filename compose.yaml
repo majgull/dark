@@ -1,18 +1,18 @@
-# The docker deployment of dark factory: Gitea, the runner, a model gate and
-# an optional local model, on one internal network. The runner spawns each
-# sandbox as a sibling container on that network through the mounted docker
-# socket, so a sandbox reaches Gitea and the model gate by service name and has
-# no other egress. The gate is the one model hop: sandboxes and the runner
-# speak to it only, and it forwards to the configured endpoint, bundled or
-# external, so no sandbox holds a real endpoint or token.
+# The docker deployment of dark factory: Gitea, the runner, a model gate, an
+# otlp gate and an optional local model, on one internal network. The runner
+# spawns each sandbox as a sibling container on that network through the
+# mounted docker socket, so a sandbox reaches Gitea and the model gate by
+# service name and has no other egress. The gate is the one model hop:
+# sandboxes and the runner speak to it only, and it forwards to the configured
+# endpoint, bundled or external, so no sandbox holds a real endpoint or token.
 #
 #   docker compose up -d gitea runner          # the pipeline
 #   bash runner/ops/docker-bootstrap.sh        # users, orgs, tokens (once)
 #   DARK_MODEL_UPSTREAM=http://host:11434 docker compose --profile model up -d
 #
 # `back` is internal: no container on it has a route off the host. Gitea and
-# the gate also join `front`, a normal compose network: Gitea needs it to
-# publish its host port and the gate needs it to reach an upstream elsewhere.
+# the gates also join `front`, a normal compose network: Gitea needs it to
+# publish its host port and the gates need it to reach an upstream elsewhere.
 # ollama, the bundled endpoint, is on `front` only so a sandbox cannot reach it
 # directly. Sandboxes are created on `back` only, so the runner's own
 # containers never get `front`.
@@ -105,6 +105,23 @@ services:
       DARK_MODEL_UPSTREAM: ${DARK_MODEL_UPSTREAM:-http://ollama:11434}
     entrypoint: ["/bin/sh", "-c"]
     command: ["exec caddy reverse-proxy --from :11434 --to \"$$DARK_MODEL_UPSTREAM\""]
+    networks:
+      - back
+      - front
+
+  # The OTLP hop reachable from `back`, beside the model gate and built the same
+  # way: a pinned reverse proxy that listens on 4318 and forwards to
+  # DARK_OTLP_UPSTREAM, the OpenTelemetry collector. The default upstream,
+  # http://127.0.0.1:9, is a port inside this container that refuses at once,
+  # so an unset collector costs a run nothing. Point host.toml at
+  # http://otlp-gate:4318; nothing else changes when the upstream is a
+  # collector elsewhere.
+  otlp-gate:
+    image: caddy:2.11.4-alpine
+    environment:
+      DARK_OTLP_UPSTREAM: ${DARK_OTLP_UPSTREAM:-http://127.0.0.1:9}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec caddy reverse-proxy --from :4318 --to \"$$DARK_OTLP_UPSTREAM\""]
     networks:
       - back
       - front
