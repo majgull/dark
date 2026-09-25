@@ -8,11 +8,14 @@ progress comment and heartbeat, the same AGENT-DONE tag, the same records
 push.
 
 For each step the model is asked for the next browser action, given the
-step text and the page's accessibility snapshot; the action is performed,
-and the model is asked again until it gives the step a verdict, pass or
-fail, with one line of note. Then a screenshot is taken as
+step text, the notes of the steps already finished, and the page's
+accessibility snapshot; the action is performed, and the model is asked
+again until it gives the step a verdict, pass or fail, with one line of
+note. A pass verdict must quote the page in its `evidence` field, and is
+accepted only when that quote is found in the snapshot the model was
+shown for that call. Then a screenshot is taken as
 <records>/steps/<NN>.png and {step, verdict, note} is appended to
-<records>/steps.jsonl. The run passes when every step's verdict is pass.
+<records>/steps.jsonl, with the evidence on a pass. The run passes when every step's verdict is pass.
 
 The real browser also records the whole run: a Playwright trace as
 <records>/trace.zip and a video as <records>/video.webm, both written when
@@ -55,8 +58,10 @@ SYSTEM = """You check one step of a task in a web application through a browser,
 {"do": "press", "key": "<key, e.g. Enter>"}
 {"do": "goto", "url": "<address>"}
 {"do": "wait", "seconds": <1 to 5>}
-{"do": "verdict", "verdict": "pass" or "fail", "note": "<one line: what you saw>"}
-Give the verdict as soon as the step is done (pass) or shown not to work (fail). Judge only this step."""
+{"do": "verdict", "verdict": "pass" or "fail", "note": "<one line: what you saw>", "evidence": "<text copied from the page>"}
+Give the verdict as soon as the step is done (pass) or shown not to work (fail). Judge only this step.
+A pass must carry evidence: text copied word for word from the page's snapshot, so the pass is checked against what the page showed. A pass whose evidence is not on the page is refused and you are asked again. A fail needs no evidence.
+When a step refers to something an earlier step made (an order, a job, a code), take it from the earlier steps' notes."""
 
 PROMPT = """TASK:
 {spec}
@@ -64,6 +69,9 @@ PROMPT = """TASK:
 STEP {n} of {total}: {text}
 
 URL: {url}
+
+EARLIER STEPS:
+{earlier}
 
 ACTIONS SO FAR IN THIS STEP:
 {history}
@@ -82,6 +90,33 @@ class BrowserError(Exception):
 
 
 # --- the model ------------------------------------------------------------------
+def shown_snapshot(snapshot):
+    """The page as the model sees it: cut to SNAPSHOT_CHARS, the one place
+    that cut is spelled, so a pass verdict is judged against what was shown."""
+    return (snapshot or "")[:SNAPSHOT_CHARS]
+
+
+def _normalised(text):
+    """Whitespace squeezed to single spaces, how evidence and page are
+    compared, so a quote copied across a line break still matches."""
+    return " ".join(str(text or "").split())
+
+
+def evidence_on_page(evidence, snapshot):
+    """Whether a pass verdict's quote is really on the page: both the quote
+    and the snapshot are whitespace-normalised, and the quote must occur in
+    the snapshot. A missing or blank quote never counts."""
+    quote = _normalised(evidence)
+    return bool(quote) and quote in _normalised(snapshot)
+
+
+def earlier_steps(results):
+    """The finished steps as `step N (pass|fail): <note>` lines, or `none`
+    when none has finished yet: the block the prompt shows so that a step
+    which refers to something an earlier step made can read its note."""
+    return "\n".join(f"step {r['step']} ({r['verdict']}): {r['note']}" for r in (results or [])) or "none"
+
+
 def parse_action(text):
     """The first JSON object in a reply, or {"do": "invalid"} with the reply
     kept, so a malformed answer costs a call, never the run."""
@@ -122,9 +157,10 @@ class ChatModel:
             body["temperature"] = t["temperature"]
         return body
 
-    def next_action(self, n, text, url, snapshot, history):
+    def next_action(self, n, text, url, snapshot, history, earlier=None):
         prompt = PROMPT.format(spec=self.t.get("spec", ""), n=n, total=len(self.t.get("steps") or []),
-                               text=text, url=url, snapshot=snapshot[:SNAPSHOT_CHARS],
+                               text=text, url=url, snapshot=shown_snapshot(snapshot),
+                               earlier=earlier_steps(earlier),
                                history="\n".join(json.dumps(h, sort_keys=True) for h in history) or "(none)")
         req = urllib.request.Request(
             f"{self.t['llm_url']}/chat/completions", method="POST",
@@ -267,8 +303,9 @@ def _append(path, obj):
 
 def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=time.time):
     """Open `url` and take every step in order. Returns (results, stop):
-    results is one {step, verdict, note} per step, in order, as also
-    appended to <records_dir>/steps.jsonl; stop is None, or "calls" /
+    results is one {step, verdict, note} per step, in order, a pass also
+    carrying the evidence it was accepted on, as also appended to
+    <records_dir>/steps.jsonl; stop is None, or "calls" /
     "seconds" when the envelope ran out, in which case the step it ran out
     in and every step after it are fail. Each step that was taken leaves
     <records_dir>/steps/<NN>.png. The transcript of every call goes to
@@ -285,7 +322,7 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             results.append(rec)
             _append(jsonl, rec)
             continue
-        history, verdict, note = [], None, ""
+        history, verdict, note, evidence = [], None, "", ""
         while verdict is None:
             if S.STATS["calls"] >= max_calls:
                 stop, verdict, note = "calls", "fail", f"the call envelope ({max_calls}) was spent before a verdict"
@@ -296,14 +333,20 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             snap = page.snapshot() or ""
             S.STATS["calls"] += 1
             S.STATS["requests"] += 1
-            action = model.next_action(n, text, page.url(), snap, history)
+            action = model.next_action(n, text, page.url(), snap, history, earlier=results)
             entry = {"step": n, "call": S.STATS["calls"], "url": page.url(), "snapshot_chars": len(snap),
                      "action": action}
             if action.get("do") == "verdict":
-                if action.get("verdict") in ("pass", "fail"):
-                    verdict, note = action["verdict"], str(action.get("note") or "")[:300]
-                else:
+                if action.get("verdict") not in ("pass", "fail"):
                     history.append({"action": action, "error": "verdict must be pass or fail"})
+                elif action.get("verdict") == "pass" and not evidence_on_page(action.get("evidence"),
+                                                                              shown_snapshot(snap)):
+                    # a pass without the page's own words is no pass: refuse it
+                    # and ask again, which costs another call like any call
+                    history.append({"action": action, "error": "evidence not found on the page"})
+                else:
+                    verdict, note = action["verdict"], str(action.get("note") or "")[:300]
+                    evidence = str(action.get("evidence") or "") if verdict == "pass" else ""
             elif action.get("do") == "invalid":
                 history.append({"action": action, "error": "not one JSON action; reply with one JSON object"})
             else:
@@ -317,6 +360,8 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             _append(stream, entry)
         page.screenshot(os.path.join(steps_dir, f"{n:02d}.png"))
         rec = {"step": n, "verdict": verdict, "note": note}
+        if verdict == "pass":
+            rec["evidence"] = evidence
         results.append(rec)
         _append(jsonl, rec)
         S.PROGRESS.add(f"step {n}: {verdict}")

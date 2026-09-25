@@ -38,9 +38,9 @@ class ScriptedModel:
         self.actions = list(actions)
         self.asked = []
 
-    def next_action(self, n, text, url, snapshot, history):
+    def next_action(self, n, text, url, snapshot, history, earlier=None):
         self.asked.append({"step": n, "text": text, "url": url, "snapshot": snapshot,
-                           "history": list(history)})
+                           "history": list(history), "earlier": list(earlier or [])})
         return self.actions.pop(0)
 
 
@@ -176,8 +176,16 @@ class FakeContext:
         self.pw._call("context.close")
 
 
-def verdict(v="pass", note="as asked"):
-    return {"do": "verdict", "verdict": v, "note": note}
+def verdict(v="pass", note="as asked", evidence=None):
+    """One verdict action. A pass gets an evidence quote because the arm
+    accepts one only when the quote is on the page; the fake pages show
+    "Shop", so that is the default."""
+    a = {"do": "verdict", "verdict": v, "note": note}
+    if v == "pass":
+        a["evidence"] = "Shop" if evidence is None else evidence
+    elif evidence is not None:
+        a["evidence"] = evidence
+    return a
 
 
 def reset_session(tmp, task):
@@ -223,9 +231,9 @@ class Steps(unittest.TestCase):
         self.assertEqual(page.shots, ["01.png", "02.png", "03.png"])
         self.assertEqual(sorted(os.listdir(os.path.join(self.records, "steps"))),
                          ["01.png", "02.png", "03.png"])
-        want = [{"step": 1, "verdict": "pass", "note": "the form is shown"},
-                {"step": 2, "verdict": "pass", "note": "signed in as demo"},
-                {"step": 3, "verdict": "pass", "note": "the cart holds one item"}]
+        want = [{"step": 1, "verdict": "pass", "note": "the form is shown", "evidence": "Shop"},
+                {"step": 2, "verdict": "pass", "note": "signed in as demo", "evidence": "Shop"},
+                {"step": 3, "verdict": "pass", "note": "the cart holds one item", "evidence": "Shop"}]
         self.assertEqual(results, want)
         self.assertEqual(self.jsonl(), want)
         # the URL was opened first, then the actions, in the order given
@@ -236,6 +244,70 @@ class Steps(unittest.TestCase):
         self.assertEqual(model.asked[2]["text"], STEPS[1])
         self.assertTrue(all(q["snapshot"] == page.snapshot() for q in model.asked))
         self.assertEqual((S.STATS["calls"], S.STATS["tool_calls"]), (6, 3))
+
+    def test_the_prompt_carries_each_finished_steps_note_and_none_for_the_first(self):
+        llm = fakes.FakeLLM([
+            {"content": '{"do": "click", "role": "link", "name": "Sign in"}'},
+            {"content": json.dumps({"do": "verdict", "verdict": "pass", "note": "the form is shown",
+                                     "evidence": "Shop"})},
+            {"content": '{"do": "click", "role": "button", "name": "Buy"}'},
+            {"content": json.dumps({"do": "verdict", "verdict": "pass", "note": "the cart holds one item",
+                                     "evidence": "Shop"})}])
+        self.addCleanup(llm.close)
+        model = U.ChatModel({"llm_url": f"{llm.url}/v1", "llm_model": "local-a",
+                             "spec": "Check that a visitor can buy.", "steps": STEPS})
+        results, stop = U.run_steps(model, FakePage(), "https://app.example.test/", STEPS[:2],
+                                    self.records, 20, 1e12)
+        self.assertIsNone(stop)
+        self.assertEqual([r["verdict"] for r in results], ["pass", "pass"])
+        prompts = [r["messages"][1]["content"] for r in llm.requests]
+        self.assertIn("EARLIER STEPS:\nnone", prompts[0])  # step 1: nothing has finished
+        self.assertIn("EARLIER STEPS:\nstep 1 (pass): the form is shown", prompts[2])  # step 2's first call
+
+    def test_a_pass_keeps_the_quote_it_was_accepted_on_and_a_fail_carries_none(self):
+        model = ScriptedModel([verdict(evidence='heading "Shop"', note="the shop is shown"),
+                               verdict("fail", "no cart button"), verdict()])
+        results, stop = self.run_steps(model, FakePage(snapshot='- heading "Shop"\n- text "cart: 1"'))
+        self.assertIsNone(stop)
+        self.assertEqual(results[0], {"step": 1, "verdict": "pass", "note": "the shop is shown",
+                                      "evidence": 'heading "Shop"'})
+        self.assertEqual(results[1], {"step": 2, "verdict": "fail", "note": "no cart button"})
+        self.assertEqual(self.jsonl(), results)
+
+    def test_a_quote_copied_across_a_line_break_still_matches(self):
+        page = FakePage(snapshot='- heading\n  "Shop"\n- text "cart: 1"')
+        results, _ = self.run_steps(ScriptedModel([verdict(evidence='heading "Shop"'), verdict(), verdict()]),
+                                    page)
+        self.assertEqual(results[0]["evidence"], 'heading "Shop"')
+
+    def test_a_pass_whose_quote_is_not_on_the_page_is_refused_and_asked_again(self):
+        page = FakePage(snapshot='- heading "Shop"\n- text "job 17: printing"')
+        model = ScriptedModel([verdict(evidence="job 18", note="job 18 shipped"),
+                               verdict(evidence="job 17", note="job 17 shipped"),
+                               verdict(), verdict()])
+        results, stop = self.run_steps(model, page)
+        self.assertIsNone(stop)
+        self.assertEqual(S.STATS["calls"], 4)  # the refused answer cost a call like any other
+        self.assertEqual(model.asked[1]["history"][0]["error"], "evidence not found on the page")
+        self.assertEqual(results[0], {"step": 1, "verdict": "pass", "note": "job 17 shipped",
+                                      "evidence": "job 17"})
+
+    def test_a_pass_without_an_evidence_field_is_refused(self):
+        model = ScriptedModel([{"do": "verdict", "verdict": "pass", "note": "looks right"},
+                               verdict(), verdict(), verdict()])
+        results, _ = self.run_steps(model, FakePage())
+        self.assertEqual(model.asked[1]["history"][0]["error"], "evidence not found on the page")
+        self.assertEqual(results[0]["verdict"], "pass")
+
+    def test_a_note_naming_an_earlier_job_cannot_pass_a_page_showing_another(self):
+        page = FakePage(snapshot='- heading "Shop"\n- text "job 17: queued"')
+        model = ScriptedModel([verdict(evidence="Shop", note="queued print job 18"),
+                               verdict(evidence="job 18: done", note="job 18 is done"),
+                               verdict("fail", "the page shows job 17: queued, not job 18"),
+                               verdict()])
+        results, _ = self.run_steps(model, page)
+        self.assertEqual([r["verdict"] for r in results], ["pass", "fail", "pass"])
+        self.assertEqual(model.asked[2]["history"][0]["error"], "evidence not found on the page")
 
     def test_a_failed_action_is_fed_back_to_the_model_not_fatal(self):
         model = ScriptedModel([{"do": "click", "role": "button", "name": "Gone"}, verdict("fail", "no such button"),
@@ -427,8 +499,9 @@ class Executor(unittest.TestCase):
         return out
 
     def test_every_step_pass_is_a_pass_with_the_records_pushed(self):
-        page = FakePage(snapshot=f"- text \"session {TOKEN}\"")  # a page that shows the token
-        rc = U.main(ScriptedModel([verdict(), verdict(note=f"saw {TOKEN} on the page"), verdict()]), page)
+        page = FakePage(snapshot=f"- heading \"Shop\"\n- text \"session {TOKEN}\"")  # a page that shows the token
+        rc = U.main(ScriptedModel([verdict(), verdict(note=f"saw {TOKEN} on the page", evidence=TOKEN),
+                                   verdict()]), page)
         self.assertEqual(rc, 0)
         self.assertTrue(page.closed)
         body, tag = self.done_tag()
@@ -482,7 +555,7 @@ class Executor(unittest.TestCase):
         self.assertNotIn("shop-user-1/video.webm", files)
 
     def test_no_token_appears_in_the_records(self):
-        page = FakePage(snapshot=f"- text \"session {TOKEN}\"")
+        page = FakePage(snapshot=f"- heading \"Shop\"\n- text \"session {TOKEN}\"")
         U.main(ScriptedModel([verdict(), verdict("fail", f"saw {TOKEN} on the page"), verdict()]), page)
         files = self.records()
         self.assertTrue(any(k.endswith("stream.jsonl") for k in files))
