@@ -383,7 +383,7 @@ HOST_ENV = {
     "browser_image": "DARK_BROWSER_IMAGE",
     "target_network": "DARK_TARGET_NETWORK", "target_host": "DARK_TARGET_HOST",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
-    "wake_timeout": "DARK_WAKE_TIMEOUT",
+    "wake_timeout": "DARK_WAKE_TIMEOUT", "otlp_endpoint": "DARK_OTLP_ENDPOINT",
     "power_cpu_host": "DARK_POWER_CPU", "power_gpu_host": "DARK_POWER_GPU", "work_org": "DARK_WORK_ORG",
     "agent_user": "DARK_AGENT_USER", "records_org": "DARK_RECORDS_ORG",
 }
@@ -430,6 +430,9 @@ class Host:
     target_network: str = ""
     target_host: str = ""
     ntfy_url: str = ""
+    # the base URL of an OTLP/HTTP collector (dark/otel.py posts each finished
+    # run to <otlp_endpoint>/v1/traces as spans); "" = nothing is sent
+    otlp_endpoint: str = ""
     state_dir: str = "~/.dark"
     templates_dir: str = "~/dark-templates"
     bench_dir: str = "~/dark-bench"
@@ -454,6 +457,7 @@ class Host:
         self.sandbox_container = "" if self.sandbox_container in (None, "") else str(self.sandbox_container)
         self.sandbox_pool = "" if self.sandbox_pool in (None, "") else str(self.sandbox_pool)
         self.sandbox_allow_in = "" if self.sandbox_allow_in in (None, "") else str(self.sandbox_allow_in)
+        self.otlp_endpoint = "" if self.otlp_endpoint in (None, "") else str(self.otlp_endpoint).strip()
         try:
             self.sandbox_pids = int(self.sandbox_pids or 0)
         except (TypeError, ValueError):

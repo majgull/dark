@@ -29,6 +29,7 @@ browser_image = "dark-sandbox-browser"              # DARK_BROWSER_IMAGE   (dock
 target_network = ""                                 # DARK_TARGET_NETWORK  (docker backend: a second, non-internal network a user-arm sandbox joins to reach the application; "" = none)
 target_host = ""                                    # DARK_TARGET_HOST     (Proxmox backend: the one address a user-arm VM's firewall lets out to, e.g. "192.0.2.20"; "" = none)
 ntfy_url = ""                                       # DARK_NTFY        (optional; "" = no push)
+otlp_endpoint = ""                                  # DARK_OTLP_ENDPOINT (optional; an OTLP/HTTP collector such as "http://localhost:4318"; every finished run is posted to <it>/v1/traces as spans; "" = nothing sent)
 state_dir = "~/.dark"                               # DARK_STATE       (ledger, abort markers, scratch)
 templates_dir = "~/dark-templates"                  # DARK_TEMPLATES   (a checkout of dark/templates)
 bench_dir = "~/dark-bench"                          # DARK_BENCH       (a checkout of dark/bench)

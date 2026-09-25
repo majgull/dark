@@ -310,6 +310,16 @@ The same file opens in a browser tab at `https://trace.playwright.dev`, which "l
 
 Either file can be missing: a browser that died before it could save the trace leaves none, and an image built without ffmpeg (the program that encodes the video; `Dockerfile.browser` installs it) leaves no video. `steps.jsonl` is written either way, and a missing recording never changes a verdict. The trace also holds the pages' request headers and response bodies, so treat the records repository as readable by everyone who can open it.
 
+## Traces
+
+A *span* is one timed operation with a name, start and end times and key-value attributes; a *trace* is a span with the spans nested under it; *OTLP/HTTP JSON* is OpenTelemetry's wire format, a JSON body posted to `<endpoint>/v1/traces`; a *collector* is the program that receives traces, such as an OpenTelemetry Collector, Jaeger or Grafana Tempo.
+
+When `otlp_endpoint` is set, every finished run is sent as one trace, right after its `run.end` row is written. The parent span is named `invoke_agent <task>` and carries `gen_ai.operation.name`, `gen_ai.agent.name` (the arm), `gen_ai.request.model` (the tier), `gen_ai.conversation.id` (the run id) and dark's own `dark.outcome`, `dark.calls`, `dark.seconds` and `dark.class`. Each tool call the session made is a child span named `execute_tool <tool>` carrying `gen_ai.tool.name`, `gen_ai.tool.call.id`, `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result`, the last two cut at 2000 characters. The `gen_ai.*` names are OpenTelemetry's GenAI semantic conventions, its agreed names for the spans and attributes of AI agents. The tool calls are read back from the run's `stream.jsonl` in the records repository, so a run that pushed none, and every pipeline-arm run, is a trace of one span.
+
+Set it in `runner/host.toml` (`otlp_endpoint = "http://collector:4318"`) or with the variable `DARK_OTLP_ENDPOINT`. The default is empty, and while it is empty nothing is sent and no stream is read back. Tool arguments and results can hold file contents and command output, so point it only at a collector you run.
+
+A collector that is down, slow or refusing is logged in one line and never changes a run; sending gives up after 5 seconds.
+
 ## What containers keep, weaken and lose against VMs
 
 The Docker column is this deployment. The LXC column is the `lxc` backend

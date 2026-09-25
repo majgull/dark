@@ -24,7 +24,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 
-from . import budget, gate, power
+from . import budget, gate, otel, power
 from . import gitea as G
 from . import ledger as L
 from . import spec, tasks, vm
@@ -157,7 +157,7 @@ class _Run:
         # a run.end the ledger refuses is a runner defect and must surface: with
         # `ended` already set, run()'s catch-all would otherwise return the result
         # with no record behind it
-        self.r.ledger.emit(
+        row = self.r.ledger.emit(
             "run.end", task=self.task.id, run=res.run, cls=self.task.cls, tier=self.tier, outcome=to,
             seconds=res.seconds, calls=res.calls, tokens_in=res.tokens_in, tokens_out=res.tokens_out,
             reasoning_chars=res.reasoning_chars, paid=self.model.paid,
@@ -181,6 +181,10 @@ class _Run:
                                          + (f" ({kind})" if kind else "") + f"\n{res.detail}")
         except G.GiteaError as e:
             self.r.log(f"issue close failed: {e}")
+        if self.r.host.otlp_endpoint:
+            # after the row and the issue, so a collector that is slow or down delays only this return
+            otel.export_run(self.r.host.otlp_endpoint, row, otel.fetch_stream(self.r.gitea, res.records, log=self.r.log),
+                            log=self.r.log)
         return res
 
     def refuse(self, why):
