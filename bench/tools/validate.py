@@ -114,7 +114,13 @@ def build(task_dir, lang, templates, with_oracle, dest):
     copy_tree(os.path.join(task_dir, "acceptance"), acc)
 
 
-GOCACHE = tempfile.mkdtemp(prefix="val-gocache-")
+# One Go build cache on disk, reused by every run of this tool and of
+# refcheck/mutants. A fresh mkdtemp here was never removed: each run left
+# ~80 MB in /tmp, which is a RAM-backed tmpfs on the bench laptop (54 dirs,
+# 3.2 GB by 2026-09-23). Go trims its own cache; DARK_VALIDATE_GOCACHE moves it.
+GOCACHE = os.environ.get("DARK_VALIDATE_GOCACHE") or os.path.join(
+    os.path.expanduser("~"), ".cache", "dark-validate", "go-build")
+os.makedirs(GOCACHE, exist_ok=True)
 
 
 def run(cmd, cwd, timeout=600):
