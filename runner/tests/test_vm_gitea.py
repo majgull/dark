@@ -104,6 +104,16 @@ class VM(unittest.TestCase):
         s.status[9500] = "running"
         self.assertFalse(vm.Proxmox("h", 9001, ssh=s, sleep=lambda x: None).reap(9500, "n"))
 
+    def test_snapshot_and_rollback(self):
+        self.px.snapshot(9500, "pre-change")
+        self.px.rollback(9500, "pre-change")
+        self.assertEqual(self.ssh.cmds, ["qm snapshot 9500 pre-change", "qm rollback 9500 pre-change"])
+
+        def bad(cmd, stdin=None, timeout=120):
+            return 2, "", "snapshot feature is not available"
+        with self.assertRaises(vm.VMError):
+            vm.Proxmox("h", 9001, ssh=bad).rollback(9500, "pre-change")
+
     def test_guest_ip(self):
         answers = {}
 

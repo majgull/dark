@@ -9,7 +9,7 @@ import unittest
 from dark import config, lxc, sandbox, vm
 from dark import docker as docker_mod
 
-METHODS = ("reachable", "template_ok", "spawn", "guest_ip", "reap")
+METHODS = ("reachable", "template_ok", "spawn", "guest_ip", "reap", "snapshot", "rollback")
 
 
 class ProtocolConformance(unittest.TestCase):
@@ -39,7 +39,7 @@ class ProtocolConformance(unittest.TestCase):
                            sandbox_snapshot="base", sandbox_bridge="vmbr9")
         ct = sandbox.make(host, 9001)
         self.assertIsInstance(ct, lxc.Lxc)
-        self.assertEqual((ct.host, ct.source, ct.snapshot, ct.bridge),
+        self.assertEqual((ct.host, ct.source, ct.snapname, ct.bridge),
                          ("cpu-host", "200", "base", "vmbr9"))
 
     def test_lxc_is_a_backend(self):

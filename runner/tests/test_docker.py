@@ -117,7 +117,7 @@ class DockerTest(unittest.TestCase):
             return f.read()
 
     def test_matches_the_sandbox_protocol(self):
-        for name in ("reachable", "template_ok", "spawn", "guest_ip", "reap"):
+        for name in ("reachable", "template_ok", "spawn", "guest_ip", "reap", "snapshot", "rollback"):
             with self.subTest(method=name):
                 want = inspect.signature(getattr(sandbox.Sandbox, name))
                 have = inspect.signature(getattr(D.Docker, name))
@@ -184,6 +184,14 @@ class DockerTest(unittest.TestCase):
     def test_reap_of_an_already_absent_container(self):
         self.assertTrue(self.d.reap(9500, "dark-x1"))
         self.assertIn(["rm", "-f", "dark-x1"], self.fake.lines())
+
+    def test_snapshot_and_rollback_are_refused(self):
+        for method in (self.d.snapshot, self.d.rollback):
+            with self.subTest(method=method.__name__):
+                with self.assertRaises(NotImplementedError) as cm:
+                    method(9500, "pre-change")
+                self.assertEqual(str(cm.exception), "docker sandboxes have no snapshots")
+        self.assertEqual(self.fake.lines(), [])  # the CLI is never asked
 
     def test_reachability_and_template(self):
         self.assertTrue(self.d.reachable())

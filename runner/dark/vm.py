@@ -147,6 +147,12 @@ class Proxmox:
         self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=FIREWALL)
         self.ssh(f"qm start {vmid}", timeout=120)
 
+    def snapshot(self, vmid, name):
+        self.ssh(f"qm snapshot {vmid} {name}", timeout=300)
+
+    def rollback(self, vmid, name):
+        self.ssh(f"qm rollback {vmid} {name}", timeout=300)
+
     def reap(self, vmid, name):
         """Stop, destroy, remove snippet and firewall file. True iff gone."""
         self.ssh(f"qm stop {vmid} --skiplock 1", check=False)

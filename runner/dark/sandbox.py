@@ -2,8 +2,10 @@
 
 A sandbox is one throwaway machine the runner injects a script into and
 discards afterwards: today a Proxmox VM, later also a container. The runner
-uses only the five methods below, so a new backend implements them and the
-callers do not change. `vm.Proxmox`, `docker.Docker` and `lxc.Lxc` are the
+uses only the first five methods below, so a new backend implements them and
+the callers do not change. `snapshot` and `rollback` are on the seam for the
+applier that will rehearse a change on a clone; the runner does not call
+them. `vm.Proxmox`, `docker.Docker` and `lxc.Lxc` are the
 backends today.
 
 `spawn` takes the files to write and the command to run, not a rendered
@@ -42,6 +44,16 @@ class Sandbox(Protocol):
 
     def reap(self, vmid, name) -> bool:
         """Stop and remove the sandbox. True iff it is gone."""
+        ...
+
+    def snapshot(self, vmid, name) -> None:
+        """Take a snapshot `name` of the sandbox. Raise on failure, or with
+        NotImplementedError where the backend has no snapshots."""
+        ...
+
+    def rollback(self, vmid, name) -> None:
+        """Roll the sandbox back to its snapshot `name`. Raise on failure, or
+        with NotImplementedError where the backend has no snapshots."""
         ...
 
 

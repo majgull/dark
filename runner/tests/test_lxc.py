@@ -61,7 +61,7 @@ class Lxc(unittest.TestCase):
         self.ct = lxc.Lxc("cpu-host", 200, "base-snap", bridge="vmbr9", ssh=self.ssh)
 
     def test_matches_the_sandbox_protocol(self):
-        for name in ("reachable", "template_ok", "spawn", "guest_ip", "reap"):
+        for name in ("reachable", "template_ok", "spawn", "guest_ip", "reap", "snapshot", "rollback"):
             with self.subTest(method=name):
                 want = inspect.signature(getattr(sandbox.Sandbox, name))
                 have = inspect.signature(getattr(lxc.Lxc, name))
@@ -183,6 +183,16 @@ class Lxc(unittest.TestCase):
                 return 255, "", "ssh: connection refused"
             return 0, "", ""
         self.assertFalse(lxc.Lxc("h", 200, "base-snap", ssh=ssh).reap(9500, "dark-x1"))
+
+    def test_snapshot_and_rollback(self):
+        self.ct.snapshot(9500, "pre-change")
+        self.ct.rollback(9500, "pre-change")
+        self.assertEqual(self.ssh.cmds, ["pct snapshot 9500 pre-change", "pct rollback 9500 pre-change"])
+
+        def bad(cmd, stdin=None, timeout=120):
+            return 2, "", "snapshot 'pre-change' does not exist"
+        with self.assertRaises(vm.VMError):
+            lxc.Lxc("h", 200, "base-snap", ssh=bad).rollback(9500, "pre-change")
 
     def test_guest_ip(self):
         self.assertIsNone(self.ct.guest_ip(9500))                  # no container

@@ -22,7 +22,7 @@ class Lxc:
     def __init__(self, host, source, snapshot, bridge="vmbr0", ssh=None):
         self.host = host
         self.source = str(source)
-        self.snapshot = str(snapshot)
+        self.snapname = str(snapshot)
         self.bridge = bridge
         self._ssh = ssh or (lambda cmd, stdin=None, timeout=120: vm._ssh(host, cmd, stdin, timeout))
 
@@ -53,7 +53,7 @@ class Lxc:
         return names
 
     def template_ok(self):
-        if not self.source or not self.snapshot:
+        if not self.source or not self.snapname:
             return False, "lxc backend needs sandbox_container and sandbox_snapshot"
         rc, _, err = self.ssh(f"pct config {self.source}", check=False, timeout=30)
         if rc != 0:
@@ -61,8 +61,8 @@ class Lxc:
         rc, out, err = self.ssh(f"pct listsnapshot {self.source}", check=False, timeout=30)
         if rc != 0:
             return False, f"pct listsnapshot {self.source}: {err.strip()[-200:] or 'rc ' + str(rc)}"
-        if self.snapshot not in self.snapshot_names(out):
-            return False, f"container {self.source} has no snapshot {self.snapshot!r}"
+        if self.snapname not in self.snapshot_names(out):
+            return False, f"container {self.source} has no snapshot {self.snapname!r}"
         return True, ""
 
     def status(self, vmid):
@@ -98,7 +98,7 @@ class Lxc:
         background. A container left over under the same id is reaped first."""
         if self.status(vmid) is not None:
             self.reap(vmid, name)
-        self.ssh(f"pct clone {self.source} {vmid} --snapname {self.snapshot} --full 1 --hostname {name}",
+        self.ssh(f"pct clone {self.source} {vmid} --snapname {self.snapname} --full 1 --hostname {name}",
                  timeout=600)
         self.ssh(f"pct set {vmid} --net0 name=eth0,bridge={self.bridge},firewall=1,ip=dhcp")
         self.ssh(f"cat > /etc/pve/firewall/{vmid}.fw", stdin=vm.FIREWALL)
@@ -108,6 +108,12 @@ class Lxc:
         self.push(vmid, START_SCRIPT, docker.Docker.start_script(runcmd), "0755")
         # detached on the host, so the ssh call returns while the script runs
         self.ssh(f"pct exec {vmid} -- /bin/sh {START_SCRIPT} </dev/null >/dev/null 2>&1 &")
+
+    def snapshot(self, vmid, name):
+        self.ssh(f"pct snapshot {vmid} {name}", timeout=300)
+
+    def rollback(self, vmid, name):
+        self.ssh(f"pct rollback {vmid} {name}", timeout=300)
 
     def reap(self, vmid, name):
         """Stop, destroy, remove the firewall file. True iff `pct status`

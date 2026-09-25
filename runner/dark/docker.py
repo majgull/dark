@@ -117,6 +117,12 @@ class Docker:
             return ip
         return None
 
+    def snapshot(self, vmid, name):
+        raise NotImplementedError("docker sandboxes have no snapshots")
+
+    def rollback(self, vmid, name):
+        raise NotImplementedError("docker sandboxes have no snapshots")
+
     def reap(self, vmid, name):
         """Force-remove the container, then confirm it is gone. True iff gone."""
         self._names.pop(vmid, None)
