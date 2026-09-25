@@ -358,6 +358,9 @@ class Runner:
         agent_task = {
             "gitea": self.host.gitea_lan_url, "git_url": self._git_url(), "repo": full, "issue": res.issue,
             "branch": res.branch, "token": self.host.agent_token,
+            # several repositories for the session arm, beside the one repo
+            # above: [{name, url, base}], each pushed to `branch` at the end
+            "repos": [{"name": n, "url": u, "base": b} for n, u, b in getattr(task, "repos", ())],
             "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls, "max_stall": env.max_stall,
             "max_tokens": model.max_tokens,
             # with a level the run's cumulative thinking is the level times the

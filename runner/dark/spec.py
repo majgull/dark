@@ -193,7 +193,8 @@ AGENT_TAGS = {
     "verify": (("ok", "iter", "calls"), ("started",)),
     "refused": (("paths", "iter"), ()),
     "done": (("outcome", "calls", "tokens_in", "tokens_out", "reasoning_chars", "seconds"),
-             ("kind", "iter", "error", "files", "deletes", "branch", "truncated", "cuts",
+             # branches: [{repo, branch}] the session arm pushed, one per repository
+             ("kind", "iter", "error", "files", "deletes", "branch", "branches", "truncated", "cuts",
               "requests", "tool_calls", "records", "records_sha256",
               "distinct_calls", "repeat_calls", "stall_max")),
     # env: the staging environment failed (never the work); nonce: the

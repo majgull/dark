@@ -53,6 +53,9 @@ class Task:
     dir: str
     stage_timeout: int
     after: str | None = None
+    # several repositories for one session-arm run: ((name, url, base), ...),
+    # each cloned to /work/<name> on base; empty = the one work repo
+    repos: tuple = ()
 
     @property
     def repo_name(self):

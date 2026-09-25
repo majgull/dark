@@ -270,5 +270,82 @@ class ReviewMode(unittest.TestCase):
         self.assertEqual(session.TASK.get("mode", "task"), "task")
 
 
+class SeveralRepositories(unittest.TestCase):
+    """A task with `repos`: each is cloned to /work/<name> on its base, and at
+    the end HEAD of each is pushed to the delivery branch in its own origin.
+    git is real, against bare origins over file://; pi is stood in for by a
+    session that commits one file in each tree."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.base = fakes.make_origin(self.tmp, "org/api", {"README.md": "api\n"})
+        fakes.make_origin(self.tmp, "org/web", {"README.md": "web\n"}, branch="trunk")
+        self.saved = {k: getattr(session, k) for k in
+                      ("MULTI_WORK", "PIHOME", "RECORDS_DIR", "STREAM_PATH", "fetch_runtime",
+                       "write_models_json", "run_session", "comment")}
+        session.MULTI_WORK = os.path.join(self.tmp, "work")
+        session.PIHOME = os.path.join(self.tmp, "pihome")
+        session.RECORDS_DIR = os.path.join(self.tmp, "records")
+        session.STREAM_PATH = os.path.join(session.RECORDS_DIR, "stream.jsonl")
+        session.fetch_runtime = lambda: ("node", "cli")
+        session.write_models_json = lambda home: None
+        self.comments = []
+        session.comment = lambda body: self.comments.append(body)
+        session.PROGRESS.cid = None
+        for k in session.STATS:
+            session.STATS[k] = 0
+        session.TASK.clear()
+        session.TASK.update({
+            "token": "tok", "llm_model": "m", "branch": "run/r1", "run": "r1", "task": "t",
+            "repos": [{"name": "api", "url": f"{self.base}/org/api.git", "base": "main"},
+                      {"name": "web", "url": f"{self.base}/org/web.git", "base": "trunk"}]})
+
+        def fake_session(node, cli, home, deadline, stream_path, review=False, work=None):
+            self.work = work
+            for name in ("api", "web"):
+                d = os.path.join(work, name)
+                with open(os.path.join(d, "change.txt"), "w") as f:
+                    f.write(f"{name} changed\n")
+            session.STATS["calls"] = 1
+            return None, "", "", 0
+        session.run_session = fake_session
+
+    def tearDown(self):
+        for k, v in self.saved.items():
+            setattr(session, k, v)
+        session.PROGRESS.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def done_tag(self):
+        body = [b for b in self.comments if b.startswith("AGENT-DONE")][-1]
+        line = [l for l in body.splitlines() if l.startswith("DARK:")][-1]
+        return json.loads(line[len("DARK:"):])
+
+    def test_each_repository_is_cloned_on_its_base_and_pushed_to_the_delivery_branch(self):
+        self.assertEqual(session._main_task(), 0, self.comments)
+        self.assertEqual(self.work, session.MULTI_WORK)
+        self.assertEqual(fakes.branch_files(self.tmp, "org/api", "run/r1"), {"README.md", "change.txt"})
+        self.assertEqual(fakes.branch_files(self.tmp, "org/web", "run/r1"), {"README.md", "change.txt"})
+        self.assertEqual(fakes.branch_file(self.tmp, "org/web", "run/r1", "README.md"), "web\n")
+        # two pushes, and the bases stay where they were
+        self.assertEqual(fakes.branch_files(self.tmp, "org/api", "main"), {"README.md"})
+        self.assertEqual(fakes.branch_files(self.tmp, "org/web", "trunk"), {"README.md"})
+
+    def test_the_done_tag_lists_the_branches_pushed(self):
+        session._main_task()
+        tag = self.done_tag()
+        self.assertTrue(spec.tag_ok("done", tag))
+        self.assertEqual(tag["outcome"], "ok")
+        self.assertEqual(tag["branches"], [{"repo": "api", "branch": "run/r1"},
+                                           {"repo": "web", "branch": "run/r1"}])
+
+    def test_a_base_that_does_not_exist_is_an_env_failure_before_the_session(self):
+        session.TASK["repos"][1]["base"] = "nope"
+        self.assertEqual(session._main_task(), 1)
+        tag = self.done_tag()
+        self.assertEqual((tag["outcome"], tag["kind"]), ("fail", "env"))
+        self.assertIsNone(fakes.branch_files(self.tmp, "org/api", "run/r1"))
+
+
 if __name__ == "__main__":
     unittest.main()

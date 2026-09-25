@@ -57,8 +57,12 @@ TASK = _load_task()
 API = f"{TASK.get('gitea', '')}/api/v1"
 REPO = TASK.get("repo", "")
 WORK = os.environ.get("DARK_WORK", "/opt/work")
+# several repositories (task "repos"): each is cloned to MULTI_WORK/<name>
+# and the session runs in MULTI_WORK, above them all
+MULTI_WORK = os.environ.get("DARK_MULTI_WORK", "/work")
 RT = os.environ.get("DARK_RT", "/opt/rt")
 SESSION_DIR = "/opt/pisession"
+PIHOME = os.environ.get("DARK_PIHOME", "/opt/pihome")
 MAX_CALLS = int(TASK.get("max_calls", 6))
 HEARTBEAT = int(TASK.get("heartbeat_seconds", 60))
 SPEC_TEXT = TASK.get("spec", "")
@@ -69,6 +73,15 @@ STREAM_PATH = os.path.join(RECORDS_DIR, "stream.jsonl")
 T0 = time.time()
 
 BRIEF = """You are working alone in the git work tree at {work} (a {lang} project). Implement the task below end to end. The gate is `bash .dark/verify.sh` at the repo root: it must be green when you finish. Commit your work with git when done (any message). Do NOT push, do NOT create branches, do NOT edit .dark/verify.sh or anything under .gitea/, and do not touch files outside this directory.
+
+{grant}
+TASK:
+{spec}
+"""
+
+# several repositories: one work tree per repo under {work}, one branch
+# pushed in each at the end
+MULTI_BRIEF = """You are working alone in {work}, which holds one git work tree per repository: {names}. Implement the task below across them end to end. Where a repository has .dark/verify.sh, `bash .dark/verify.sh` at its root must be green when you finish. Commit your work with git in each repository you change (any message). Do NOT push, do NOT create branches, do NOT edit .dark/verify.sh or anything under .gitea/, and do not touch files outside {work}.
 
 {grant}
 TASK:
@@ -190,11 +203,16 @@ def sh(*cmd, **kw):
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
 
 
+def with_token(url):
+    """An http(s) URL with the agent token in it; any other URL as it is."""
+    if url.startswith("http"):
+        return url.replace("://", f"://dark-agent:{TASK['token']}@", 1)
+    return url
+
+
 def clone_url(repo=None):
     base = TASK.get("git_url") or TASK["gitea"]
-    if base.startswith("http"):
-        base = base.replace("://", f"://dark-agent:{TASK['token']}@", 1)
-    return f"{base}/{repo or REPO}.git"
+    return f"{with_token(base)}/{repo or REPO}.git"
 
 
 # --- records: pi's stream, the brief and task.json, kept ----------------------
@@ -365,25 +383,28 @@ def read_stream(proc, deadline, stream_path=None):
     return killed_for, "".join(tail)
 
 
-def run_session(node, cli, home, deadline, stream_path, review=False):
+def run_session(node, cli, home, deadline, stream_path, review=False, work=None):
+    work = work or WORK
     env = dict(os.environ, HOME=home, PI_OFFLINE="1", NO_COLOR="1", TERM="dumb")
+    grant = TASK.get("may_edit") or []
+    grant = ("Existing files you may rewrite: " + ", ".join(grant) + ". Any other existing file "
+             "must stay as it is.\n" if grant else "Add new files only; do not rewrite an "
+             "existing file unless the task says so.\n")
     if review:
-        brief = REVIEW_BRIEF.format(work=WORK, spec=SPEC_TEXT,
+        brief = REVIEW_BRIEF.format(work=work, spec=SPEC_TEXT,
                                     files=", ".join(TASK.get("review_files") or []))
+    elif TASK.get("repos"):
+        brief = MULTI_BRIEF.format(work=work, names=", ".join(r["name"] for r in TASK["repos"]),
+                                   spec=SPEC_TEXT, grant=grant)
     else:
-        grant = TASK.get("may_edit") or []
-        brief = BRIEF.format(
-            work=WORK, lang=TASK.get("lang") or "software", spec=SPEC_TEXT,
-            grant=("Existing files you may rewrite: " + ", ".join(grant) + ". Any other existing file "
-                   "must stay as it is.\n" if grant else "Add new files only; do not rewrite an "
-                   "existing file unless the task says so.\n"))
+        brief = BRIEF.format(work=work, lang=TASK.get("lang") or "software", spec=SPEC_TEXT, grant=grant)
     cmd = [node, cli, "--provider", "dark", "--model", TASK["llm_model"], "--api-key", "unused",
            "--mode", "json", "--session-dir", SESSION_DIR, "--no-context-files", "--no-extensions",
            "--no-skills", "--no-prompt-templates", "--approve", "-p", brief]
     lvl = THINK.get(TASK.get("think") or "")
     if lvl:
         cmd += ["--thinking", lvl]
-    proc = subprocess.Popen(cmd, cwd=WORK, env=env, stdout=subprocess.PIPE,
+    proc = subprocess.Popen(cmd, cwd=work, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, bufsize=1)
     killed_for, tail = read_stream(proc, deadline, stream_path)
     try:
@@ -394,12 +415,39 @@ def run_session(node, cli, home, deadline, stream_path, review=False):
     return killed_for, tail, err, proc.returncode
 
 
-def verify():
-    if os.path.exists(f"{WORK}/.dark/verify.sh"):
-        r = sh("bash", ".dark/verify.sh")
+def verify(work=None, fallback=True):
+    """verify.sh in `work`, else (with `fallback`) the unittest default. A
+    repository of several that has no verify.sh is not gated: (True, "")."""
+    work = work or WORK
+    if os.path.exists(f"{work}/.dark/verify.sh"):
+        r = sh("bash", ".dark/verify.sh", cwd=work)
+    elif fallback:
+        r = sh("python3", "-m", "unittest", "discover", "-v", cwd=work)
     else:
-        r = sh("python3", "-m", "unittest", "discover", "-v")
+        return True, ""
     return r.returncode == 0, (r.stdout + r.stderr)[-4000:]
+
+
+def clone_trees():
+    """[(name, work tree)] for this run, cloned, or (None, why) when a clone
+    failed. One repository (`repo`) is cloned to WORK; several (`repos`, a
+    list of {name, url, base}) each to MULTI_WORK/<name> on its base."""
+    repos = TASK.get("repos") or []
+    if not repos:
+        r = subprocess.run(["git", "clone", "-q", clone_url(), WORK], capture_output=True, text=True)
+        if r.returncode != 0:
+            return None, "clone failed: " + scrub(r.stderr[-300:])
+        return [(REPO, WORK)], ""
+    os.makedirs(MULTI_WORK, exist_ok=True)
+    trees = []
+    for entry in repos:
+        d = os.path.join(MULTI_WORK, entry["name"])
+        r = subprocess.run(["git", "clone", "-q", "--branch", entry["base"], with_token(entry["url"]), d],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            return None, f"clone {entry['name']} failed: " + scrub(r.stderr[-300:])
+        trees.append((entry["name"], d))
+    return trees, ""
 
 
 def main():
@@ -418,18 +466,21 @@ def _main():
 
 
 def _main_task():
-    r = subprocess.run(["git", "clone", "-q", clone_url(), WORK], capture_output=True, text=True)
-    if r.returncode != 0:
-        return fail("env", "clone failed: " + scrub(r.stderr[-300:]))
-    sh("git", "config", "user.name", "dark-session")
-    sh("git", "config", "user.email", "dark-session@localhost")
-    sh("git", "switch", "-qc", TASK["branch"])
-    base_sha = sh("git", "rev-parse", "HEAD").stdout.strip()
+    trees, why = clone_trees()
+    if trees is None:
+        return fail("env", why)
+    bases = {}
+    for name, d in trees:
+        sh("git", "config", "user.name", "dark-session", cwd=d)
+        sh("git", "config", "user.email", "dark-session@localhost", cwd=d)
+        sh("git", "switch", "-qc", TASK["branch"], cwd=d)
+        bases[name] = sh("git", "rev-parse", "HEAD", cwd=d).stdout.strip()
+    work = MULTI_WORK if TASK.get("repos") else WORK
 
     PROGRESS.start(f"AGENT-ALIVE run {TASK.get('run')} model {TASK['llm_model']} "
                    f"envelope {MAX_CALLS} calls (session arm)\n"
                    + tag("start", model=TASK["llm_model"], calls_max=MAX_CALLS))
-    home = "/opt/pihome"
+    home = PIHOME
     os.makedirs(home, exist_ok=True)
     try:
         node, cli = fetch_runtime()
@@ -440,10 +491,17 @@ def _main_task():
     os.makedirs(RECORDS_DIR, exist_ok=True)
     deadline = T0 + int(TASK.get("max_seconds") or 900)
     try:
-        killed_for, tail, err, rc = run_session(node, cli, home, deadline, STREAM_PATH)
+        killed_for, tail, err, rc = run_session(node, cli, home, deadline, STREAM_PATH, work=work)
     except OSError as e:
         return fail("env", f"pi did not start: {e}")
-    ok, out = verify()
+    ok, out = True, ""
+    for name, d in trees:
+        # one repository keeps the unittest default; of several, only the
+        # ones that carry a verify.sh are gated
+        ok, out = verify(d, fallback=not TASK.get("repos"))
+        if not ok:
+            out = f"{name}: {out}" if TASK.get("repos") else out
+            break
     PROGRESS.add(tag("verify", ok=ok, iter=STATS["calls"], calls=STATS["calls"]))
 
     # whatever the session left is the delivery, exactly as a chat arm hands
@@ -451,10 +509,12 @@ def _main_task():
     # everything. The brief asks the session to commit, and it usually has, so
     # this commit is for what it left uncommitted and a "nothing to commit"
     # here is not a session that did nothing: only a HEAD that never moved is.
-    sh("git", "add", "-A")
-    sh("git", "commit", "-qm",
-       f"dark session: {TASK.get('task', 'task')} ({TASK.get('run', 'run')})")
-    head_sha = sh("git", "rev-parse", "HEAD").stdout.strip()
+    heads = {}
+    for name, d in trees:
+        sh("git", "add", "-A", cwd=d)
+        sh("git", "commit", "-qm",
+           f"dark session: {TASK.get('task', 'task')} ({TASK.get('run', 'run')})", cwd=d)
+        heads[name] = sh("git", "rev-parse", "HEAD", cwd=d).stdout.strip()
     if killed_for == "calls":
         return fail("calls", f"call envelope ({MAX_CALLS}) spent\n```\n{tail[-800:]}\n```")
     if killed_for == "seconds":
@@ -463,16 +523,20 @@ def _main_task():
         return fail("llm", f"pi made no model call (rc {rc})\n```\n{err[-600:]}\n```")
     if not ok:
         return fail("calls", f"verify.sh red when the session ended\n```\n{out[-800:]}\n```")
-    if head_sha == base_sha:
+    if heads == bases:
         return fail("no_blocks", "the session left no commit and no change")
-    sh("git", "push", "-q", "origin", "--delete", TASK["branch"])
-    push = sh("git", "push", "-q", "origin", f"HEAD:{TASK['branch']}")
-    if push.returncode != 0:
-        return fail("push", "push failed: " + scrub(push.stderr[-600:]))
+    pushed = []
+    for name, d in trees:
+        sh("git", "push", "-q", "origin", "--delete", TASK["branch"], cwd=d)
+        push = sh("git", "push", "-q", "origin", f"HEAD:{TASK['branch']}", cwd=d)
+        if push.returncode != 0:
+            return fail("push", f"push {name} failed: " + scrub(push.stderr[-600:]), branches=pushed)
+        pushed.append({"repo": name, "branch": TASK["branch"]})
     gap = ("" if STATS["asked"] == STATS["tool_calls"]
            else f" (asked {STATS['asked']}, ran {STATS['tool_calls']})")
     comment(f"AGENT-DONE ok calls={STATS['calls']} tool_calls={STATS['tool_calls']}{gap} "
-            f"branch={TASK['branch']}\n" + done("ok", branch=TASK["branch"], **records_kw()))
+            f"branch={TASK['branch']}\n"
+            + done("ok", branch=TASK["branch"], branches=pushed, **records_kw()))
     return 0
 
 
@@ -500,7 +564,7 @@ def _main_review():
     PROGRESS.start(f"AGENT-ALIVE run {TASK.get('run')} model {TASK['llm_model']} "
                    f"envelope {MAX_CALLS} calls (review mode)\n"
                    + tag("start", model=TASK["llm_model"], calls_max=MAX_CALLS))
-    home = "/opt/pihome"
+    home = PIHOME
     os.makedirs(home, exist_ok=True)
     try:
         node, cli = fetch_runtime()
