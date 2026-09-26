@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-26
+
 ### Added
 
 - `inconclusive` is an outcome of its own: a user-arm run in which no step failed but at least one could not be judged ends as `inconclusive` with the tally as its detail and no failure kind, instead of `fail:structural`. It is terminal, never a failure outcome and never escalates.
