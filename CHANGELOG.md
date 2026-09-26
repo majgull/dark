@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The user arm's quote check accepts what the model quotes from the page: the evidence is split into fragments on dashes, semicolons and sentence ends, each fragment is matched against the snapshot text with role prefixes (`button "…":`, `text:` and the like) removed, and a refused quote names the first missing fragment. A wait action never counts toward the stuck rule.
 - A verdict answer never counts toward the user arm's stuck rule: a pass whose quote is not found on the page is refused and asked again, and three refused quotes end the step as `inconclusive` with the quote in the note. The quote check now matches text that spans adjacent snapshot lines, with whitespace, dashes and quote marks collapsed.
 
 ## [0.6.0] - 2026-09-26

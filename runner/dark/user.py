@@ -12,11 +12,15 @@ step text, the notes of the steps already finished, and the page's
 accessibility snapshot; the action is performed, and the model is asked
 again until it gives the step a verdict, pass, fail or inconclusive, with
 one line of note. A pass verdict must quote the page in its `evidence`
-field, and is accepted only when that quote is found in the snapshot the
-model was shown for that call, compared with case, whitespace and the
-punctuation at a line edge ignored. A step that runs out of calls, repeats one
+field, and is accepted only when every fragment of that quote is found in
+the snapshot the model was shown for that call, compared with case,
+whitespace and the punctuation at a line edge ignored, with the snapshot's
+role prefixes taken off and with a fragment boundary drawn where the model
+joined separate elements. A step that runs out of calls, repeats one
 browser action on an unchanged page, or repeats one refused pass verdict on
-an unchanged page, is recorded inconclusive by the arm itself. Then a screenshot is taken as <records>/steps/<NN>.png, a trail is
+an unchanged page, is recorded inconclusive by the arm itself; a wait only
+passes time and never counts toward the repetition. Then a screenshot is
+taken as <records>/steps/<NN>.png, a trail is
 written as <records>/steps/<NN>.trail.jsonl (one line per action: when it
 happened, what it acted on, and the requests the page made before the next
 snapshot) and {step, verdict, note} is appended to <records>/steps.jsonl,
@@ -54,6 +58,10 @@ except ImportError:  # injected as /opt/user.py beside /opt/session.py and run a
 
 SNAPSHOT_CHARS = 12000  # the page as the model sees it, cut to this
 JOIN_CHARS = "—–-\"'…."  # the punctuation an accessibility snapshot puts at a line's edge
+MIN_FRAGMENT = 8  # a quote part this short is a word, not a quote: it keeps its neighbour
+FRAGMENT_SPLIT = re.compile(r"\s[—–-]\s|;\s+|\.\s+")  # where a model joins separate page elements
+LINE_MARKER = re.compile(r"^[-*]\s+")  # the `- ` an accessibility tree puts before a node
+ROLE_PREFIX = re.compile(r'^[a-z][a-z-]*(?:\s+"[^"]*")?\s*:')  # `button "Open": ` / `text: `
 ACTION_TIMEOUT_MS = 10000
 VIEWPORT = {"width": 1280, "height": 720}  # Playwright's default, spelled out: the video is this size too
 TRACE_FILE, VIDEO_FILE = "trace.zip", "video.webm"  # beside steps.jsonl in the records
@@ -116,12 +124,73 @@ def _normalised(text):
     return " ".join(trimmed.split())
 
 
+def strip_roles(tree):
+    """The accessibility tree with its role prefixes taken off: the line
+    marker, then a leading `role "name":` or `role:` token, so
+    `- button "Open Road Trip": Road Trip` is `Road Trip` and
+    `- text: 20 of 20 saved` is `20 of 20 saved`. A line with no such token,
+    `- heading "Shop"`, is left as it is, so a quote of the snapshot's own
+    words still matches."""
+    out = []
+    for line in str(tree or "").splitlines():
+        line = LINE_MARKER.sub("", line.strip(), count=1)
+        out.append(ROLE_PREFIX.sub("", line, count=1))
+    return "\n".join(out)
+
+
+def page_text(snapshot):
+    """The snapshot as evidence is looked for in it: role prefixes removed,
+    then collapsed by `_normalised`, which also joins adjacent lines."""
+    return _normalised(strip_roles(snapshot))
+
+
+def evidence_fragments(evidence):
+    """The parts a pass verdict's quote is checked in, in order: the quote is
+    split where a model joins separate page elements, an em dash or a hyphen
+    between spaces, `; ` or `. `, and a part under `MIN_FRAGMENT` characters
+    keeps the part beside it, because a short part alone is the model's own
+    punctuation and not a quote. So `A — Nujabes - Feather` is two fragments,
+    `A` and `Nujabes - Feather`."""
+    text = str(evidence or "")
+    parts, seps, pos = [], [], 0
+    for m in FRAGMENT_SPLIT.finditer(text):
+        parts.append(text[pos:m.start()])
+        seps.append(m.group(0))
+        pos = m.end()
+    parts.append(text[pos:])
+    groups = []  # [text, the separator that began it]
+    for i, part in enumerate(parts):
+        sep = seps[i - 1] if i else ""
+        if groups and len(_normalised(groups[-1][0])) < MIN_FRAGMENT:
+            groups[-1][0] += sep + part  # too short to stand alone: it stays
+        else:
+            groups.append([part, sep])
+    if len(groups) > 1 and len(_normalised(groups[-1][0])) < MIN_FRAGMENT:
+        tail = groups.pop()
+        groups[-1][0] += tail[1] + tail[0]
+    return [g[0].strip() for g in groups if g[0].strip()]
+
+
+def first_missing_fragment(evidence, snapshot):
+    """The first fragment of a pass verdict's quote that is not on the page,
+    or None when every one is; a blank quote answers "", nothing to look for,
+    which a caller reads as a refusal. The fragments have their role prefixes
+    taken off too, so a quote of the snapshot's own format is found."""
+    fragments = evidence_fragments(evidence)
+    if not fragments:
+        return ""
+    page = page_text(snapshot)
+    for fragment in fragments:
+        if _normalised(strip_roles(fragment)) not in page:
+            return fragment
+    return None
+
+
 def evidence_on_page(evidence, snapshot):
-    """Whether a pass verdict's quote is really on the page: both the quote
-    and the snapshot are normalised by `_normalised`, and the quote must
-    occur in the snapshot. A missing or blank quote never counts."""
-    quote = _normalised(evidence)
-    return bool(quote) and quote in _normalised(snapshot)
+    """Whether a pass verdict's quote is really on the page: every fragment
+    `first_missing_fragment` looks for is found. A missing or blank quote
+    never counts."""
+    return first_missing_fragment(evidence, snapshot) is None
 
 
 def earlier_steps(results):
@@ -406,7 +475,10 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     "seconds" when the envelope ran out. A step that ran out of calls,
     repeated one browser action on an unchanged snapshot, or repeated one
     refused pass verdict on an unchanged snapshot, is `inconclusive` with the
-    reason in `note`; a spent calls envelope leaves the steps it did not
+    reason in `note`; the repeated-action count starts again whenever the
+    snapshot changes, and a `wait`, which only passes time, never counts
+    toward it, so a step may wait as long as its call budget allows; a spent
+    calls envelope leaves the steps it did not
     reach inconclusive too, never failed. Each step that was taken leaves
     <records_dir>/steps/<NN>.png and its trail, one {t, action, target,
     requests} line per action, as <records_dir>/steps/<NN>.trail.jsonl. The
@@ -445,6 +517,7 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             S.STATS["calls"] += 1
             S.STATS["requests"] += 1
             action = model.next_action(n, text, page.url(), snap, history, earlier=results)
+            is_wait = action.get("do") == "wait"  # a wait only passes time: it never counts as stuck
             key = json.dumps(action, sort_keys=True)
             entry = {"step": n, "call": S.STATS["calls"], "url": page.url(), "snapshot_chars": len(snap),
                      "action": action}
@@ -454,8 +527,12 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                 elif action.get("verdict") == "pass" and not evidence_on_page(action.get("evidence"),
                                                                               shown_snapshot(snap)):
                     # a pass without the page's own words is no pass: refuse it
-                    # and ask again, which costs another call like any call
-                    history.append({"action": action, "error": "evidence not found on the page"})
+                    # and ask again, which costs another call like any call; the
+                    # refusal names the fragment the page did not show
+                    missing = first_missing_fragment(action.get("evidence"), shown_snapshot(snap))
+                    history.append({"action": action,
+                                    "error": (f'evidence not found on the page: "{missing}"' if missing
+                                              else "evidence not found on the page")})
                     # a verdict is not an action: it never feeds the stuck count,
                     # but the same refused verdict three times tells the model
                     # nothing new either, so the step ends naming the quote
@@ -468,9 +545,11 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                 history.append({"action": action, "error": "not one JSON action; reply with one JSON object"})
             else:
                 # only a browser action can be stuck; a verdict in between
-                # resets nothing and counts for nothing
-                repeats = repeats + 1 if prev == (snap, key) else 1
-                prev = (snap, key)
+                # resets nothing and counts for nothing, and a wait never
+                # counts at all, so a step may wait its whole call budget
+                if not is_wait:
+                    repeats = repeats + 1 if prev == (snap, key) else 1
+                    prev = (snap, key)
                 S.STATS["tool_calls"] += 1
                 _drain(page)  # requests the model call itself made are no action's
                 try:
@@ -481,7 +560,7 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                 trail.append({"t": round(clock() - step_start, 3), "action": action,
                               "target": action_target(action), "requests": []})
                 pending = trail[-1]
-            if verdict is None and repeats >= 3:
+            if verdict is None and not is_wait and repeats >= 3:
                 # the same browser action on an unchanged page three times: no
                 # new information can reach the model, so the step stays unjudged
                 verdict, note = "inconclusive", f"stuck: {action_target(action)}"
