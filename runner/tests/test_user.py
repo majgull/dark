@@ -350,6 +350,36 @@ class Steps(unittest.TestCase):
                                     page)
         self.assertEqual(results[0]["evidence"], 'heading "Shop"')
 
+    def test_a_quote_spanning_two_snapshot_lines_matches(self):
+        page = FakePage(snapshot='Yesterday — 19:40\nSunday Morning: 18 songs')
+        quote = 'Yesterday — 19:40 Sunday Morning: 18 songs'
+        results, _ = self.run_steps(ScriptedModel([verdict(evidence=quote, note="yesterday's history"),
+                                                   verdict(evidence="Sunday Morning: 18 songs"),
+                                                   verdict(evidence="Sunday Morning: 18 songs")]), page)
+        self.assertEqual(results[0]["verdict"], "pass")
+        self.assertEqual(results[0]["evidence"], quote)
+
+    def test_a_line_join_ignores_case_and_edge_punctuation(self):
+        # the snapshot's bullets and quotes, and the em dash between the day
+        # and the clock, are not parts of the words on the page
+        page = FakePage(snapshot='- "Yesterday — 19:40"\n- "Sunday Morning: 18 songs"')
+        results, _ = self.run_steps(ScriptedModel([verdict(evidence="yesterday 19:40 sunday morning: 18 songs",
+                                                           note="the history is there"),
+                                                   verdict(evidence="Sunday Morning: 18 songs"),
+                                                   verdict(evidence="Sunday Morning: 18 songs")]), page)
+        self.assertEqual(results[0]["verdict"], "pass")
+
+    def test_evidence_spanning_lines_but_not_on_the_page_is_still_refused(self):
+        page = FakePage(snapshot='- "Yesterday — 19:40"\n- "Sunday Morning: 18 songs"')
+        model = ScriptedModel([verdict(evidence="Yesterday — 20:40 Sunday Morning: 18 songs",
+                                       note="wrong time"),
+                               verdict(evidence="Sunday Morning: 18 songs"),
+                               verdict(evidence="Sunday Morning: 18 songs"),
+                               verdict(evidence="Sunday Morning: 18 songs")])
+        results, _ = self.run_steps(model, page)
+        self.assertEqual(model.asked[1]["history"][0]["error"], "evidence not found on the page")
+        self.assertEqual(results[0]["verdict"], "pass")
+
     def test_a_pass_whose_quote_is_not_on_the_page_is_refused_and_asked_again(self):
         page = FakePage(snapshot='- heading "Shop"\n- text "job 17: printing"')
         model = ScriptedModel([verdict(evidence="job 18", note="job 18 shipped"),
@@ -421,6 +451,33 @@ class Steps(unittest.TestCase):
         self.assertEqual(results[0], {"step": 1, "verdict": "inconclusive", "note": 'stuck: button "Buy"'})
         self.assertEqual([r["verdict"] for r in results[1:]], ["pass", "pass"])
         self.assertEqual(S.STATS["calls"], 5)
+
+    def test_a_refused_verdict_never_counts_as_stuck_and_names_the_quote(self):
+        quote = ("job 18: shipped to the customer in the north warehouse and signed "
+                 "for by the receiver on Tuesday")
+        page = FakePage(snapshot='- heading "Shop"\n- text "job 17: queued"')
+        model = ScriptedModel([verdict(evidence=quote, note="job 18 shipped")] * 3
+                              + [verdict(), verdict()])
+        results, stop = self.run_steps(model, page)
+        self.assertIsNone(stop)
+        self.assertEqual(results[0]["verdict"], "inconclusive")
+        self.assertEqual(results[0]["note"], "evidence not found: " + quote[:80])
+        self.assertNotIn("stuck", results[0]["note"])
+        self.assertEqual([r["verdict"] for r in results[1:]], ["pass", "pass"])
+        self.assertEqual(S.STATS["calls"], 5)
+
+    def test_a_verdict_between_identical_clicks_does_not_reset_the_stuck_count(self):
+        # a verdict resets nothing: the same click on an unchanged page is
+        # still stuck after three of them, however many verdicts came between
+        click = {"do": "click", "role": "button", "name": "Buy"}
+        refused = verdict(evidence="job 18", note="job 18 shipped")
+        model = ScriptedModel([click, refused, click, refused, click,
+                               verdict(), verdict()])
+        page = FakePage(snapshot='- heading "Shop"\n- text "job 17: queued"')
+        results, stop = self.run_steps(model, page)
+        self.assertIsNone(stop)
+        self.assertEqual(results[0], {"step": 1, "verdict": "inconclusive", "note": 'stuck: button "Buy"'})
+        self.assertEqual([r["verdict"] for r in results[1:]], ["pass", "pass"])
 
     def test_the_call_envelope_leaves_the_step_it_ran_out_in_inconclusive(self):
         model = ScriptedModel([verdict(), {"do": "wait", "seconds": 1}, {"do": "wait", "seconds": 1}])

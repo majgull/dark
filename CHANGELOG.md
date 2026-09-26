@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A verdict answer never counts toward the user arm's stuck rule: a pass whose quote is not found on the page is refused and asked again, and three refused quotes end the step as `inconclusive` with the quote in the note. The quote check now matches text that spans adjacent snapshot lines, with whitespace, dashes and quote marks collapsed.
+
 ## [0.6.0] - 2026-09-26
 
 ### Added

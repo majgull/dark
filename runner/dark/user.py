@@ -13,9 +13,10 @@ accessibility snapshot; the action is performed, and the model is asked
 again until it gives the step a verdict, pass, fail or inconclusive, with
 one line of note. A pass verdict must quote the page in its `evidence`
 field, and is accepted only when that quote is found in the snapshot the
-model was shown for that call. A step that runs out of calls, or repeats
-one action on an unchanged page, is recorded inconclusive by the arm
-itself. Then a screenshot is taken as <records>/steps/<NN>.png, a trail is
+model was shown for that call, compared with case, whitespace and the
+punctuation at a line edge ignored. A step that runs out of calls, repeats one
+browser action on an unchanged page, or repeats one refused pass verdict on
+an unchanged page, is recorded inconclusive by the arm itself. Then a screenshot is taken as <records>/steps/<NN>.png, a trail is
 written as <records>/steps/<NN>.trail.jsonl (one line per action: when it
 happened, what it acted on, and the requests the page made before the next
 snapshot) and {step, verdict, note} is appended to <records>/steps.jsonl,
@@ -52,6 +53,7 @@ except ImportError:  # injected as /opt/user.py beside /opt/session.py and run a
     import session as S  # noqa: E402
 
 SNAPSHOT_CHARS = 12000  # the page as the model sees it, cut to this
+JOIN_CHARS = "—–-\"'…."  # the punctuation an accessibility snapshot puts at a line's edge
 ACTION_TIMEOUT_MS = 10000
 VIEWPORT = {"width": 1280, "height": 720}  # Playwright's default, spelled out: the video is this size too
 TRACE_FILE, VIDEO_FILE = "trace.zip", "video.webm"  # beside steps.jsonl in the records
@@ -103,15 +105,21 @@ def shown_snapshot(snapshot):
 
 
 def _normalised(text):
-    """Whitespace squeezed to single spaces, how evidence and page are
-    compared, so a quote copied across a line break still matches."""
-    return " ".join(str(text or "").split())
+    """How evidence and page are compared: lower-cased, every run of
+    whitespace, a line break included, squeezed to one space, and the
+    punctuation that decorates a line edge—dashes, quotes, ellipsis, full
+    stops—dropped at either side of every space, so a quote copied across two
+    or three adjacent snapshot lines still matches."""
+    squeezed = " ".join(str(text or "").lower().split())
+    edge = re.escape(JOIN_CHARS)
+    trimmed = re.sub(rf"(?<=\s)[{edge}]+|[{edge}]+(?=\s)|^[{edge}]+|[{edge}]+$", "", squeezed)
+    return " ".join(trimmed.split())
 
 
 def evidence_on_page(evidence, snapshot):
     """Whether a pass verdict's quote is really on the page: both the quote
-    and the snapshot are whitespace-normalised, and the quote must occur in
-    the snapshot. A missing or blank quote never counts."""
+    and the snapshot are normalised by `_normalised`, and the quote must
+    occur in the snapshot. A missing or blank quote never counts."""
     quote = _normalised(evidence)
     return bool(quote) and quote in _normalised(snapshot)
 
@@ -395,8 +403,9 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     results is one {step, verdict, note} per step, in order, a pass also
     carrying the evidence it was accepted on, as also appended to
     <records_dir>/steps.jsonl; stop is None, or "calls" /
-    "seconds" when the envelope ran out. A step that ran out of calls, or
-    repeated one action on an unchanged snapshot, is `inconclusive` with the
+    "seconds" when the envelope ran out. A step that ran out of calls,
+    repeated one browser action on an unchanged snapshot, or repeated one
+    refused pass verdict on an unchanged snapshot, is `inconclusive` with the
     reason in `note`; a spent calls envelope leaves the steps it did not
     reach inconclusive too, never failed. Each step that was taken leaves
     <records_dir>/steps/<NN>.png and its trail, one {t, action, target,
@@ -418,6 +427,7 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             continue
         history, verdict, note, evidence = [], None, "", ""
         trail, pending, repeats, prev = [], None, 0, None
+        refusals, refused_prev = 0, None  # the same refused pass verdict, an unchanged page
         step_start = clock()
         _drain(page)  # nothing the page did before this step belongs to it
         while verdict is None:
@@ -436,8 +446,6 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             S.STATS["requests"] += 1
             action = model.next_action(n, text, page.url(), snap, history, earlier=results)
             key = json.dumps(action, sort_keys=True)
-            repeats = repeats + 1 if prev == (snap, key) else 1
-            prev = (snap, key)
             entry = {"step": n, "call": S.STATS["calls"], "url": page.url(), "snapshot_chars": len(snap),
                      "action": action}
             if action.get("do") == "verdict":
@@ -448,12 +456,21 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                     # a pass without the page's own words is no pass: refuse it
                     # and ask again, which costs another call like any call
                     history.append({"action": action, "error": "evidence not found on the page"})
+                    # a verdict is not an action: it never feeds the stuck count,
+                    # but the same refused verdict three times tells the model
+                    # nothing new either, so the step ends naming the quote
+                    refusals = refusals + 1 if refused_prev == (snap, key) else 1
+                    refused_prev = (snap, key)
                 else:
                     verdict, note = action["verdict"], str(action.get("note") or "")[:300]
                     evidence = str(action.get("evidence") or "") if verdict == "pass" else ""
             elif action.get("do") == "invalid":
                 history.append({"action": action, "error": "not one JSON action; reply with one JSON object"})
             else:
+                # only a browser action can be stuck; a verdict in between
+                # resets nothing and counts for nothing
+                repeats = repeats + 1 if prev == (snap, key) else 1
+                prev = (snap, key)
                 S.STATS["tool_calls"] += 1
                 _drain(page)  # requests the model call itself made are no action's
                 try:
@@ -465,9 +482,13 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                               "target": action_target(action), "requests": []})
                 pending = trail[-1]
             if verdict is None and repeats >= 3:
-                # the same answer on an unchanged page three times: no new
-                # information can reach the model, so the step stays unjudged
+                # the same browser action on an unchanged page three times: no
+                # new information can reach the model, so the step stays unjudged
                 verdict, note = "inconclusive", f"stuck: {action_target(action)}"
+            elif verdict is None and refusals >= 3:
+                # the same refused pass verdict three times: end the step and
+                # say what the model quoted, rather than call the verdict stuck
+                verdict, note = "inconclusive", f"evidence not found: {str(action.get('evidence') or '')[:80]}"
             entry["result"] = history[-1] if history and verdict is None else {"verdict": verdict}
             _append(stream, entry)
         saw = _seen_errors(trail)
