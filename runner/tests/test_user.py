@@ -11,9 +11,13 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
+import urllib.error
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 from dark import budget, config, spec, tasks
@@ -77,6 +81,49 @@ class FakePage:
 
     def close(self):
         self.closed = True
+
+
+class ServerPage(FakePage):
+    """A page that, like a browser, issues the page's own request when the
+    Like button is clicked: a real GET to the local server, recorded for the
+    trail the way PlaywrightPage records its network events."""
+
+    def __init__(self, base):
+        super().__init__(snapshot='- heading "Shop"\n- button "Like"')
+        self.base = base
+        self.pending = []
+
+    def act(self, action):
+        if action.get("do") == "click" and action.get("name") == "Like":
+            url = self.base + "/api/liked"
+            try:
+                urllib.request.urlopen(url, timeout=5)
+            except urllib.error.HTTPError as e:
+                self.pending.append({"method": "GET", "url": url, "status": e.code})
+        super().act(action)
+
+    def drain_requests(self):
+        out, self.pending = self.pending, []
+        return out
+
+
+class _LikeHandler(BaseHTTPRequestHandler):
+    """A page whose /api/liked answers 502; every other path answers the page
+    with the button."""
+
+    def do_GET(self):
+        if self.path == "/api/liked":
+            body, code = b"bad gateway", 502
+        else:
+            body, code = b'<html><body><button>Like</button></body></html>', 200
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
 
 
 class RecordedPage(FakePage):
@@ -145,6 +192,27 @@ class FakePlaywright:
         return [kw for n, kw in self.calls if n == name]
 
 
+class FakeEventPage:
+    """Playwright's Page as PlaywrightPage uses it: the video handle plus the
+    request/response streams the trail listens to. `emit` feeds one event to
+    the handlers registered for it."""
+
+    def __init__(self, pw, kw):
+        self.pw, self.kw = pw, kw
+        self.video = None
+        self.handlers = {}
+
+    def on(self, event, handler):
+        self.handlers.setdefault(event, []).append(handler)
+
+    def emit(self, event, obj):
+        for handler in self.handlers.get(event, []):
+            handler(obj)
+
+    def goto(self, url, **kw):
+        self.url = url
+
+
 class FakeContext:
     def __init__(self, pw, kw):
         self.pw, self.kw = pw, kw
@@ -162,7 +230,8 @@ class FakeContext:
 
     def new_page(self):
         self.pw._call("new_page")
-        page = types.SimpleNamespace(video=None)
+        page = FakeEventPage(self.pw, self.kw)
+        self.page = page
         if self.kw.get("record_video_dir"):
             if self.pw.no_video:
                 raise RuntimeError("Executable doesn't exist at /root/.cache/ms-playwright/ffmpeg-1011/ffmpeg-linux")
@@ -230,7 +299,8 @@ class Steps(unittest.TestCase):
         self.assertIsNone(stop)
         self.assertEqual(page.shots, ["01.png", "02.png", "03.png"])
         self.assertEqual(sorted(os.listdir(os.path.join(self.records, "steps"))),
-                         ["01.png", "02.png", "03.png"])
+                         ["01.png", "01.trail.jsonl", "02.png", "02.trail.jsonl",
+                          "03.png", "03.trail.jsonl"])
         want = [{"step": 1, "verdict": "pass", "note": "the form is shown", "evidence": "Shop"},
                 {"step": 2, "verdict": "pass", "note": "signed in as demo", "evidence": "Shop"},
                 {"step": 3, "verdict": "pass", "note": "the cart holds one item", "evidence": "Shop"}]
@@ -322,15 +392,43 @@ class Steps(unittest.TestCase):
         results, _ = self.run_steps(model, FakePage())
         self.assertEqual([r["verdict"] for r in results], ["pass", "pass", "pass"])
         self.assertIn("JSON", model.asked[1]["history"][0]["error"])
-        self.assertIn("pass or fail", model.asked[3]["history"][0]["error"])
+        self.assertIn("inconclusive", model.asked[3]["history"][0]["error"])
         self.assertEqual(S.STATS["calls"], 5)
 
-    def test_the_call_envelope_fails_the_step_it_ran_out_in_and_every_step_after(self):
+    def test_a_model_inconclusive_verdict_is_recorded_and_never_fail(self):
+        model = ScriptedModel([verdict("inconclusive", "the page showed nothing to judge"),
+                               verdict(), verdict()])
+        results, stop = self.run_steps(model, FakePage())
+        self.assertIsNone(stop)
+        self.assertEqual([r["verdict"] for r in results], ["inconclusive", "pass", "pass"])
+        self.assertEqual(results[0]["note"], "the page showed nothing to judge")
+        self.assertNotIn("evidence", results[0])
+        self.assertEqual(self.jsonl(), results)
+
+    def test_calls_exhausted_records_inconclusive_on_the_step_and_after(self):
+        model = ScriptedModel([{"do": "wait", "seconds": 1}, {"do": "wait", "seconds": 1}])
+        results, stop = self.run_steps(model, FakePage(), max_calls=2)
+        self.assertEqual(stop, "calls")
+        self.assertEqual([r["verdict"] for r in results], ["inconclusive"] * 3)
+        self.assertEqual(results[0]["note"], "calls exhausted")
+        self.assertEqual(self.jsonl(), results)
+
+    def test_a_repeated_action_on_an_unchanged_page_is_stuck(self):
+        model = ScriptedModel([{"do": "click", "role": "button", "name": "Buy"}] * 3
+                              + [verdict(), verdict(), verdict()])
+        results, stop = self.run_steps(model, FakePage())
+        self.assertIsNone(stop)
+        self.assertEqual(results[0], {"step": 1, "verdict": "inconclusive", "note": 'stuck: button "Buy"'})
+        self.assertEqual([r["verdict"] for r in results[1:]], ["pass", "pass"])
+        self.assertEqual(S.STATS["calls"], 5)
+
+    def test_the_call_envelope_leaves_the_step_it_ran_out_in_inconclusive(self):
         model = ScriptedModel([verdict(), {"do": "wait", "seconds": 1}, {"do": "wait", "seconds": 1}])
         page = FakePage()
         results, stop = self.run_steps(model, page, max_calls=3)
         self.assertEqual(stop, "calls")
-        self.assertEqual([r["verdict"] for r in results], ["pass", "fail", "fail"])
+        self.assertEqual([r["verdict"] for r in results], ["pass", "inconclusive", "inconclusive"])
+        self.assertEqual(results[1]["note"], "calls exhausted")
         self.assertIn("not reached", results[2]["note"])
         self.assertEqual(page.shots, ["01.png", "02.png"])  # step 3 was never taken
         self.assertEqual(len(self.jsonl()), 3)
@@ -344,6 +442,53 @@ class Steps(unittest.TestCase):
         self.assertEqual(U.parse_action('Sure.\n{"do": "press", "key": "Enter"}'), {"do": "press", "key": "Enter"})
         self.assertEqual(U.parse_action("click it")["do"], "invalid")
         self.assertEqual(U.parse_action('{"verdict": "pass"}')["do"], "invalid")
+
+
+class Trail(unittest.TestCase):
+    """Item 2: every step leaves a trail.jsonl beside its screenshot, one line
+    per action with the requests the page made before the next snapshot, and
+    a 4xx/5xx is named in the step's note in steps.jsonl."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        reset_session(self.tmp, {"token": TOKEN})
+        self.records = S.RECORDS_DIR
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), _LikeHandler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.shutdown)
+        self.addCleanup(self.server.server_close)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def trail(self, n):
+        with open(os.path.join(self.records, "steps", f"{n:02d}.trail.jsonl")) as f:
+            return [json.loads(l) for l in f]
+
+    def test_a_502_fetch_lands_in_the_trail_and_names_it_in_the_step_note(self):
+        model = ScriptedModel([{"do": "click", "role": "button", "name": "Like"},
+                               verdict("fail", "the like came back an error"),
+                               verdict(), verdict()])
+        results, stop = U.run_steps(model, ServerPage(self.base), "https://app.example.test/",
+                                    STEPS, self.records, 20, 1e12)
+        self.assertIsNone(stop)
+        lines = self.trail(1)
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(lines[0]["action"], {"do": "click", "role": "button", "name": "Like"})
+        self.assertEqual(lines[0]["target"], 'button "Like"')
+        self.assertIsInstance(lines[0]["t"], (int, float))
+        self.assertEqual(lines[0]["requests"],
+                         [{"method": "GET", "url": self.base + "/api/liked", "status": 502}])
+        self.assertIn("saw 502 GET /api/liked", results[0]["note"])
+        self.assertIn("the like came back an error", results[0]["note"])
+        self.assertEqual([r["verdict"] for r in results], ["fail", "pass", "pass"])
+
+    def test_every_step_writes_a_trail_beside_its_screenshot_even_when_empty(self):
+        U.run_steps(ScriptedModel([verdict(), verdict(), verdict()]), FakePage(),
+                    "https://app.example.test/", STEPS, self.records, 20, 1e12)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.records, "steps"))),
+                         ["01.png", "01.trail.jsonl", "02.png", "02.trail.jsonl",
+                          "03.png", "03.trail.jsonl"])
+        self.assertEqual(self.trail(1), [])
 
 
 class Recording(unittest.TestCase):
@@ -377,6 +522,19 @@ class Recording(unittest.TestCase):
         with open(os.path.join(self.records, "video.webm"), "rb") as f:
             self.assertEqual(f.read(), b"webm")
         self.assertFalse(os.path.exists(video_dir))  # the scratch directory the video was written in
+
+    def test_the_trail_keeps_the_targets_requests_and_pairs_their_status(self):
+        page = self.page()
+        page.goto("https://app.example.test/")
+        fake = self.pw.contexts[0].page
+        liked = types.SimpleNamespace(method="GET", url="https://app.example.test/api/liked")
+        pixel = types.SimpleNamespace(method="GET", url="https://cdn.other.test/pixel.gif")
+        fake.emit("request", liked)
+        fake.emit("request", pixel)  # another origin: not the trail's business
+        fake.emit("response", types.SimpleNamespace(status=502, url=liked.url, request=liked))
+        self.assertEqual(page.drain_requests(),
+                         [{"method": "GET", "url": liked.url, "status": 502}])
+        self.assertEqual(page.drain_requests(), [])
 
     def test_the_names_are_the_records_index(self):
         self.assertEqual((U.TRACE_FILE, U.VIDEO_FILE), ("trace.zip", "video.webm"))
@@ -528,7 +686,9 @@ class Executor(unittest.TestCase):
         for name in ("steps.jsonl", "steps/01.png", "steps/02.png", "steps/03.png"):
             self.assertIn(run + name, files)
         self.assertEqual(sorted(k[len(run):] for k in files if k.startswith(run + "steps/")),
-                         ["steps/01.png", "steps/02.png", "steps/03.png"])
+                         ["steps/01.png", "steps/01.trail.jsonl",
+                          "steps/02.png", "steps/02.trail.jsonl",
+                          "steps/03.png", "steps/03.trail.jsonl"])
 
     def test_a_missing_trace_does_not_fail_the_run(self):
         rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), RecordedPage(S.RECORDS_DIR, trace=False))
@@ -565,6 +725,18 @@ class Executor(unittest.TestCase):
         # and not in what the runner reads either
         for b in self.gitea.bodies("dark-records/s1", 1):
             self.assertNotIn(TOKEN, b)
+
+    def test_a_task_with_one_inconclusive_step_reports_overall_inconclusive(self):
+        rc = U.main(ScriptedModel([verdict(), verdict("inconclusive", "the cart was empty"), verdict()]),
+                    FakePage())
+        self.assertEqual(rc, 1)
+        body, tag = self.done_tag()
+        self.assertEqual(tag["outcome"], "inconclusive")
+        self.assertEqual((tag["steps_ok"], tag["steps_total"]), (2, 3))
+        self.assertIn("inconclusive", body)
+        files = self.records()
+        verdicts = [json.loads(l)["verdict"] for l in files["shop-user-1/steps.jsonl"].decode().splitlines()]
+        self.assertEqual(verdicts, ["pass", "inconclusive", "pass"])
 
     def test_one_failed_step_fails_the_run_with_the_steps_kind(self):
         rc = U.main(ScriptedModel([verdict(), verdict("fail", "the sign-in button does nothing"), verdict()]),
