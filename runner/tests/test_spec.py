@@ -62,6 +62,18 @@ class States(unittest.TestCase):
         self.assertEqual(spec.ESCALATES, {"fail:capability", "fail:budget"})
         self.assertNotIn("fail:structural", spec.ESCALATES)
 
+    def test_inconclusive_is_terminal_and_not_a_failure(self):
+        # the user arm's third verdict: a terminal outcome of its own, never a
+        # failure (FAIL_OUTCOMES), never an escalate, and with no structural
+        # reason
+        self.assertIn("inconclusive", spec.OUTCOMES)
+        self.assertIn("inconclusive", spec.STATES)
+        self.assertIn("inconclusive", spec.TERMINAL)
+        self.assertNotIn("inconclusive", spec.FAIL_OUTCOMES)
+        self.assertNotIn("inconclusive", spec.ESCALATES)
+        self.assertTrue(spec.transition_ok("executing", "inconclusive"))
+        self.assertIsNone(spec.structural_reason("inconclusive"))
+
 
 class Events(unittest.TestCase):
     def test_registry_shape(self):
@@ -99,6 +111,9 @@ class Tags(unittest.TestCase):
         for kind, outcome in spec.FAIL_KIND_OUTCOME.items():
             self.assertIn(outcome, spec.OUTCOMES, kind)
         self.assertNotIn("pass", spec.FAIL_KIND_OUTCOME.values())
+
+    def test_an_inconclusive_kind_maps_to_inconclusive(self):
+        self.assertEqual(spec.FAIL_KIND_OUTCOME["inconclusive"], "inconclusive")
 
     def test_tag_ok(self):
         self.assertTrue(spec.tag_ok("done", {"outcome": "ok", "calls": 1, "tokens_in": 1,

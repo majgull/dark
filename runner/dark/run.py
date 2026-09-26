@@ -861,8 +861,15 @@ class Runner:
         # were taken, as a judging review's are; nothing is staged
         if done_tag.get("outcome") == "ok":
             return st.end("pass", None, f"{res.checks_ok}/{res.checks_total} steps pass", usage=usage)
-        kind = done_tag.get("kind") or "crash"
+        # the user arm's third verdict: no step failed and at least one could
+        # not be judged. It is its own terminal outcome, with the tally as the
+        # detail and no failure kind, because nothing broke and nothing failed
+        kind = done_tag.get("kind") or ("inconclusive" if done_tag.get("outcome") == "inconclusive" else "crash")
         outcome = spec.FAIL_KIND_OUTCOME.get(kind, "fail:structural")
+        if outcome == "inconclusive":
+            return st.end(outcome, None,
+                          f"{res.checks_ok}/{res.checks_total} steps pass, "
+                          f"{res.checks_total - res.checks_ok} inconclusive", usage=usage)
         detail = str(done_tag.get("error") or kind)
         if body:
             detail = f"{detail}: …{body[-360:]}" if len(body) > 360 else f"{detail}: {body}"

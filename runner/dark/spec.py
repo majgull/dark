@@ -25,8 +25,11 @@ CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES + USER_CLASSES
 # delivered: the review class's pass - no hidden acceptance,
 # just report.md landed non-empty; kept distinct from "pass" because nothing
 # judged it.
-OUTCOMES = ("pass", "delivered", "fail:capability", "fail:structural", "fail:budget", "abort")
-FAIL_OUTCOMES = tuple(o for o in OUTCOMES if o not in ("pass", "delivered"))
+# inconclusive: the user arm's verdict when no step failed and at least one
+# could not be judged (calls exhausted, stuck, or the model said so). Nothing
+# broke and nothing failed, so it is not a failure outcome and never escalates.
+OUTCOMES = ("pass", "delivered", "inconclusive", "fail:capability", "fail:structural", "fail:budget", "abort")
+FAIL_OUTCOMES = tuple(o for o in OUTCOMES if o not in ("pass", "delivered", "inconclusive"))
 
 # --- states of one run --------------------------------------------------------
 STATES = ("queued", "preflight", "ready", "refused",
@@ -66,6 +69,9 @@ TRANSITIONS = (
     # took them, and only the runner turns the verdicts into an outcome
     ("executing", "pass", "review mode with branches: report.md ends VERDICT: pass; "
      "user arm: every step's verdict was pass", "runner"),
+    # user arm: no step failed, but at least one could not be judged. Its own
+    # terminal state, never a failure outcome and never an escalate
+    ("executing", "inconclusive", "user arm: no step failed, at least one could not be judged", "runner"),
     ("*", "abort", "abort marker file", "runner"),
 )
 
@@ -258,6 +264,7 @@ FAIL_KIND_OUTCOME = {
     "verdict": "fail:capability",     # review mode as a judge: report.md ends VERDICT: fail
     "no-verdict": "fail:structural",  # review mode as a judge: no well-formed VERDICT last line
     "steps": "fail:capability",       # user arm: a step's verdict was fail
+    "inconclusive": "inconclusive",  # user arm: no step failed, at least one could not be judged
     "abort": "abort",
 }
 # Outcomes that may escalate once to the next admitted tier.

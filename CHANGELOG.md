@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `inconclusive` is an outcome of its own: a user-arm run in which no step failed but at least one could not be judged ends as `inconclusive` with the tally as its detail and no failure kind, instead of `fail:structural`. It is terminal, never a failure outcome and never escalates.
 - The user arm has a third verdict, `inconclusive`, and never records a step it could not judge as `fail`: the model may answer it, a call envelope that runs out marks the step it ran out in and every step never reached, and the same action three times on an unchanged page is recorded as `stuck: <action>`. The summary counts inconclusive steps apart from failed ones.
 - Every user-arm step writes `<NN>.trail.jsonl` beside its screenshot: one line per action with the action, what it acted on, and the HTTP requests the page issued before the next snapshot (method, URL, status); a 4xx or 5xx response is echoed in the step's note, as `saw 502 GET /api/liked`.
 - `python3 -m dark export-harbor` carries a task's full starting tree: the language template, the tree an earlier chain step leaves and the task's own `start/`, built by the same `dark/tasks.py` functions a run uses and committed as one git commit inside the exported image, so the image's working directory is what dark's executor is given. `start/` is now optional in a task record, and `solution.sh` extracts the oracle as the image's own user, never the uid of the packing host.

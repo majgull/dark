@@ -18,7 +18,7 @@ from dark import vm
 from dark import gitea as G
 from tests import fakes
 from tests.test_config import BUDGETS, MODELS, write_conf
-from tests.test_tasks import VERIFY, make_task, make_templates
+from tests.test_tasks import VERIFY, make_task, make_templates, make_user_task
 
 FAST_BUDGETS = BUDGETS.replace("heartbeat_seconds = 10", "heartbeat_seconds = 1") \
     .replace("silent_kill_seconds = 30", "silent_kill_seconds = 4") \
@@ -494,6 +494,52 @@ class Tags(unittest.TestCase):
     def test_parse_tags(self):
         body = "AGENT-ALIVE\nDARK:{\"ev\": \"start\"}\nnot a tag\nDARK:{broken\nDARK:{\"ev\": \"beat\", \"at\": 1}\n"
         self.assertEqual([t["ev"] for t in R.parse_tags(body)], ["start", "beat"])
+
+
+class UserArm(Base):
+    """The user arm's done tag drives the run's outcome. An inconclusive
+    verdict is its own terminal outcome, never a failure; a failed step still
+    goes through the fail-kind map to fail:capability."""
+
+    def user_runner(self, done_fields, head):
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+
+        def launch(vmid, name, files, runcmd, **spawn_kw):
+            task = json.loads(files["/opt/task.json"][0])
+            r.gitea.comment(task["repo"], task["issue"],
+                            head + "\n" + spec.TAG_PREFIX + json.dumps(
+                                {"v": 2, "ev": "done", "calls": 1, "tokens_in": 10, "tokens_out": 5,
+                                 "reasoning_chars": 0, "seconds": 3, **done_fields}))
+        r.launch = launch
+        return r
+
+    def run_user(self, done_fields, head):
+        from dark import tasks
+        body = ('url = "https://app.example.test/"\nsteps = ["Open the page", "Add one item"]\n'
+                'spec = "Check that a visitor can buy one item."\n')
+        self.task = tasks.load_task(make_user_task(os.path.join(self.tmp, "bench"), body=body))
+        return self.user_runner(done_fields, head).user(self.task, "cloud-x")
+
+    def test_an_inconclusive_verdict_is_the_runs_outcome(self):
+        res = self.run_user({"outcome": "inconclusive", "steps_ok": 1, "steps_total": 2},
+                            "AGENT-DONE inconclusive: 1/2 steps pass, 1 inconclusive")
+        self.assertEqual((res.outcome, res.fail_kind, res.detail),
+                         ("inconclusive", None, "1/2 steps pass, 1 inconclusive"))
+        self.assertEqual((res.checks_ok, res.checks_total), (1, 2))
+        self.assertNotIn(res.outcome, spec.FAIL_OUTCOMES)
+        end = self.led.last("run.end")
+        self.assertEqual((end["outcome"], end["fail_kind"], end["detail"]),
+                         ("inconclusive", None, "1/2 steps pass, 1 inconclusive"))
+        self.assertEqual(res.transitions[-1], ("executing", "inconclusive"))
+
+    def test_a_failed_step_still_ends_as_the_maps_fail_outcome(self):
+        # pinned, not changed: the map still turns a steps kind into fail:capability
+        self.assertEqual(spec.FAIL_KIND_OUTCOME["steps"], "fail:capability")
+        res = self.run_user({"outcome": "fail", "kind": "steps", "steps_ok": 1, "steps_total": 2,
+                             "error": "1 of 2 steps failed"},
+                            "AGENT-DONE fail (steps): 1 of 2 steps failed")
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:capability", "steps"))
 
 
 class ReviewMode(Base):
