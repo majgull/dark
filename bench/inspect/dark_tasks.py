@@ -57,6 +57,21 @@ AGENT_PROMPT = (
     "Read it, change it with bash commands until the task is done, then call submit()."
 )
 
+# The starting-tree step, one `sh -c` run in the sandbox. The exported image
+# already holds one git commit of this same tree (dark/export.py builds it and
+# its Dockerfile commits it), so a second commit finds nothing and exits
+# non-zero; the step therefore commits only when the working tree it was
+# handed differs from HEAD. A container with no repository, or one whose tree
+# differs, still ends with one commit of what was laid down.
+START_TREE_SCRIPT = (
+    "git init -q -b main"
+    " && git add -A -f"
+    " && { git rev-parse --verify -q HEAD >/dev/null 2>&1"
+    " && git diff --cached --quiet HEAD"
+    " || git -c user.name=dark-runner -c user.email=dark-runner@localhost"
+    " commit -q -m 'starting tree'; }"
+)
+
 
 def _sample(directory: Path, source: str) -> Sample:
     spec = yaml.safe_load((directory / "task.yaml").read_text())
@@ -113,12 +128,7 @@ def starting_tree() -> Solver:
             dark_source.write_tree(_start_tree(state.metadata["source"]), tmp)
             await _put_tree(box, Path(tmp), WORKDIR)
         # dark's stager and acceptance read the repo's root commit
-        committed = await box.exec([
-            "sh", "-c",
-            "git init -q -b main && git add -A -f"
-            " && git -c user.name=dark-runner -c user.email=dark-runner@localhost"
-            " commit -q -m 'starting tree'",
-        ], cwd=WORKDIR)
+        committed = await box.exec(["sh", "-c", START_TREE_SCRIPT], cwd=WORKDIR)
         if not committed.success:
             raise RuntimeError(f"committing the starting tree: {committed.stderr}")
         return state

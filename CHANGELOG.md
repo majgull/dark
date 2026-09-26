@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The user arm shows each step the notes of the steps already finished, and a pass verdict must quote text from the page (`evidence`), accepted only when the quote is in the snapshot the model was shown; `steps.jsonl` keeps the quote.
 
+### Fixed
+
+- A dark task under Inspect starts from an exported image that already holds the starting tree's one git commit, so the `starting_tree` setup step commits only when the working tree differs from `HEAD`; it no longer fails every sample with `nothing to commit`.
+
 ## [0.5.0] - 2026-09-25
 
 ### Added
