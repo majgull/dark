@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 
 from dark import budget, config, gate, spec
@@ -24,6 +25,15 @@ FAST_BUDGETS = BUDGETS.replace("heartbeat_seconds = 10", "heartbeat_seconds = 1"
     .replace("silent_kill_seconds = 30", "silent_kill_seconds = 4") \
     .replace("poll_seconds = 1", "poll_seconds = 0.2")
 FILE_HELLO = "FILE: hello.txt\n```\nhello world\n```\n"
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+RUNNER = os.path.dirname(HERE)
+
+
+def pyproject_version():
+    """The repository's declared version, read independently of dark itself."""
+    with open(os.path.join(os.path.dirname(RUNNER), "pyproject.toml"), "rb") as f:
+        return tomllib.load(f)["project"]["version"]
 
 
 class FakeMeter:
@@ -154,6 +164,7 @@ class Outcomes(Base):
                                                      ("executing", "verifying"), ("verifying", "staging"), ("staging", "pass")])
         end = self.led.last("run.end")
         self.assertEqual((end["outcome"], end["tier"], end["paid"], end["watts_class"], end["cls"]), ("pass", "local-a", False, "low", "additive"))
+        self.assertEqual(end["version"], pyproject_version())
         self.assertGreaterEqual(end["wall_seconds"], end["seconds"])
         self.assertEqual(end["tokens_in"], 10)
         # the measured energy over the window rides on the run.end; overhead is null (NOT MEASURED)
@@ -765,3 +776,16 @@ class RecordsRepoRace(unittest.TestCase):
         from dark import gitea as G
         with self.assertRaises(G.GiteaError):
             self.call(exists_after=False)
+
+
+class VersionCommand(unittest.TestCase):
+    """python3 -m dark --version prints dark's version and exits 0 without
+    reading a host config."""
+
+    def test_version_flag_needs_no_config(self):
+        env = dict(os.environ, PYTHONPATH=RUNNER + os.pathsep + os.environ.get("PYTHONPATH", ""),
+                   DARK_CONF=os.path.join(RUNNER, "no-such-config-dir"))
+        r = subprocess.run([sys.executable, "-m", "dark", "--version"],
+                           cwd=RUNNER, env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), f"dark {pyproject_version()}")

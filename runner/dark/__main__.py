@@ -8,6 +8,7 @@ import os
 import sys
 
 from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, sandbox, spec, tasks
+from . import version as dark_version
 from . import gitea as G
 from . import ledger as L
 from . import vm
@@ -668,6 +669,8 @@ def main(argv=None):
     ap.add_argument("--conf", default=os.environ.get("DARK_CONF", HERE),
                     help="directory holding models.toml, budgets.toml, host.toml "
                          "(default: $DARK_CONF, else beside the package)")
+    ap.add_argument("--version", action="version", version=f"dark {dark_version()}",
+                    help="print dark's version and exit")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("check-config", help="load and validate the three config files")
     p = sub.add_parser("preflight", help="every check a shift needs, one line each")

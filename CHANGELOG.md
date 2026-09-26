@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `dark --version` prints `dark <version>`, and every `run.end` row carries `version`, the dark version that wrote it (the checkout's `pyproject.toml` when dark runs from one, else the installed package's, else `unknown`), so a ledger row names the release that produced it.
+
 ### Fixed
 
 - The user arm's quote check accepts what the model quotes from the page: the evidence is split into fragments on dashes, semicolons and sentence ends, each fragment is matched against the snapshot text with role prefixes (`button "…":`, `text:` and the like) removed, and a refused quote names the first missing fragment. A wait action never counts toward the stuck rule.

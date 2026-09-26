@@ -117,6 +117,9 @@ EVENTS = {
                  "tool_calls",
                  # tests: the bench commit whose acceptance judged this run
                  "tests",
+                 # version: the dark version that wrote this record (the
+                 # pyproject.toml version, or "unknown")
+                 "version",
                  # chains: after = the task this one follows; base =
                  # what it started from, delivered | oracle
                  "after", "base",

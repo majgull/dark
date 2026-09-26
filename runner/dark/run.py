@@ -28,6 +28,7 @@ from . import budget, gate, otel, power
 from . import gitea as G
 from . import ledger as L
 from . import spec, tasks, vm
+from . import version as dark_version
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKEW = 300  # seconds of Gitea-vs-runner clock skew tolerated on created_at checks
@@ -172,6 +173,7 @@ class _Run:
             power=pw.get("power"), restaged_from=getattr(self, "restaged_from", None),
             reason=spec.structural_reason(kind), asserts=self.asserts(pw),
             capped=getattr(self, "capped", None), tests=self.r.tests_version(),
+            version=dark_version(),
             tools=getattr(self, "tools", None),
             records=res.records, records_sha256=res.records_sha256,
             distinct_calls=res.distinct_calls, repeat_calls=res.repeat_calls, stall_max=res.stall_max)
