@@ -4,7 +4,7 @@
 
 ## Start it
 
-`python3 -m dark mcp`, or `dark mcp` after `pip install .`, waits for messages on stdin and exits 0 when stdin closes. A client on another machine starts it over ssh, as `ssh <runner-host> dark mcp`.
+`python3 -m dark mcp`, or `dark mcp` after `pip install .`, waits for messages on stdin and exits 0 when stdin closes. A client on another machine starts it over ssh, as `ssh <runner-host> dark mcp`. When the runner is deployed with `compose.yaml` (docs/docker.md), `dark` exists only inside the runner container, so the command is `ssh <runner-host> docker exec -i <runner container> dark mcp` (`-i` keeps stdin open; the container is `dark-runner-1` under compose's default project name).
 
 ## Register it
 
