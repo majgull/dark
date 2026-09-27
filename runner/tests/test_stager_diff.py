@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from tests import fakes, leakfix
 from tests.test_stager import tar_b64
@@ -56,6 +57,7 @@ class StagerDiff(unittest.TestCase):
         self.full = "dark/t-diff"
         self.gitea.issues[self.full] = {1: {"title": "run", "body": "", "state": "open", "comments": []}}
         self.path = os.environ["PATH"]
+        self.hide_gitleaks = False
 
     def tearDown(self):
         os.environ["PATH"] = self.path
@@ -74,16 +76,20 @@ class StagerDiff(unittest.TestCase):
         os.environ["DARK_WORK"] = os.path.join(self.tmp, "stage")
         import dark.stager as stager
         stager = importlib.reload(stager)
-        rc = stager.main()
+        if self.hide_gitleaks:
+            # patch the stager's lookup, not PATH: gitleaks usually sits in /usr/bin beside git
+            real = shutil.which
+            with mock.patch.object(stager.shutil, "which", lambda n, *a, **k: None if n == "gitleaks" else real(n, *a, **k)):
+                rc = stager.main()
+        else:
+            rc = stager.main()
         bodies = [b for b in self.gitea.bodies(self.full, 1) if b.startswith("STAGE-DONE")]
         self.assertEqual(len(bodies), 1, bodies)
         line = [ln for ln in bodies[0].splitlines() if ln.startswith("DARK:")][-1]
         return rc, json.loads(line[len("DARK:"):]), bodies[0]
 
     def without_gitleaks(self):
-        keep = [d for d in self.path.split(os.pathsep)
-                if not os.path.exists(os.path.join(d, "gitleaks"))]
-        os.environ["PATH"] = os.pathsep.join(keep)
+        self.hide_gitleaks = True
 
     def fake_tool(self, name, script):
         d = os.path.join(self.tmp, "bin")
