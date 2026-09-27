@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `dark demo <records>` cuts a user-arm run's records into `<records>/demo.mp4`, a video a person can follow without reading a report: a title card with the task, the run with the current step's text in a band above the page, each action captioned below it and each click ringed, the frame held at every verdict with the verdict and its note, and an end card with every step's verdict and the outcome. Times are read from the Playwright trace (step k ends at its verdict screenshot); `--voice <piper .onnx>` speaks the task, each verdict and the outcome. Needs ffmpeg with libass and libx264 on the machine that runs it.
 - `dark --version` prints `dark <version>`, and every `run.end` row carries `version`, the dark version that wrote it (the checkout's `pyproject.toml` when dark runs from one, else the installed package's, else `unknown`), so a ledger row names the release that produced it.
 
 ### Fixed

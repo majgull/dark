@@ -58,6 +58,8 @@ python3 bench/tools/validate.py              # reference solutions pass, startin
 
 `dark user --task <task.toml> --tier <id>` runs one user-arm task: a browser sandbox checks a deployed URL step by step.
 
+`dark demo <records>` cuts that run's records into a captioned `demo.mp4` (needs ffmpeg with libass and libx264; `--voice` adds speech with piper).
+
 `python3 -m dark long --task <dir> --tier <id>` runs one long-arm task: a session executor works in the task's several repositories and a reviewer session judges the branches it pushed.
 
 `docs/fresh-container.md` records a bare container

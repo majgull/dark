@@ -439,6 +439,20 @@ def cmd_user(args):
     return 0 if res.outcome == "pass" else 1
 
 
+def cmd_demo(args):
+    """Cut a user-arm run's records into <records>/demo.mp4: a title card, the
+    run with each step, action and click captioned and each verdict's frame
+    held, an end card with every verdict (dark/demo.py)."""
+    from . import demo
+    try:
+        path, total, exact = demo.render(args.records, args.out, args.voice, args.piper, args.keep)
+    except demo.DemoError as e:
+        print(f"demo: {e}")
+        return 2
+    print(json.dumps({"demo": path, "seconds": round(total, 1), "timed_from_trace": exact}))
+    return 0
+
+
 def cmd_long(args):
     """Launch one long-arm run and judge it: the session executor gets every
     repository the task names, then a reviewer session reads the branches it
@@ -801,6 +815,12 @@ def main(argv=None):
     p.add_argument("task_dir", help="the dark task directory (task.toml, start/ and acceptance/)")
     p.add_argument("out_dir", help="the directory to write the Terminal-Bench layout into")
     sub.add_parser("mcp", help="serve preflight, run, user, long, review and ledger-tail as MCP tools over stdin and stdout")
+    p = sub.add_parser("demo", help="cut a user-arm run's records into a captioned demo video, <records>/demo.mp4")
+    p.add_argument("records", help="the run's records directory (video.webm, trace.zip, steps.jsonl, stream.jsonl, task.json)")
+    p.add_argument("--out", help="where the video goes (default <records>/demo.mp4)")
+    p.add_argument("--voice", help="a piper .onnx voice: the task, each verdict and the outcome are spoken")
+    p.add_argument("--piper", default=os.environ.get("PIPER", "piper"), help="the piper binary (default $PIPER, else piper)")
+    p.add_argument("--keep", action="store_true", help="keep the subtitle and audio work files")
     p = sub.add_parser("ledger-tail", help="the last rows of the ledger, oldest first, one JSON object per line")
     p.add_argument("--lines", type=int, default=20, help="how many rows to print (default 20)")
     p.add_argument("--kind", help="keep only rows whose event kind is this")
@@ -816,7 +836,7 @@ def main(argv=None):
         return {"check-config": cmd_check_config, "preflight": cmd_preflight, "admission": cmd_admission,
                 "status": cmd_status, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
-                "user": cmd_user, "long": cmd_long,
+                "user": cmd_user, "long": cmd_long, "demo": cmd_demo,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
                 "export-harbor": cmd_export_harbor, "mcp": cmd_mcp, "ledger-tail": cmd_ledger_tail,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)
