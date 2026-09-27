@@ -42,8 +42,9 @@ import zipfile
 W, H, FPS = 1280, 720, 25  # user.VIEWPORT, and the rate Playwright records at
 TITLE_S, END_S = 5.0, 7.0  # seconds of the two cards
 HOLD_S = 3.5               # the least time a verdict's frame is held
-TOP, BOTTOM = 56, 96       # the dark bands above and below the page: the captions never cover it
+TOP, BOTTOM = 84, 96       # the dark bands above and below the page (two banner lines, two caption lines)
 CH = H + TOP + BOTTOM      # the cut's height
+SHOT_LEAD_MS = 200         # the held frame is this long before the verdict's screenshot
 TAIL_S = 1.0               # the run's last frame, held before the end card
 DEMO_FILE = "demo.mp4"
 
@@ -177,7 +178,10 @@ def timeline(rec, video_s=None):
                 failed = e.get("callId") in errors or bool((a.get("result") or {}).get("error"))
                 actions.append({"t": sec(e["startTime"]), "text": describe(a["action"]),
                                 "failed": failed, "point": points.get(e.get("callId"))})
-            steps.append({"n": v.get("step", k + 1), "start": sec(start), "end": sec(end),
+            # held on a frame just before the verdict's screenshot: a full-page screenshot resizes
+            # the viewport while it runs, and the video records the page shrunk for that moment
+            steps.append({"n": v.get("step", k + 1), "start": sec(start),
+                          "end": max(sec(start), sec(end - SHOT_LEAD_MS)),
                           "actions": actions, "verdict": v.get("verdict", "inconclusive"),
                           "note": v.get("note") or ""})
             start = end
@@ -216,6 +220,26 @@ def _esc(text):
     return text.replace("{", "(").replace("}", ")")
 
 
+BANNER_CHARS = 190  # two lines of the banner; a longer step text ends in an ellipsis
+SPOKEN_WORDS = 30   # the title card speaks the task's first sentence, at most this many words
+
+
+def _clip(text, limit):
+    text = " ".join(str(text).split())
+    return text if len(text) <= limit else text[:limit - 1].rsplit(" ", 1)[0] + " …"
+
+
+def _first_sentence(text, words=SPOKEN_WORDS):
+    text = " ".join(str(text).split())
+    for end in (". ", "? ", "! "):
+        i = text.find(end)
+        if i != -1:
+            text = text[:i + 1]
+            break
+    w = text.split()
+    return " ".join(w[:words]) + ("…" if len(w) > words else "")
+
+
 def _ring(x, y, r=22):
     """An ASS vector drawing of a ring of radius r centred on (x, y)."""
     k = round(r * 0.5523, 1)  # the bezier handle for a quarter circle
@@ -235,7 +259,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Banner,DejaVu Sans,26,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,8,40,40,14,1
+Style: Banner,DejaVu Sans,23,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,0,0,8,40,40,14,1
 Style: Action,DejaVu Sans,30,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,2,60,60,30,1
 Style: Verdict,DejaVu Sans,30,&H00FFFFFF,&H00FFFFFF,&H20000000,&H20000000,0,0,0,0,100,100,0,0,3,14,0,2,60,60,30,1
 Style: Kicker,DejaVu Sans,24,&H00B0B0B0,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,1,0,1,0,0,7,90,90,90,1
@@ -284,7 +308,7 @@ def subtitles(rec, steps, holds, video_s, title_s=TITLE_S, end_s=END_S):
     step_texts = task.get("steps") or []
     for i, s in enumerate(steps):
         text = step_texts[s["n"] - 1] if isinstance(s["n"], int) and 0 < s["n"] <= len(step_texts) else ""
-        banner = f"Step {s['n']} of {n}" + (f":  {_esc(text)}" if text else "")
+        banner = f"Step {s['n']} of {n}" + (f":  {_esc(_clip(text, BANNER_CHARS))}" if text else "")
         b0 = at(s["start"]) + holds[i - 1] if i else title_s  # after the step before has been read
         dia(b0, at(s["end"]) + holds[i], "Banner", banner)
         for j, a in enumerate(s["actions"]):
@@ -323,7 +347,7 @@ def speech(rec, steps):
     """What --voice says: the task at the title card, each verdict while its
     frame is held, the outcome at the end card."""
     task = rec["task"]
-    title = (task.get("task") or "A user-arm run") + ". " + " ".join(str(task.get("spec", "")).split())
+    title = (task.get("task") or "A user-arm run") + ". " + _first_sentence(task.get("spec", ""))
     verdicts = [f"Step {s['n']}, {s['verdict']}. {s['note']}" for s in steps]
     passed = sum(1 for s in steps if s["verdict"] == "pass")
     end = f"Result: {outcome(steps)}. {passed} of {len(steps)} steps pass."

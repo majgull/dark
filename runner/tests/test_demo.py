@@ -79,7 +79,8 @@ class Timeline(unittest.TestCase):
         steps, exact = demo.timeline(demo.load(self.d), 12.0)
         self.assertTrue(exact)
         self.assertEqual([s["n"] for s in steps], [1, 2, 3])
-        self.assertEqual([(s["start"], s["end"]) for s in steps], [(0.2, 2.0), (2.0, 8.0), (8.0, 11.0)])
+        # each step ends 0.2 s before its verdict's screenshot, the next starts at the screenshot
+        self.assertEqual([(s["start"], s["end"]) for s in steps], [(0.2, 1.8), (2.0, 7.8), (8.0, 10.8)])
         acts = steps[1]["actions"]
         self.assertEqual([a["t"] for a in acts], [4.0, 5.0, 7.0])
         self.assertEqual(acts[0]["text"], "click link 'Printers'")
@@ -128,6 +129,16 @@ class Subtitles(unittest.TestCase):
         self.assertIn("2 of 3 steps pass", ass)
         # step 2's click at 4.0 s on the run's clock comes after the title card and step 1's hold
         self.assertIn(f"Dialogue: 0,{demo._ts(demo.TITLE_S + 4.0 + demo.HOLD_S)},", ass)
+
+
+class Speech(unittest.TestCase):
+    def test_the_title_speaks_one_sentence_and_long_banners_are_clipped(self):
+        rec = {"task": {"task": "t", "spec": "First sentence here. Second one is never read."}}
+        title, verdicts, end = demo.speech(rec, [{"n": 1, "verdict": "pass", "note": "ok"}])
+        self.assertEqual(title, "t. First sentence here.")
+        self.assertEqual(verdicts, ["Step 1, pass. ok"])
+        self.assertEqual(end, "Result: pass. 1 of 1 steps pass.")
+        self.assertEqual(demo._clip("word " * 100, 20), "word word word …")  # never past the limit
 
 
 def _can_render():
