@@ -32,10 +32,12 @@ A **task** is one unit of work with a `task.toml`, and a **tier** is one model e
 |---|---|---|
 | `dark_preflight` | none | `dark preflight` |
 | `dark_run` | **`task`** (a task directory), **`tier`**, `arm`, `slot` | `dark shift --task-dir --tier --no-push`, so the digest is never pushed |
-| `dark_user` | **`task`** (a `task.toml` or its directory), **`tier`** | `dark user` |
-| `dark_long` | **`task`**, **`tier`**, `judge_tier` | `dark long` |
+| `dark_user` | `task` (a `task.toml` or its directory) or `task_toml` (the file's text), exactly one; **`tier`** | `dark user` |
+| `dark_long` | `task` or `task_toml`, exactly one; **`tier`**, `judge_tier` | `dark long` |
 | `dark_review` | **`task`** (a Markdown file of instructions), **`tier`**, `review_branches` (JSON text, a list of `{name, url, branch}`) | `dark review --arm=review`, with `task` as `--brief` |
 | `dark_ledger_tail` | `n` (1 to 200, default 10) | nothing: the server reads the last `n` ledger rows, oldest first |
+
+`task_toml` is for a client with no files on the server's machine, such as an agent that reaches the server only over ssh: the server writes the text as `task.toml` in a temporary directory named after the task's `id` (the name dark requires of a task directory), runs the command on it, and removes it after.
 
 The five tools that run a command also take `timeout_seconds` (default 1800), after which the command is killed and reported. A result is one text item holding the command's standard output. When the command exits non-zero the result has `isError`, the flag that says the tool failed, set to true, and the text ends with `exit code N`, after any standard error. A bad argument is the JSON-RPC error `-32602`, an unknown method `-32601` and a line that is not JSON `-32700`.
 

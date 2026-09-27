@@ -24,8 +24,8 @@ RUNNER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(RUNNER)
 
 TOOL_NAMES = ["dark_preflight", "dark_run", "dark_user", "dark_long", "dark_review", "dark_ledger_tail"]
-REQUIRED = {"dark_preflight": [], "dark_run": ["task", "tier"], "dark_user": ["task", "tier"],
-            "dark_long": ["task", "tier"], "dark_review": ["task", "tier"], "dark_ledger_tail": []}
+REQUIRED = {"dark_preflight": [], "dark_run": ["task", "tier"], "dark_user": ["tier"],
+            "dark_long": ["tier"], "dark_review": ["task", "tier"], "dark_ledger_tail": []}
 
 FAKE_MAIN = '''import json, os, sys, time
 stdin = sys.stdin.read()
@@ -34,6 +34,9 @@ for a in sys.argv[1:]:
     if a.startswith("--review-branches="):
         with open(a.split("=", 1)[1]) as f:
             rec["review_branches"] = f.read()
+    if a.startswith("--task=") and os.path.isfile(os.path.join(a.split("=", 1)[1], "task.toml")):
+        with open(os.path.join(a.split("=", 1)[1], "task.toml")) as f:
+            rec["task_toml"] = f.read()
 with open(os.environ["FAKE_DARK_LOG"], "a") as f:
     f.write(json.dumps(rec) + "\\n")
 sys.stdout.write(os.environ.get("FAKE_DARK_OUT", ""))
@@ -241,8 +244,8 @@ class ToolList(ServerCase):
                  for t in self.start().request(1, "tools/list")["result"]["tools"]}
         self.assertEqual(props["dark_preflight"], {"timeout_seconds"})
         self.assertEqual(props["dark_run"], {"task", "tier", "arm", "slot", "timeout_seconds"})
-        self.assertEqual(props["dark_user"], {"task", "tier", "timeout_seconds"})
-        self.assertEqual(props["dark_long"], {"task", "tier", "judge_tier", "timeout_seconds"})
+        self.assertEqual(props["dark_user"], {"task", "task_toml", "tier", "timeout_seconds"})
+        self.assertEqual(props["dark_long"], {"task", "task_toml", "tier", "judge_tier", "timeout_seconds"})
         self.assertEqual(props["dark_review"], {"task", "tier", "review_branches", "timeout_seconds"})
         self.assertEqual(props["dark_ledger_tail"], {"n"})
 
@@ -268,6 +271,11 @@ class Validation(ServerCase):
             ("dark_user", {"task": "/t", "tier": "m", "timeout_seconds": 1.5}, "timeout_seconds must be an integer"),
             ("dark_review", {"task": "/b", "tier": "m", "review_branches": "not json"}, "must be JSON text holding a list"),
             ("dark_review", {"task": "/b", "tier": "m", "review_branches": "{}"}, "must be JSON text holding a list"),
+            ("dark_user", {"tier": "m"}, "give exactly one of: task, task_toml"),
+            ("dark_long", {"task": "/t", "task_toml": 'id = "x"', "tier": "m"}, "give exactly one of: task, task_toml"),
+            ("dark_user", {"task_toml": "id = ", "tier": "m"}, "task_toml: not TOML"),
+            ("dark_user", {"task_toml": 'id = "../up"', "tier": "m"}, "task_toml: needs an `id`"),
+            ("dark_user", {"task_toml": 'title = "no id"', "tier": "m"}, "task_toml: needs an `id`"),
             ("dark_ledger_tail", {"n": 0}, "n must be from 1 to 200"),
             ("dark_ledger_tail", {"n": 201}, "n must be from 1 to 200"),
             ("dark_ledger_tail", {"n": "3"}, "n must be an integer"),
@@ -318,6 +326,17 @@ class ToolCalls(ServerCase):
     def test_user(self):
         _, call = self.call("dark_user", {"task": "/w/u", "tier": "mid"})
         self.assertEqual(call["argv"], ["user", "--task=/w/u", "--tier=mid"])
+
+    def test_a_task_given_as_text_is_laid_out_under_its_id_and_removed_afterwards(self):
+        text = 'id = "u-inline"\nclass = "user"\n'
+        for tool in ("dark_user", "dark_long"):
+            with self.subTest(tool=tool):
+                _, call = self.call(tool, {"task_toml": text, "tier": "mid"})
+                option, path = call["argv"][1].split("=", 1)
+                self.assertEqual(option, "--task")
+                self.assertEqual(os.path.basename(path), "u-inline")
+                self.assertEqual(call["task_toml"], text)
+                self.assertFalse(os.path.exists(os.path.dirname(path)))
 
     def test_long_with_and_without_a_judge_tier(self):
         _, call = self.call("dark_long", {"task": "/w/l", "tier": "mid"})

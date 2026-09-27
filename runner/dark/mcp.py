@@ -16,6 +16,7 @@ import collections
 import importlib.metadata
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -50,6 +51,7 @@ class Arg:
     maximum: int | None = None
     default: int | None = None
     file: bool = False       # a JSON text the CLI reads from a file: the server writes a temporary one
+    task_text: bool = False  # a task.toml text: the server writes it into a temporary task directory
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,7 @@ class Tool:
     fixed: tuple             # options passed on every call
     description: str
     args: tuple
+    one_of: tuple = ()       # exactly one of these arguments must be given
 
     def schema(self):
         props = {}
@@ -70,6 +73,8 @@ class Tool:
                 if val is not None:
                     p[key] = val
             props[a.name] = p
+        # one_of is checked by validate() and said in the description, never as a top-level oneOf:
+        # some clients refuse a tool whose input schema has one
         return {"type": "object", "properties": props,
                 "required": [a.name for a in self.args if a.required], "additionalProperties": False}
 
@@ -81,6 +86,8 @@ _TIMEOUT = Arg("timeout_seconds", "integer",
                f"Kill the command after this many seconds and report a timeout (default {DEFAULT_TIMEOUT}).",
                minimum=1, maximum=86400)
 _TIER = "The model entry in models.toml to use."
+_TASK_TOML = ("The task.toml text itself, for a client with no files on the server's machine: the server writes it "
+              "to a temporary directory named after its `id` and removes it after the run.")
 
 TOOLS = (
     Tool("dark_preflight", "preflight", (),
@@ -97,18 +104,22 @@ TOOLS = (
           _TIMEOUT)),
     Tool("dark_user", "user", (),
          "Run one user-arm task: a browser sandbox checks a URL step by step. Prints one JSON line: run, outcome, "
-         "fail_kind, detail, issue, records, steps_ok, steps_total.",
-         (Arg("task", "string", "Path of the user task's task.toml or its directory.", True, "--task"),
+         "fail_kind, detail, issue, records, steps_ok, steps_total. Give the task as `task` (a path on the "
+         "server's machine) or as `task_toml` (the file's text), exactly one of the two.",
+         (Arg("task", "string", "Path of the user task's task.toml or its directory.", option="--task"),
+          Arg("task_toml", "string", _TASK_TOML, option="--task", task_text=True),
           Arg("tier", "string", _TIER, True, "--tier"),
-          _TIMEOUT)),
+          _TIMEOUT), ("task", "task_toml")),
     Tool("dark_long", "long", (),
          "Run one long-arm task over several repositories, then judge the pushed branches with a reviewer "
-         "session. Prints `long: <outcome>` and `judge: <outcome>`.",
-         (Arg("task", "string", "Path of the long task's task.toml or its directory.", True, "--task"),
+         "session. Prints `long: <outcome>` and `judge: <outcome>`. Give the task as `task` (a path on the "
+         "server's machine) or as `task_toml` (the file's text), exactly one of the two.",
+         (Arg("task", "string", "Path of the long task's task.toml or its directory.", option="--task"),
+          Arg("task_toml", "string", _TASK_TOML, option="--task", task_text=True),
           Arg("tier", "string", _TIER, True, "--tier"),
           Arg("judge_tier", "string", "The model entry the judging reviewer uses (default: tier).",
               option="--judge-tier"),
-          _TIMEOUT)),
+          _TIMEOUT), ("task", "task_toml")),
     Tool("dark_review", "review", ("--arm=review",),
          "Run one review session: the task file is its instructions and report.md is its output. Prints one JSON "
          "line: run, outcome, fail_kind, detail, issue, records.",
@@ -153,6 +164,8 @@ def validate(tool, arguments):
     for key in arguments:
         if key not in known:
             return f"unknown argument: {key}"
+    if tool.one_of and sum(1 for name in tool.one_of if name in arguments) != 1:
+        return "give exactly one of: " + ", ".join(tool.one_of)
     for a in tool.args:
         if a.name not in arguments:
             if a.required:
@@ -169,12 +182,28 @@ def validate(tool, arguments):
                     ok = False
                 if not ok:
                     return f"{a.name} must be JSON text holding a list"
+            if a.task_text:
+                why = task_text_id(v)[1]
+                if why:
+                    return f"{a.name}: {why}"
         else:
             if not isinstance(v, int) or isinstance(v, bool):
                 return f"{a.name} must be an integer"
             if a.minimum is not None and v < a.minimum or a.maximum is not None and v > a.maximum:
                 return f"{a.name} must be from {a.minimum} to {a.maximum}"
     return None
+
+
+def task_text_id(text):
+    """(the task's id, None), or (None, why the text is not a task.toml the server can lay out)."""
+    try:
+        data = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        return None, f"not TOML: {e}"
+    tid = data.get("id")
+    if not isinstance(tid, str) or not tid or tid in (".", "..") or "/" in tid or "\\" in tid:
+        return None, "needs an `id` that can name a directory"
+    return tid, None
 
 
 def build_argv(tool, arguments):
@@ -218,9 +247,17 @@ def _join(*parts):
 def call_command(tool, arguments):
     args = dict(arguments)
     timeout = args.get("timeout_seconds", DEFAULT_TIMEOUT)
-    temps = []
+    temps, dirs = [], []
     try:
         for a in tool.args:
+            if a.task_text and a.name in args:
+                tid, _ = task_text_id(args[a.name])
+                root = tempfile.mkdtemp(prefix="dark-mcp-task-")
+                dirs.append(root)
+                os.mkdir(os.path.join(root, tid))
+                with open(os.path.join(root, tid, "task.toml"), "w", encoding="utf-8") as f:
+                    f.write(args[a.name])
+                args[a.name] = os.path.join(root, tid)
             if a.file and a.name in args:
                 fd, path = tempfile.mkstemp(prefix="dark-mcp-", suffix=".json")
                 temps.append(path)
@@ -236,6 +273,8 @@ def call_command(tool, arguments):
                 os.unlink(path)
             except OSError:
                 pass
+        for path in dirs:
+            shutil.rmtree(path, ignore_errors=True)
     if code == 0:
         if err:
             log(f"{tool.name}: stderr: {err.rstrip()}")
