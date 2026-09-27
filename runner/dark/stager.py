@@ -6,8 +6,11 @@ VM (never the executor's), injected alone via cloud-init with
 Clones the pushed work branch, runs the repo's own verify script (an
 out-of-tree build plus the executor's tests), then unpacks the hidden
 acceptance set the executor never saw and runs `run.sh` from the repo
-root. `CHECK <name> ok|fail` lines give partial credit; the exit code is
-the verdict. Posts ONE STAGE-DONE comment with a DARK: stage tag. It never
+root. Before that, gitleaks reads the commits the branch adds (a credential
+fails the work), and diff-cover, when the branch's checks wrote a
+coverage.xml, adds a note on new lines no test ran (a note, not a
+verdict). `CHECK <name> ok|fail` lines give partial credit; the exit code
+is the verdict. Posts ONE STAGE-DONE comment with a DARK: stage tag. It never
 decides an outcome: the runner maps the tag.
 """
 
@@ -16,6 +19,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -66,12 +70,17 @@ def parse_checks(output):
     return sum(1 for _, v in found if v == "ok"), len(found)
 
 
+NOTES = []  # one line each from the diff checks; shown in the report, never a verdict
+
+
 def report(ok, checks_ok, checks_total, detail, env=False):
     """env=True: the staging environment failed, not the work (the runner
     turns it into fail:structural, never fail:capability). The nonce the
     runner gave this VM is echoed so the executor cannot forge the verdict."""
+    notes = "".join(f"- {n}\n" for n in NOTES)
     comment(f"STAGE-DONE {'ok' if ok else 'fail'} checks={checks_ok}/{checks_total}\n"
             f"```\n{detail[-3000:]}\n```\n"
+            + (f"notes:\n{notes}" if notes else "")
             + tag("stage", ok=ok, checks_ok=checks_ok, checks_total=checks_total,
                   detail=detail[:120] + (" ... " + detail[-280:] if len(detail) > 400 else detail[120:]),
                   seconds=int(time.time() - T0), env=bool(env), nonce=TASK.get("nonce", "")))
@@ -100,6 +109,42 @@ def tampered():
     return [p for p in r.stdout.split("\n") if p.strip()]
 
 
+def leak_scan(have_main):
+    """gitleaks over the commits the branch adds to main (every commit when
+    there is no main). (findings, note): findings is gitleaks' redacted
+    report when it found a credential, else None."""
+    if not shutil.which("gitleaks"):
+        return None, "gitleaks: NOT SCANNED (not installed in the staging image)"
+    scope = "origin/main..HEAD" if have_main else "the whole branch"
+    args = ["gitleaks", "git", "--no-banner", "--no-color", "--redact", "--verbose",
+            "--exit-code", "1", "--log-level", "warn"]
+    if have_main:
+        args += ["--log-opts", "origin/main..HEAD"]
+    rc, out = run(args + ["."], 120)
+    if rc == 0:
+        return None, f"gitleaks: clean ({scope})"
+    if rc == 1:
+        return out, f"gitleaks: credential found ({scope})"
+    return None, f"gitleaks: NOT SCANNED (exit {rc}: {out.strip()[-200:]})"
+
+
+def coverage_note(have_main):
+    """diff-cover over coverage.xml, if the branch's own checks wrote one:
+    which new lines no test ran. A note for the reader, not a gate."""
+    if not os.path.exists(os.path.join(WORK, "coverage.xml")):
+        return "diff-cover: not measured (no coverage.xml after the branch's checks)"
+    if not shutil.which("diff-cover"):
+        return "diff-cover: not measured (not installed in the staging image)"
+    if not have_main:
+        return "diff-cover: not measured (no main to compare against)"
+    rc, out = run(["diff-cover", "coverage.xml", "--compare-branch=origin/main"], 120)
+    keep = [ln.strip() for ln in out.splitlines()
+            if ln.startswith(("Total:", "Missing:", "Coverage:")) or "Missing lines" in ln]
+    if rc != 0 or not keep:
+        return f"diff-cover: not measured (exit {rc}: {out.strip()[-200:]})"
+    return "diff-cover: " + "; ".join(keep)
+
+
 def run(cmd, timeout):
     try:
         r = subprocess.run(cmd, cwd=WORK, capture_output=True, text=True, timeout=timeout)
@@ -126,11 +171,18 @@ def main():
     changed = tampered()
     if changed:
         return report(False, 0, 0, f"STAGE-ENV protected paths changed on the branch: {changed}", env=True)
+    have_main = changed is not None
+    # a credential in the work is the work's fault: fail:capability, not STAGE-ENV
+    findings, note = leak_scan(have_main)
+    NOTES.append(note)
+    if findings:
+        return report(False, 0, 0, "LEAK: the branch adds a credential (gitleaks, redacted):\n" + findings)
     timeout = int(TASK.get("timeout", 600))
     if os.path.exists(f"{WORK}/.dark/verify.sh"):
         rc, out = run(["bash", ".dark/verify.sh"], timeout)
         if rc != 0:
             return report(False, 0, 0, "STAGE-ENV verify.sh red in staging:\n" + out, env=True)
+    NOTES.append(coverage_note(have_main))
     blob = base64.b64decode(TASK.get("acceptance_tar_b64", ""))
     if not blob:
         return report(False, 0, 0, "STAGE-ENV no acceptance set in task", env=True)
