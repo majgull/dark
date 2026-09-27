@@ -428,6 +428,37 @@ class Steps(unittest.TestCase):
         self.assertEqual(results[0]["verdict"], "pass")
         self.assertEqual(results[0]["evidence"], quote)
 
+    def test_a_pass_about_another_job_than_the_earlier_step_named_is_refused(self):
+        page = FakePage(snapshot='- text "job HL-L2400DWE-17 completed"\n- text "job HL-L2400DWE-18 completed"')
+        model = ScriptedModel([
+            verdict(note="Test page sent; job ID HL-L2400DWE-18 confirmed.", evidence="HL-L2400DWE-18"),
+            verdict(note="job HL-L2400DWE-17 is completed", evidence="job HL-L2400DWE-17 completed"),
+            verdict(note="job HL-L2400DWE-18 is completed", evidence="job HL-L2400DWE-18 completed"),
+            verdict(evidence="HL-L2400DWE-18")])
+        results, _ = self.run_steps(model, page)
+        self.assertEqual([r["verdict"] for r in results], ["pass", "pass", "pass"])
+        self.assertEqual(results[1]["note"], "job HL-L2400DWE-18 is completed")
+        refusal = model.asked[2]["history"][-1]["error"]
+        self.assertEqual(refusal, "step 1 named HL-L2400DWE-18, and this pass names HL-L2400DWE-17: "
+                                  "find HL-L2400DWE-18 on the page, or give fail or inconclusive")
+
+    def test_the_same_wrong_job_three_times_is_inconclusive(self):
+        page = FakePage(snapshot='- text "ORD-7 shipped"')
+        wrong = verdict(note="ORD-7 shipped", evidence="ORD-7 shipped")
+        model = ScriptedModel([verdict(note="placed order ORD-9", evidence="ORD-7"), wrong, wrong, wrong,
+                               verdict(evidence="shipped")])
+        results, _ = self.run_steps(model, page)
+        self.assertEqual(results[1]["verdict"], "inconclusive")
+        self.assertTrue(results[1]["note"].startswith("refused three times: step 1 named ORD-9"))
+
+    def test_ids_that_agree_or_were_never_named_pass(self):
+        self.assertIsNone(U.id_drift({"note": "job HL-18 done"}, [{"step": 1, "note": "sent HL-18"}]))
+        self.assertIsNone(U.id_drift({"note": "job HL-17 done"}, [{"step": 1, "note": "no job named"}]))
+        self.assertIsNone(U.id_drift({"note": "jobs HL-17 and HL-18"}, [{"step": 1, "note": "sent HL-18"}]))
+        self.assertIsNone(U.id_drift({"note": "HL-17"}, [{"step": 1, "note": "saw HL-16 and HL-15"}]))
+        self.assertEqual(U.named_ids("run 1041-user-print-clone-user-20260925-200450, on 2026-09-24"),
+                         {"user-print-clone-user-20260925": {"200450"}})
+
     def test_a_refused_quote_names_the_fragment_the_page_does_not_show(self):
         page = FakePage(snapshot='- heading "Shop"\n'
                                  '- listitem "Lofi Jazzy": Lofi Jazzy: 7 songs, 2 saved, 5 not saved\n'

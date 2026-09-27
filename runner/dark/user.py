@@ -18,7 +18,9 @@ whitespace and the punctuation at a line edge ignored, with the snapshot's
 role prefixes taken off and with a fragment boundary drawn where the model
 joined separate elements. A step that runs out of calls, repeats one
 browser action on an unchanged page, or repeats one refused pass verdict on
-an unchanged page, is recorded inconclusive by the arm itself; a wait only
+an unchanged page, is recorded inconclusive by the arm itself; a pass that
+names another identifier than an earlier step named (job HL-17 where step 3
+sent HL-18) is refused the same way; a wait only
 passes time and never counts toward the repetition. Then a screenshot is
 taken as <records>/steps/<NN>.png, a trail is
 written as <records>/steps/<NN>.trail.jsonl (one line per action: when it
@@ -183,6 +185,36 @@ def first_missing_fragment(evidence, snapshot):
     for fragment in fragments:
         if _normalised(strip_roles(fragment)) not in page:
             return fragment
+    return None
+
+
+ID_RE = re.compile(r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9_.]*(?:-[A-Za-z0-9_.]+)*)-(\d{1,9})(?![A-Za-z0-9])")
+
+
+def named_ids(text):
+    """{stem: {number}} for every identifier of the form <stem>-<number> in text,
+    as print jobs, orders and tickets are named (HL-L2400DWE-18, ORD-7)."""
+    out = {}
+    for stem, num in ID_RE.findall(str(text or "")):
+        out.setdefault(stem, set()).add(num)
+    return out
+
+
+def id_drift(action, earlier):
+    """None, or why a pass names another identifier than the one an earlier step
+    named: an earlier note names exactly one <stem>-<n>, and this pass names
+    <stem>-<m> but never <stem>-<n>. A later step that reports on "the job" must
+    report on the same job, not the first one the page happens to list."""
+    now = named_ids(f"{action.get('note', '')} {action.get('evidence', '')}")
+    for rec in reversed(earlier or []):
+        before = named_ids(rec.get("note"))
+        for stem, nums in now.items():
+            was = before.get(stem)
+            if was and len(was) == 1 and not nums & was:
+                old = next(iter(was))
+                new = sorted(nums)[0]
+                return (f"step {rec.get('step')} named {stem}-{old}, and this pass names {stem}-{new}: "
+                        f"find {stem}-{old} on the page, or give fail or inconclusive")
     return None
 
 
@@ -538,6 +570,12 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                     # nothing new either, so the step ends naming the quote
                     refusals = refusals + 1 if refused_prev == (snap, key) else 1
                     refused_prev = (snap, key)
+                elif action.get("verdict") == "pass" and id_drift(action, results):
+                    # the page's words, but about another job than the earlier step's:
+                    # refused like a missing quote, and counted the same way
+                    history.append({"action": action, "error": id_drift(action, results)})
+                    refusals = refusals + 1 if refused_prev == (snap, key) else 1
+                    refused_prev = (snap, key)
                 else:
                     verdict, note = action["verdict"], str(action.get("note") or "")[:300]
                     evidence = str(action.get("evidence") or "") if verdict == "pass" else ""
@@ -567,7 +605,9 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             elif verdict is None and refusals >= 3:
                 # the same refused pass verdict three times: end the step and
                 # say what the model quoted, rather than call the verdict stuck
-                verdict, note = "inconclusive", f"evidence not found: {str(action.get('evidence') or '')[:80]}"
+                drift = id_drift(action, results) if action.get("verdict") == "pass" else None
+                verdict, note = "inconclusive", (f"refused three times: {drift}"[:300] if drift else
+                                                 f"evidence not found: {str(action.get('evidence') or '')[:80]}")
             entry["result"] = history[-1] if history and verdict is None else {"verdict": verdict}
             _append(stream, entry)
         saw = _seen_errors(trail)
