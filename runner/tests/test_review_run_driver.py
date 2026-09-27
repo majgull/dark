@@ -16,13 +16,15 @@ from tests.test_run import FILE_HELLO, Base
 
 # ---------------------------------------------------------------------------
 # A verify.sh that is green in the executor VM and red in the staging VM.
-# The executor clones the whole repo (origin/main exists); the stager clones
-# with --branch <run branch> --single-branch (origin/main does not exist).
+# The executor clones the whole repo (its fetch refspec is refs/heads/*); the
+# stager clones with --branch <run branch> --single-branch (its refspec names
+# the one branch). origin/main is no longer the tell: the stager fetches it
+# for the protected-path and credential checks.
 # The staging-side output is deliberately longer than 400 characters.
 SPLIT_VERIFY = (
     '#!/bin/bash\n'
     'cd "$(dirname "$0")/.."\n'
-    'if git rev-parse --verify -q origin/main >/dev/null 2>&1; then\n'
+    'if git config --get-all remote.origin.fetch | grep -q "refs/heads/\\*"; then\n'
     '  test -f hello.txt || exit 1\n'
     '  echo "verify OK"\n'
     '  exit 0\n'

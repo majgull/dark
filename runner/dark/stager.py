@@ -84,12 +84,19 @@ PROTECTED = (".dark", ".gitea")
 def tampered():
     """Protected paths changed on the branch relative to main: the executor's
     reply protocol refuses them, but model code running in the executor VM
-    holds the agent token and git. The branch is the evidence."""
-    r = subprocess.run(["git", "fetch", "-q", "origin", "main"], cwd=WORK, capture_output=True, text=True)
+    holds the agent token and git. The branch is the evidence.
+
+    The clone is --single-branch, so a bare `git fetch origin main` writes
+    only FETCH_HEAD and origin/main never exists; the refspec names it. A
+    diff that fails is a staging fault, never an empty (clean) answer."""
+    r = subprocess.run(["git", "fetch", "-q", "origin", "+refs/heads/main:refs/remotes/origin/main"],
+                       cwd=WORK, capture_output=True, text=True)
     if r.returncode != 0:
         return None  # no main to compare against (the runner materialises one; report, do not guess)
     r = subprocess.run(["git", "diff", "--name-only", "origin/main", "HEAD", "--", *PROTECTED],
                        cwd=WORK, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"git diff origin/main HEAD failed: {r.stderr.strip()[-200:]}")
     return [p for p in r.stdout.split("\n") if p.strip()]
 
 
