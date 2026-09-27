@@ -586,17 +586,70 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     return results, stop
 
 
+README_FILE = "README.md"
+BADGE = {"pass": "🟢 PASS", "fail": "🔴 FAIL", "inconclusive": "🟡 INCONCLUSIVE"}
+FILES_EXPLAINED = (
+    ("steps.jsonl", "one line per step: its verdict, the model's note, and for a pass the page text it quoted."),
+    ("steps/NN.png", "the page at the moment step NN got its verdict."),
+    ("steps/NN.trail.jsonl", "every browser action in step NN, with the requests the page made after it."),
+    ("stream.jsonl", "every call to the model: the action it chose and what happened when it was done."),
+    ("trace.zip", "the Playwright trace of the whole run: open it at https://trace.playwright.dev, or with "
+                  "`npx playwright show-trace trace.zip`."),
+    ("video.webm", "the whole run as a video; `dark demo <this directory>` cuts it into a captioned demo."),
+    ("brief.md, task.json", "what the run was given: the task's text, URL, steps and model (tokens removed)."),
+)
+
+
+def _cell(text):
+    return " ".join(str(text).split()).replace("|", "\\|")
+
+
+def write_readme(records_dir, outcome, detail):
+    """<records>/README.md: what a person opening the run's folder reads first,
+    rendered by the Git host: the outcome as a coloured badge, a table of the
+    steps with their verdicts, and one line per file saying what it holds."""
+    t = S.TASK
+    steps = list(t.get("steps") or [])
+    rows = []
+    path = os.path.join(records_dir, "steps.jsonl")
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue
+    by_step = {r.get("step"): r for r in rows if isinstance(r, dict)}
+    lines = [f"# {t.get('run') or 'user-arm run'}", "",
+             f"**{BADGE.get(outcome, outcome.upper())}**: {_cell(detail)}", "",
+             "A user-arm run of dark: a language model used a real browser on "
+             f"<{t.get('url', '')}> step by step, the way a new user would, and gave each step a verdict: "
+             "pass, fail, or inconclusive when it could not tell. "
+             f"Task `{t.get('task', '')}`, model `{t.get('llm_model', '')}`.", "",
+             "| step | verdict | what the model saw |", "|---|---|---|"]
+    for i, text in enumerate(steps, 1):
+        r = by_step.get(i)
+        verdict = BADGE.get(r.get("verdict"), r.get("verdict")) if r else "not reached"
+        lines.append(f"| {i}. {_cell(text)} | {verdict} | {_cell(r.get('note', '')) if r else ''} |")
+    lines += ["", "## The files", ""]
+    lines += [f"- `{name}`: {what}" for name, what in FILES_EXPLAINED]
+    with open(os.path.join(records_dir, README_FILE), "w", encoding="utf-8") as f:
+        f.write(S.scrub("\n".join(lines) + "\n"))
+
+
 def records_paths(records_dir):
     """What the records push adds beside stream.jsonl, brief.md, task.json.
-    trace.zip and video.webm are listed always; the push skips a path that
-    does not exist, so a recording that was not made is not an error."""
-    return {"steps.jsonl": os.path.join(records_dir, "steps.jsonl"),
+    README.md, trace.zip and video.webm are listed always; the push skips a
+    path that does not exist, so a recording that was not made is not an error."""
+    return {README_FILE: os.path.join(records_dir, README_FILE),
+            "steps.jsonl": os.path.join(records_dir, "steps.jsonl"),
             "steps": os.path.join(records_dir, "steps"),
             TRACE_FILE: os.path.join(records_dir, TRACE_FILE),
             VIDEO_FILE: os.path.join(records_dir, VIDEO_FILE)}
 
 
 def fail(kind, text, **kw):
+    _readme("fail", f"({kind}) {text}")
     S.comment(f"AGENT-DONE fail ({kind}): {text}\n"
               + S.done("fail", kind, **kw, **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR))))
     return 1
@@ -605,9 +658,19 @@ def fail(kind, text, **kw):
 def inconclusive(text, **kw):
     """No step failed and at least one could not be judged: not a pass, and
     told apart from a fail in the comment and the tag."""
+    _readme("inconclusive", text)
     S.comment(f"AGENT-DONE inconclusive: {text}\n"
               + S.done("inconclusive", **kw, **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR))))
     return 1
+
+
+def _readme(outcome, detail):
+    """The README never stops the records push: a fault writing it is one stderr line."""
+    try:
+        if S.RECORDS_DIR and os.path.isdir(S.RECORDS_DIR):
+            write_readme(S.RECORDS_DIR, outcome, detail)
+    except Exception as e:  # noqa: BLE001
+        print(f"README.md not written: {e}", file=sys.stderr)
 
 
 def main(model=None, page=None):
@@ -667,6 +730,7 @@ def _main(model, page):
     if unjudged:
         reasons = "; ".join(f"step {r['step']}: {r['note']}" for r in unjudged)
         return inconclusive(f"{tally}; no step failed, but {len(unjudged)} could not be judged: {reasons}", **kw)
+    _readme("pass", tally)
     S.comment(f"AGENT-DONE ok steps={ok}/{len(steps)} calls={S.STATS['calls']}\n"
               + S.done("ok", **kw, **S.records_kw(extra_paths=records_paths(records))))
     return 0

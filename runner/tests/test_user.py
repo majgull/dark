@@ -686,7 +686,7 @@ class Recording(unittest.TestCase):
     def test_the_names_are_the_records_index(self):
         self.assertEqual((U.TRACE_FILE, U.VIDEO_FILE), ("trace.zip", "video.webm"))
         paths = U.records_paths("/r")
-        self.assertEqual(sorted(paths), ["steps", "steps.jsonl", "trace.zip", "video.webm"])
+        self.assertEqual(sorted(paths), ["README.md", "steps", "steps.jsonl", "trace.zip", "video.webm"])
         self.assertEqual((paths["trace.zip"], paths["video.webm"]), ("/r/trace.zip", "/r/video.webm"))
 
     def test_without_a_records_directory_nothing_is_recorded(self):
@@ -822,6 +822,25 @@ class Executor(unittest.TestCase):
         self.assertEqual([json.loads(l)["verdict"] for l in files[run + "steps.jsonl"].decode().splitlines()],
                          ["pass", "pass", "pass"])
         self.assertTrue(files[run + "steps/02.png"].startswith(PNG))
+
+    def test_the_readme_says_the_outcome_and_every_step_without_the_token(self):
+        page = FakePage(snapshot=f"- heading \"Shop\"\n- text \"session {TOKEN}\"")
+        rc = U.main(ScriptedModel([verdict(), verdict(note=f"saw {TOKEN} | twice", evidence=TOKEN), verdict()]), page)
+        self.assertEqual(rc, 0)
+        readme = self.records()["shop-user-1/README.md"].decode()
+        self.assertTrue(readme.startswith("# shop-user-1\n"))
+        self.assertIn("**🟢 PASS**: 3/3 steps pass", readme)
+        self.assertIn(f"| 1. {STEPS[0]} | 🟢 PASS |", readme)
+        self.assertIn("\\| twice", readme)  # a pipe in a note never breaks the table
+        self.assertNotIn(TOKEN, readme)
+        self.assertIn("- `trace.zip`: the Playwright trace", readme)
+
+    def test_a_failed_run_shows_the_failed_step(self):
+        rc = U.main(ScriptedModel([verdict(), verdict("fail", note="no basket"), verdict()]), FakePage())
+        self.assertEqual(rc, 1)
+        readme = self.records()["shop-user-1/README.md"].decode()
+        self.assertIn("**🔴 FAIL**: (", readme)
+        self.assertIn("| 🔴 FAIL | no basket |", readme)
 
     def test_the_trace_and_the_video_are_pushed_beside_steps_jsonl(self):
         rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), RecordedPage(S.RECORDS_DIR))
