@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `dark preflight` on a machine without `ssh` (or `docker`) reports the compute plane as one `MISS` line naming the missing program and exits 2, instead of dying with a `FileNotFoundError` traceback.
+
 ## [0.6.0] - 2026-09-26
 
 ### Added

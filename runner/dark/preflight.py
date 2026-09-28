@@ -123,12 +123,21 @@ class Preflight:
         is_docker = self.host.backend == "docker"
         plane = "docker" if is_docker else "proxmox"
         target = self.host.sandbox_image if is_docker else self.host.proxmox
-        up = self.px.reachable()
-        if not up and not is_docker and need_model:
-            up = self.wake()
+        try:
+            up = self.px.reachable()
+            if not up and not is_docker and need_model:
+                up = self.wake()
+        except FileNotFoundError as e:
+            # the plane is reached through a program (ssh, docker) that is
+            # not installed: a miss like any other, not a traceback
+            add(plane, False, f"{e.filename or e}: not found on PATH")
+            return out
         add(plane, up, target if up else f"{target}: unreachable after wake")
         if up:
-            ok, why = self.px.template_ok()
+            try:
+                ok, why = self.px.template_ok()
+            except FileNotFoundError as e:
+                ok, why = False, f"{e.filename or e}: not found on PATH"
             if is_docker:
                 add("sandbox image", ok, why or f"image {self.host.sandbox_image} present")
             elif self.host.backend == "lxc":
