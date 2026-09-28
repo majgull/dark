@@ -64,8 +64,7 @@ rather than one silently winning.
 
 `python3 -m dark long --task <dir> --tier <id>` runs one long-arm task: a session executor works in the task's several repositories and a reviewer session judges the branches it pushed.
 
-`docs/fresh-container.md` records a bare container
-running the checks.
+`docs/fresh-container.md` records a fresh container running this Quick start.
 
 ## Layout
 
