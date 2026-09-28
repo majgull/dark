@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-09-29
+
 ### Added
 
 - `runner/verify.sh` checks release pressure: `python3 -m dark.pressure CHANGELOG.md` counts the entries under `## [Unreleased]`, warns that a patch release is due above 5, and fails the gate above 10.
