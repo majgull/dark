@@ -78,7 +78,26 @@ except ImportError:  # injected as /opt/user.py beside /opt/session.py and run a
 SNAPSHOT_CHARS = 12000  # the page as the model sees it, cut to this
 JOIN_CHARS = "—–-\"'…."  # the punctuation an accessibility snapshot puts at a line's edge
 MIN_FRAGMENT = 8  # a quote part this short is a word, not a quote: it keeps its neighbour
-FRAGMENT_SPLIT = re.compile(r"\s[—–-]\s|;\s+|\.\s+")  # where a model joins separate page elements
+# the ARIA roles an accessibility snapshot names its nodes by, as the model copies them into a quote
+ROLES = ("alert application article banner blockquote button caption cell checkbox code columnheader "
+         "combobox complementary contentinfo definition deletion dialog document emphasis figure form "
+         "generic grid gridcell group heading img insertion link list listbox listitem log main mark "
+         "math menu menubar menuitem meter navigation note option paragraph progressbar radio region "
+         "row rowgroup rowheader search searchbox separator slider spinbutton status strong subscript "
+         "superscript switch tab table tablist tabpanel term textbox time timer toolbar tooltip tree "
+         "treeitem text").split()
+_ROLE = "(?:" + "|".join(ROLES) + ")"
+# where a model joins separate page elements: a dash between spaces, `; `, `. `,
+# an ellipsis between spaces, and a closing quote followed by the next node's role
+# (`main "dark-records/adhoc" link "adhoc"`, the snapshot's own lines run together)
+FRAGMENT_SPLIT = re.compile(r"\s(?:\.\.\.|…)\s|\s[—–-]\s|;\s+|\.\s+"
+                            rf"|(?<=[\"'])\s+(?={_ROLE}(?:\s+\"|:\s))")
+# a node written as `role "name"` with no colon after it, as a model quotes one: the name stays
+NAMED_NODE = re.compile(rf'^{_ROLE}\s+"([^"]*)"(?:\s*\[[^\]]*\])*\s*(?=$|[^:\s])')
+# a snapshot line as the name it shows: YAML's quoting of a name with `: ` in it undone,
+# then `role "name" [attrs]: rest` read as `name rest`
+YAML_QUOTED = re.compile(r"^'((?:[^']|'')*)'(:.*)?$")
+NODE_LINE = re.compile(r'^[a-z][a-z-]*\s+"([^"]*)"(?:\s*\[[^\]]*\])*\s*(?::\s*(.*))?$')
 LINE_MARKER = re.compile(r"^[-*]\s+")  # the `- ` an accessibility tree puts before a node
 ROLE_PREFIX = re.compile(r'^[a-z][a-z-]*(?:\s+"[^"]*")?\s*:')  # `button "Open": ` / `text: `
 ACTION_TIMEOUT_MS = 10000
@@ -180,6 +199,36 @@ def page_text(snapshot):
     return _normalised(strip_roles(snapshot))
 
 
+def page_names(snapshot):
+    """The snapshot with every node read as the name it shows: `- link "x":`
+    is `x`, `- button "Open": Road Trip` is `Open Road Trip`, and a line YAML
+    quoted because its name holds `: ` (`- 'link "records: a"':`) is `records:
+    a`. `strip_roles` drops a name followed by a colon, so a link with a /url
+    child, as every Gitea link has, left nothing of its name to quote."""
+    out = []
+    for line in str(snapshot or "").splitlines():
+        line = LINE_MARKER.sub("", line.strip(), count=1)
+        m = YAML_QUOTED.match(line)
+        if m:
+            line = m.group(1).replace("''", "'") + (m.group(2) or "")
+        m = NODE_LINE.match(line)
+        if m:
+            line = " ".join(x for x in (m.group(1), m.group(2)) if x)
+        else:
+            line = ROLE_PREFIX.sub("", line, count=1)
+        out.append(line)
+    return _normalised("\n".join(out))
+
+
+def fragment_text(fragment):
+    """A quote fragment as it is looked for: a node the model wrote as
+    `role "name"` with no colon is its name, `main "dark-records/adhoc"` is
+    `dark-records/adhoc`; otherwise `strip_roles` as for the page."""
+    text = LINE_MARKER.sub("", str(fragment or "").strip().strip("'").strip(), count=1)
+    text = NAMED_NODE.sub(lambda m: m.group(1) + " ", text, count=1)
+    return _normalised(strip_roles(text))
+
+
 def evidence_fragments(evidence):
     """The parts a pass verdict's quote is checked in, in order: the quote is
     split where a model joins separate page elements, an em dash or a hyphen
@@ -215,9 +264,11 @@ def first_missing_fragment(evidence, snapshot):
     fragments = evidence_fragments(evidence)
     if not fragments:
         return ""
-    page = page_text(snapshot)
+    page, names = page_text(snapshot), page_names(snapshot)
     for fragment in fragments:
-        if _normalised(strip_roles(fragment)) not in page:
+        old = _normalised(strip_roles(fragment))
+        new = fragment_text(fragment)
+        if old not in page and new not in page and new not in names:
             return fragment
     return None
 

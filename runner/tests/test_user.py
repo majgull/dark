@@ -472,6 +472,47 @@ class Steps(unittest.TestCase):
         self.assertEqual(model.asked[3]["step"], 2)  # the fourth call already belongs to step 2
         self.assertEqual([r["verdict"] for r in results], ["inconclusive", "pass", "pass"])
 
+    # a records page as the browser showed it (a run of 2026-09-28, step 1), cut to the lines quoted
+    RECORDS_PAGE = """- main "dark-records/adhoc":
+  - link "dark-records":
+    - /url: /dark-records
+  - text: /
+  - link "adhoc":
+    - /url: /dark-records/adhoc
+  - link "Issues 2":
+    - /url: /dark-records/adhoc/issues
+  - link "ad3261ee7e":
+    - /url: /dark-records/adhoc/commit/ad3261ee7efca1d6acba6d2b83aa2e810cf7cea9
+  - 'link "records: 989-user-page-a1-user-20260928-010027"':
+    - /url: /dark-records/adhoc/commit/ad3261ee7efca1d6acba6d2b83aa2e810cf7cea9
+  - text: 2026-09-28 01:02:42 +00:007 minutes ago"""
+
+    def test_a_quote_of_snapshot_lines_joined_by_an_ellipsis_is_found(self):
+        # the model's step 1 evidence in that run, refused 13 times before
+        quote = ("main \"dark-records/adhoc\" ... 'link \"records: 989-user-page-a1-user-20260928-010027\"'"
+                 " ... text: 2026-09-28 01:02:42 +00:007 minutes ago")
+        self.assertEqual(U.evidence_fragments(quote),
+                         ['main "dark-records/adhoc"', "'link \"records: 989-user-page-a1-user-20260928-010027\"'",
+                          "text: 2026-09-28 01:02:42 +00:007 minutes ago"])
+        self.assertIsNone(U.first_missing_fragment(quote, self.RECORDS_PAGE))
+        self.assertEqual(U.evidence_fragments('main "dark-records/adhoc" … link "adhoc"'),
+                         ['main "dark-records/adhoc"', 'link "adhoc"'])
+
+    def test_nodes_quoted_as_role_and_name_are_found_by_their_names(self):
+        quote = ('main "dark-records/adhoc" link "dark-records" link "adhoc" '
+                 'link "records: 989-user-page-a1-user-20260928-010027" text: 2026-09-28 01:02:42 +00:007 minutes ago')
+        self.assertEqual(len(U.evidence_fragments(quote)), 5)
+        self.assertIsNone(U.first_missing_fragment(quote, self.RECORDS_PAGE))
+        # a link with a /url child: its name was dropped with its `role "name":` prefix
+        self.assertIsNone(U.first_missing_fragment('link "Issues 2"', self.RECORDS_PAGE))
+        self.assertIsNone(U.first_missing_fragment("Issues 2", self.RECORDS_PAGE))
+
+    def test_a_quote_in_the_models_own_words_is_still_refused(self):
+        quote = ('main "dark-records/adhoc" with links "dark-records" / "adhoc", entries like '
+                 'link "989-user-page-a1-user-20260928-010027"')
+        self.assertIsNotNone(U.first_missing_fragment(quote, self.RECORDS_PAGE))
+        self.assertEqual(U.first_missing_fragment('link "Issues 3"', self.RECORDS_PAGE), 'link "Issues 3"')
+
     def test_a_refused_quote_names_the_fragment_the_page_does_not_show(self):
         page = FakePage(snapshot='- heading "Shop"\n'
                                  '- listitem "Lofi Jazzy": Lofi Jazzy: 7 songs, 2 saved, 5 not saved\n'
