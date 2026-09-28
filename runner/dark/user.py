@@ -28,6 +28,14 @@ happened, what it acted on, and the requests the page made before the next
 snapshot) and {step, verdict, note} is appended to <records>/steps.jsonl,
 with the evidence on a pass. The run passes when every step's verdict is pass.
 
+An action names its element by role and accessible name. An element named
+exactly that is used, the first when several are; when no name is exact, one
+element whose name contains it is used, and several are refused with their
+names, so the model can name one precisely: the action clicks nothing, and
+the step's history and trail mark it refused. (Playwright's own match is a
+substring, and its `.first` clicked a commit link `records: <run>` listed
+before the run's folder link `<run>`.)
+
 The real browser also records the whole run: a Playwright trace as
 <records>/trace.zip and a video as <records>/video.webm, both written when
 the page is closed. A recording that cannot be made or saved is skipped and
@@ -79,7 +87,8 @@ SYSTEM = """You check one step of a task in a web application through a browser,
 {"do": "verdict", "verdict": "pass" or "fail" or "inconclusive", "note": "<one line: what you saw>", "evidence": "<text copied from the page>"}
 Give the verdict as soon as the step is done (pass) or shown not to work (fail), or inconclusive when the page cannot tell you. Judge only this step.
 A pass must carry evidence: text copied word for word from the page's snapshot, so the pass is checked against what the page showed. A pass whose evidence is not on the page is refused and you are asked again. A fail needs no evidence.
-When a step refers to something an earlier step made (an order, a job, a code), take it from the earlier steps' notes."""
+When a step refers to something an earlier step made (an order, a job, a code), take it from the earlier steps' notes.
+Name an element by its whole accessible name as the snapshot shows it. An element named exactly that is used; a name that only part of several elements' names matches is refused, and you are shown their names to pick one."""
 
 PROMPT = """TASK:
 {spec}
@@ -298,6 +307,65 @@ class ChatModel:
 
 
 # --- the browser ----------------------------------------------------------------
+class AmbiguousTarget(Exception):
+    """An action's name matched several elements and none exactly: the action
+    is refused, never performed on the first of them."""
+
+
+QUOTED_LINE = re.compile(r"""^-\s+(?:'((?:[^']|'')*)'|(.*))""")
+ROLE_NAME = re.compile(r'^[a-z][a-z-]*\s+"((?:[^"\\]|\\.)*)"')
+MAX_CANDIDATES = 8  # names an ambiguity refusal quotes; the rest are counted
+
+
+def accessible_name(locator):
+    """The accessible name of one element, from its own aria snapshot's first
+    line (`- link "records: 1032-x"`, which Playwright writes as a quoted YAML
+    scalar when the name holds `: `); its text when that line has no name."""
+    try:
+        first = (locator.aria_snapshot() or "").splitlines()[0].strip()
+    except Exception:  # noqa: BLE001 — a name we cannot read is still a candidate
+        first = ""
+    m = QUOTED_LINE.match(first)
+    body = (m.group(1).replace("''", "'") if m and m.group(1) is not None else
+            m.group(2) if m else "")
+    n = ROLE_NAME.match(body)
+    if n:
+        try:
+            return json.loads(f'"{n.group(1)}"')
+        except ValueError:
+            return n.group(1)
+    try:
+        return " ".join((locator.inner_text() or "").split())
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def resolve_target(page, role, name):
+    """The element an action names. Playwright's `name` matches a substring,
+    any case, so `.first` of it can be another element than the one named: the
+    link `records: 1032-x` before the link `1032-x`. So an element whose name is
+    exactly the one asked for wins (the first, when several are); a single
+    element containing the name is taken; several containing it and none equal
+    to it is an AmbiguousTarget naming them, so the model can name one exactly.
+    No name: the first element of the role, as before."""
+    if not name:
+        return page.get_by_role(role).first
+    loose = page.get_by_role(role, name=name)
+    loose.first.wait_for(state="attached", timeout=ACTION_TIMEOUT_MS)
+    exact = page.get_by_role(role, name=name, exact=True)
+    if exact.count():
+        return exact.first
+    n = loose.count()
+    if n > 1:
+        names = [accessible_name(loose.nth(i)) for i in range(min(n, MAX_CANDIDATES))]
+        more = f" and {n - MAX_CANDIDATES} more" if n > MAX_CANDIDATES else ""
+        raise AmbiguousTarget(
+            f'refused: {n} {role} elements contain "{name}" and none is named exactly that: '
+            + ", ".join(json.dumps(x, ensure_ascii=False) for x in names) + more
+            + f"; ask again with one {role}'s exact name")
+    return loose.first
+
+
 def _origin(url):
     """scheme://host:port of a URL: the key the trail keeps requests under."""
     p = urllib.parse.urlsplit(str(url or ""))
@@ -408,7 +476,7 @@ class PlaywrightPage:
             return json.dumps(self.page.accessibility.snapshot(), indent=1)
 
     def _target(self, a):
-        return self.page.get_by_role(a.get("role") or "button", name=a.get("name") or None).first
+        return resolve_target(self.page, a.get("role") or "button", a.get("name") or None)
 
     def act(self, a):
         do = a.get("do")
@@ -590,13 +658,20 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                     prev = (snap, key)
                 S.STATS["tool_calls"] += 1
                 _drain(page)  # requests the model call itself made are no action's
+                refused = False
                 try:
                     page.act(action)
                     history.append({"action": action, "ok": True})
+                except AmbiguousTarget as e:
+                    # nothing was clicked: the model gets the candidates' names in full
+                    refused = True
+                    history.append({"action": action, "error": str(e)[:1200], "refused": True})
                 except Exception as e:  # noqa: BLE001 — a failed action is evidence, not a crash
                     history.append({"action": action, "error": f"{type(e).__name__}: {e}"[:300]})
                 trail.append({"t": round(clock() - step_start, 3), "action": action,
                               "target": action_target(action), "requests": []})
+                if refused:
+                    trail[-1]["refused"] = True
                 pending = trail[-1]
             if verdict is None and not is_wait and repeats >= 3:
                 # the same browser action on an unchanged page three times: no
