@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - The README's Quick start works on a fresh machine: it installs `'.[dev]'` so `verify.sh` finds pytest, the task check clones dark-tasks and exports `DARK_TASKS` at it instead of expecting a clone beside the checkout, and `docs/fresh-container.md` records that Quick start run.
+- `dark preflight` on a machine without `ssh` (or `docker`) reports the compute plane as one `MISS` line naming the missing program and exits 2, instead of dying with a `FileNotFoundError` traceback.
 
 ## [0.6.1] - 2026-09-28
 

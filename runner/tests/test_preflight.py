@@ -1,7 +1,11 @@
+import io
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
+from dark import __main__ as M
 from dark import config, llm, preflight
 from dark import gitea as G
 from dark import ledger as L
@@ -214,3 +218,34 @@ class Preflight(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MissingProgram(unittest.TestCase):
+    """`dark preflight --no-model` with the example host.toml on a machine
+    without ssh (or docker): the plane is one MISS line naming the program,
+    the exit is 2, and nothing is raised."""
+
+    def cli(self, backend):
+        tmp = tempfile.mkdtemp()
+        env = {k: v for k, v in os.environ.items() if not k.startswith("DARK_")}
+        env.update(PATH=tmp,  # an empty directory: no ssh, no docker
+                   DARK_BACKEND=backend, DARK_STATE=os.path.join(tmp, "state"),
+                   DARK_GITEA_URL="http://127.0.0.1:9",
+                   DARK_ADMIN_TOKEN_FILE=os.path.join(tmp, "none"),
+                   DARK_AGENT_TOKEN_FILE=os.path.join(tmp, "none"))
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(out), redirect_stderr(io.StringIO()):
+            rc = M.main(["--conf", M.HERE, "preflight", "--no-model"])
+        return rc, out.getvalue().splitlines()
+
+    def test_no_ssh_is_a_miss_line(self):
+        rc, lines = self.cli("proxmox")
+        self.assertEqual(rc, 2)
+        self.assertIn("MISS proxmox: ssh: not found on PATH", lines)
+        self.assertEqual(len([l for l in lines if "ssh" in l]), 1, lines)
+        self.assertTrue(lines[-1].startswith("preflight refused: "), lines)
+
+    def test_no_docker_is_a_miss_line(self):
+        rc, lines = self.cli("docker")
+        self.assertEqual(rc, 2)
+        self.assertIn("MISS docker: docker: not found on PATH", lines)
