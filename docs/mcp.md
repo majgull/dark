@@ -22,7 +22,7 @@ pi: NOT FOUND. Neither page above names pi, and the README of the pi package on 
 
 ## Environment
 
-The server gives its own environment to every command it starts, so set the CLI's `DARK_*` variables where the server starts. `DARK_CONF` is the directory holding `models.toml`, `budgets.toml` and `host.toml`; it defaults to the files beside the package, and `dark mcp` ignores `--conf`. Each `host.toml` key has a `DARK_*` variable named in `runner/host.toml` and described in `docs/docker.md`, such as `DARK_STATE`, `DARK_BACKEND`, `DARK_GITEA_URL` and `DARK_ADMIN_TOKEN_FILE`.
+The server gives its own environment to every command it starts, so set the CLI's `DARK_*` variables where the server starts. `DARK_CONF` is the directory holding `models.toml`, `budgets.toml` and `host.toml`; unset, it is `./runner` when the server starts in a dark checkout, else the files beside the package, and `dark mcp` ignores `--conf`. Each `host.toml` key has a `DARK_*` variable named in `runner/host.toml` and described in `docs/docker.md`, such as `DARK_STATE`, `DARK_BACKEND`, `DARK_GITEA_URL` and `DARK_ADMIN_TOKEN_FILE`.
 
 ## The tools
 

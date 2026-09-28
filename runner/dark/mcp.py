@@ -285,11 +285,12 @@ def call_command(tool, arguments):
 
 
 def tail_ledger(arguments):
-    """The last n rows of the ledger the CLI writes: host.ledger_path from host.toml in $DARK_CONF."""
+    """The last n rows of the ledger the CLI writes: host.ledger_path from host.toml in
+    the CLI's config directory ($DARK_CONF, else ./runner in a checkout, else beside the package)."""
     from . import config
     n = arguments.get("n", LEDGER_DEFAULT_ROWS)
     try:
-        host = config.load_host(os.path.join(os.environ.get("DARK_CONF", HERE), "host.toml"))
+        host = config.load_host(os.path.join(config.conf_dir(), "host.toml"))
     except config.ConfigError as e:
         return _result(f"config: {e}", True)
     try:

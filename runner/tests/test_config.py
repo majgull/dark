@@ -384,3 +384,125 @@ class ConfDirDefault(unittest.TestCase):
         rc, out = self.run_cli(["--conf", self.conf, "check-config"], dark_conf=missing)
         self.assertEqual(rc, 0)
         self.assertIn("config OK", out)
+
+
+class ConfDirLookup(unittest.TestCase):
+    """--conf, else $DARK_CONF, else ./runner when the current directory is a
+    dark checkout, else beside the package. After `pip install .` the package
+    sits in site-packages with no toml beside it, so a checkout's runner/ must
+    be found from the checkout root, and a miss names every directory tried."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.checkout = os.path.join(self.tmp, "checkout")
+        self.runner = os.path.join(self.checkout, "runner")
+        os.makedirs(self.runner)
+        write_conf(self.runner)
+        with open(os.path.join(self.runner, "host.toml"), "w") as f:
+            f.write("[host]\n")
+        self.package = os.path.join(self.tmp, "site-packages")  # no toml, like an install
+        os.makedirs(self.package)
+        self.elsewhere = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(self.elsewhere)
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("DARK_CONF", None)
+        pkg = mock.patch.object(config, "PACKAGE_CONF", self.package)
+        pkg.start()
+        self.addCleanup(pkg.stop)
+
+    def run_cli(self, argv, cwd):
+        os.chdir(cwd)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = M.main(argv)
+        return rc, buf.getvalue()
+
+    def test_the_flag_comes_first(self):
+        self.assertEqual(config.conf_dir("/a", environ={"DARK_CONF": "/b"}, cwd=self.checkout), "/a")
+
+    def test_dark_conf_comes_before_the_checkout(self):
+        self.assertEqual(config.conf_dir(None, environ={"DARK_CONF": "/b"}, cwd=self.checkout), "/b")
+
+    def test_the_checkout_runner_comes_before_the_package(self):
+        package = os.path.join(self.tmp, "pkg-with-conf")
+        os.makedirs(package)
+        write_conf(package)
+        self.assertEqual(config.conf_dir(None, environ={}, cwd=self.checkout, package_conf=package),
+                         self.runner)
+
+    def test_outside_a_checkout_the_package_directory_is_used(self):
+        write_conf(self.package)
+        self.assertEqual(config.conf_dir(None, environ={}, cwd=self.elsewhere), self.package)
+
+    def test_an_empty_dark_conf_counts_as_unset(self):
+        self.assertEqual(config.conf_dir(None, environ={"DARK_CONF": ""}, cwd=self.checkout), self.runner)
+
+    def test_a_miss_names_the_directories_tried_and_the_way_out(self):
+        with self.assertRaises(config.ConfigError) as cm:
+            config.conf_dir(None, environ={}, cwd=self.elsewhere)
+        msg = str(cm.exception)
+        self.assertIn(os.path.join(self.elsewhere, "runner"), msg)
+        self.assertIn(self.package, msg)
+        self.assertIn("--conf <dir>", msg)
+        self.assertIn("DARK_CONF", msg)
+
+    def test_check_config_from_the_checkout_root_finds_runner(self):
+        rc, out = self.run_cli(["check-config"], self.checkout)
+        self.assertEqual(rc, 0)
+        self.assertIn("config OK", out)
+
+    def test_check_config_elsewhere_exits_2_naming_what_it_tried(self):
+        rc, out = self.run_cli(["check-config"], self.elsewhere)
+        self.assertEqual(rc, 2)
+        self.assertNotIn("config OK", out)
+        self.assertIn(self.package, out)
+        self.assertIn("--conf <dir>", out)
+
+    def test_ledger_tail_uses_the_same_lookup(self):
+        rc, out = self.run_cli(["ledger-tail"], self.elsewhere)
+        self.assertEqual(rc, 2)
+        self.assertIn("--conf <dir>", out)
+
+
+class CheckConfigExitCode(unittest.TestCase):
+    """check-config exits 0 only when it prints `config OK`; a missing or
+    unreadable config file is exit code 2."""
+
+    def setUp(self):
+        self.conf = write_conf(tempfile.mkdtemp())
+        with open(os.path.join(self.conf, "host.toml"), "w") as f:
+            f.write("[host]\n")
+
+    def check(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = M.main(["--conf", self.conf, "check-config"])
+        return rc, buf.getvalue()
+
+    def test_all_three_present_is_0(self):
+        rc, out = self.check()
+        self.assertEqual(rc, 0)
+        self.assertIn("config OK", out)
+
+    def test_each_missing_file_is_2(self):
+        for name in ("models.toml", "budgets.toml", "host.toml"):
+            with self.subTest(name=name):
+                self.setUp()
+                os.remove(os.path.join(self.conf, name))
+                rc, out = self.check()
+                self.assertEqual(rc, 2)
+                self.assertNotIn("config OK", out)
+                self.assertIn(os.path.join(self.conf, name), out)
+
+    def test_an_unreadable_file_is_2(self):
+        path = os.path.join(self.conf, "budgets.toml")
+        os.remove(path)
+        os.mkdir(path)  # open() refuses a directory even as root, unlike chmod 000
+        rc, out = self.check()
+        self.assertEqual(rc, 2)
+        self.assertNotIn("config OK", out)
+        self.assertIn(path, out)

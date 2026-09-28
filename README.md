@@ -41,6 +41,7 @@ With neither, the same command checks the three example tasks kept here.
 python3 -m venv .venv && . .venv/bin/activate
 pip install '.[dev]'                         # dark console script, plus pytest: verify.sh needs it
 dark --help                                  # the commands the runner offers
+dark check-config                            # config from --conf, $DARK_CONF, else ./runner here
 (cd runner && bash verify.sh)                # tests, config check, no binaries
 python3 bench/tools/check_tasks.py           # the three example tasks: 0 problems
 ```

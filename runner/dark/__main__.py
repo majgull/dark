@@ -18,9 +18,14 @@ from .shift import Shift
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _conf(args):
+    return config.conf_dir(args.conf)
+
+
 def _load(args):
-    catalog, budgets = config.load(args.conf)
-    host = config.load_host(os.path.join(args.conf, "host.toml"))
+    conf = _conf(args)
+    catalog, budgets = config.load(conf)
+    host = config.load_host(os.path.join(conf, "host.toml"))
     host.admin_token = G.read_token(host.admin_token_file)
     host.agent_token = G.read_token(host.agent_token_file)
     return catalog, budgets, host
@@ -76,7 +81,7 @@ def cmd_bench(args):
             return 2
         tests_version = tasks.tests_version(tasks.primary_root(bench_dir))
         run_shift = B.real_run_shift(catalog, budgets, host, ledger, gitea, px, manifest, task_path=task_path)
-        verify_round = B.real_verify_round(HERE, manifest, conf=args.conf)
+        verify_round = B.real_verify_round(HERE, manifest, conf=_conf(args))
         calls_left = B.real_calls_left(catalog, budgets, ledger)
         ok = B.run_phase(manifest, ledger, tests_version, envelope_sha256, run_shift, verify_round,
                          calls_left=calls_left, now_hhmm=B.real_now_hhmm, log=print)
@@ -99,7 +104,7 @@ def cmd_ledger_tail(args):
     keeps rows whose `kind` field matches. A missing or empty ledger prints
     nothing and exits 0; a line that is not a JSON object is skipped with one
     note on stderr."""
-    host = config.load_host(os.path.join(args.conf, "host.toml"))
+    host = config.load_host(os.path.join(_conf(args), "host.toml"))
     try:
         with open(host.ledger_path, encoding="utf-8", errors="replace") as f:
             lines = f.read().split("\n")
@@ -680,9 +685,10 @@ def cmd_abort(args):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="dark")
-    ap.add_argument("--conf", default=os.environ.get("DARK_CONF", HERE),
+    ap.add_argument("--conf",
                     help="directory holding models.toml, budgets.toml, host.toml "
-                         "(default: $DARK_CONF, else beside the package)")
+                         "(default: $DARK_CONF, else ./runner in a dark checkout, "
+                         "else beside the package)")
     ap.add_argument("--version", action="version", version=f"dark {dark_version()}",
                     help="print dark's version and exit")
     sub = ap.add_subparsers(dest="cmd", required=True)
