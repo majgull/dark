@@ -622,6 +622,133 @@ class Steps(unittest.TestCase):
         self.assertEqual(U.parse_action('{"verdict": "pass"}')["do"], "invalid")
 
 
+class ScriptedJudge:
+    """expected_target from a list of reply texts, in order; each question is
+    kept, and when a `log` is given the call is written to it, so a test can
+    see it came before the step's first action."""
+
+    def __init__(self, replies, log=None):
+        self.replies = list(replies)
+        self.asked = []
+        self.log = log
+
+    def expected_target(self, text, snapshot):
+        self.asked.append({"text": text, "snapshot": snapshot})
+        if self.log is not None:
+            self.log.append(("judge", text))
+        return self.replies.pop(0)
+
+
+class LoggedPage(FakePage):
+    """A FakePage writing each action to a shared log."""
+
+    def __init__(self, log):
+        super().__init__()
+        self.log = log
+
+    def act(self, action):
+        self.log.append(("act", action.get("name")))
+        super().act(action)
+
+
+class Judge(unittest.TestCase):
+    """The judge: a separate call before each step's first action names where
+    the result should appear; its answer, or null and why, lands in
+    steps.jsonl and changes nothing else."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        reset_session(self.tmp, {"token": TOKEN})
+        self.records = S.RECORDS_DIR
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_steps(self, model, page, judge, max_calls=20, deadline=1e12):
+        return U.run_steps(model, page, "https://app.example.test/", STEPS, self.records, max_calls, deadline,
+                           judge=judge)
+
+    def jsonl(self):
+        with open(os.path.join(self.records, "steps.jsonl")) as f:
+            return [json.loads(l) for l in f]
+
+    def test_the_judge_is_asked_before_the_first_action_and_its_answer_lands_in_steps_jsonl(self):
+        log = []
+        model = ScriptedModel([{"do": "click", "role": "link", "name": "Sign in"}, verdict(note="the form is shown"),
+                               verdict(), verdict()])
+        judge = ScriptedJudge([json.dumps({"expected": 'heading "Sign in"', "why": "the form opens under it."}),
+                               '{"expected": "Signed in as demo", "why": "the header greets the user."}',
+                               'Sure: {"expected": "1 item", "why": "the cart badge counts it."}'], log)
+        results, stop = self.run_steps(model, LoggedPage(log), judge)
+        self.assertIsNone(stop)
+        self.assertEqual(log[:2], [("judge", STEPS[0]), ("act", "Sign in")])
+        self.assertEqual([q["text"] for q in judge.asked], STEPS)
+        self.assertEqual(judge.asked[0]["snapshot"], '- heading "Shop"')
+        rows = self.jsonl()
+        self.assertEqual(rows, results)
+        self.assertEqual(rows[0], {"step": 1, "verdict": "pass", "note": "the form is shown", "evidence": "Shop",
+                                   "expected": 'heading "Sign in"', "expected_why": "the form opens under it."})
+        self.assertEqual([r["expected"] for r in rows], ['heading "Sign in"', "Signed in as demo", "1 item"])
+        # the judge's three calls count against the envelope beside the acting model's four
+        self.assertEqual(S.STATS["calls"], 7)
+        with open(os.path.join(self.records, "stream.jsonl")) as f:
+            stream = [json.loads(l) for l in f]
+        self.assertEqual(stream[0]["judge"], {"expected": 'heading "Sign in"',
+                                              "expected_why": "the form opens under it."})
+        self.assertNotIn("action", stream[0])
+
+    def test_a_judge_answer_that_is_not_json_records_null_and_the_step_runs_as_before(self):
+        model = ScriptedModel([{"do": "click", "role": "link", "name": "Sign in"}, verdict(note="the form is shown"),
+                               verdict(), verdict("fail", note="no cart button")])
+        judge = ScriptedJudge(["the sign-in form, I think", '{"why": "no target"}', '{"expected": "Cart"}'])
+        page = FakePage()
+        results, stop = self.run_steps(model, page, judge)
+        self.assertIsNone(stop)
+        rows = self.jsonl()
+        self.assertIsNone(rows[0]["expected"])
+        self.assertEqual(rows[0]["expected_why"], "judge reply is not JSON: the sign-in form, I think")
+        self.assertIsNone(rows[1]["expected"])
+        self.assertIn("names no expected target", rows[1]["expected_why"])
+        self.assertEqual((rows[2]["expected"], rows[2]["expected_why"]), ("Cart", ""))
+        # everything else is what a run without a judge records
+        self.assertEqual([{k: v for k, v in r.items() if not k.startswith("expected")} for r in rows],
+                         [{"step": 1, "verdict": "pass", "note": "the form is shown", "evidence": "Shop"},
+                          {"step": 2, "verdict": "pass", "note": "as asked", "evidence": "Shop"},
+                          {"step": 3, "verdict": "fail", "note": "no cart button"}])
+        self.assertEqual([a["name"] for _, a in page.done[1:]], ["Sign in"])
+
+    def test_a_failed_judge_call_records_null_with_the_reason(self):
+        class Down:
+            def expected_target(self, text, snapshot):
+                raise U.ModelError("HTTP 503: down")
+        results, stop = self.run_steps(ScriptedModel([verdict(), verdict(), verdict()]), FakePage(), Down())
+        self.assertEqual([r["verdict"] for r in results], ["pass"] * 3)
+        self.assertEqual(results[0]["expected_why"], "judge call failed: HTTP 503: down")
+        self.assertIsNone(results[0]["expected"])
+
+    def test_the_judge_counts_against_the_calls_envelope(self):
+        judge = ScriptedJudge(['{"expected": "Shop", "why": "it is the page."}'] * 3)
+        results, stop = self.run_steps(ScriptedModel([verdict(), verdict()]), FakePage(), judge, max_calls=3)
+        self.assertEqual(stop, "calls")
+        self.assertEqual([r["verdict"] for r in results], ["pass", "inconclusive", "inconclusive"])
+        self.assertEqual(results[1]["expected"], "Shop")  # step 2's judge took the third call
+        self.assertEqual(results[2]["expected_why"], "not asked: the calls envelope was spent")
+
+    def test_the_judges_prompt_carries_the_step_and_page_and_none_of_the_acting_models_messages(self):
+        llm = fakes.FakeLLM([{"content": '{"expected": "Order ORD-7", "why": "the confirmation shows it."}'}])
+        self.addCleanup(llm.close)
+        m = U.ChatModel({"llm_url": f"{llm.url}/v1", "llm_model": "local-a", "spec": "Buy one item.",
+                         "steps": STEPS})
+        self.assertEqual(U.parse_expected(m.expected_target(STEPS[2], '- button "Add to cart"')),
+                         ("Order ORD-7", "the confirmation shows it."))
+        system, user = (msg["content"] for msg in llm.requests[0]["messages"])
+        self.assertEqual(system, U.JUDGE_SYSTEM)
+        self.assertIn(STEPS[2], user)
+        self.assertIn('button "Add to cart"', user)
+        for acting in ("Buy one item.", "EARLIER STEPS", "ACTIONS SO FAR", U.SYSTEM):
+            self.assertNotIn(acting, system + user)
+
+
 class Trail(unittest.TestCase):
     """Item 2: every step leaves a trail.jsonl beside its screenshot, one line
     per action with the requests the page made before the next snapshot, and

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The user arm asks a separate judge, before each step's first action, where the page will show that the step succeeded, given only the step's text and the page; the step's line in `steps.jsonl` carries the answer as `expected` and `expected_why`, or `expected: null` and the reason when the judge's call fails or its answer is not one JSON target, and nothing else about the step changes. The judge's calls count against the run's calls and wall envelopes.
+
 ## [0.6.1] - 2026-09-28
 
 ### Added

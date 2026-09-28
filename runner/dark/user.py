@@ -28,6 +28,14 @@ happened, what it acted on, and the requests the page made before the next
 snapshot) and {step, verdict, note} is appended to <records>/steps.jsonl,
 with the evidence on a pass. The run passes when every step's verdict is pass.
 
+Before a step's first action a separate call, the judge, is given only the
+step's text and the page snapshot, never the acting model's messages, and
+names the element or text that will show the step succeeded; the step's line
+carries it as `expected`, with the judge's one sentence as `expected_why`. A
+judge call that fails or does not answer in that form records `expected: null`
+with the reason and changes nothing else about the step. The judge's call
+counts against the same calls and wall envelopes as the acting model's.
+
 An action names its element by role and accessible name. An element named
 exactly that is used, the first when several are; when no name is exact, one
 element whose name contains it is used, and several are refused with their
@@ -102,6 +110,16 @@ EARLIER STEPS:
 
 ACTIONS SO FAR IN THIS STEP:
 {history}
+
+PAGE (accessibility snapshot):
+{snapshot}
+"""
+
+
+JUDGE_SYSTEM = """You say in advance where a web page will show that one step of a task succeeded. You see the step's text and the page as an accessibility snapshot, before anything is done on it. Name the one element or the text on the page, as the snapshot names it, that will show the step succeeded. Reply with exactly one JSON object and nothing else:
+{"expected": "<element name or text>", "why": "<one sentence>"}"""
+
+JUDGE_PROMPT = """STEP: {text}
 
 PAGE (accessibility snapshot):
 {snapshot}
@@ -241,6 +259,22 @@ def earlier_steps(results):
     return "\n".join(f"step {r['step']} ({r['verdict']}): {r['note']}" for r in (results or [])) or "none"
 
 
+def parse_expected(text):
+    """(expected, why) from the judge's reply: the first JSON object with a
+    non-blank string `expected`, or (None, why it was refused), so a malformed
+    answer records no target and never changes the step."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        return None, f"judge reply is not JSON: {(text or '')[:200]}"
+    try:
+        d = json.loads(m.group(0))
+    except ValueError:
+        return None, f"judge reply is not JSON: {(text or '')[:200]}"
+    if not isinstance(d, dict) or not isinstance(d.get("expected"), str) or not d["expected"].strip():
+        return None, f"judge reply names no expected target: {m.group(0)[:200]}"
+    return d["expected"].strip()[:300], str(d.get("why") or "")[:300]
+
+
 def parse_action(text):
     """The first JSON object in a reply, or {"do": "invalid"} with the reply
     kept, so a malformed answer costs a call, never the run."""
@@ -286,9 +320,20 @@ class ChatModel:
                                text=text, url=url, snapshot=shown_snapshot(snapshot),
                                earlier=earlier_steps(earlier),
                                history="\n".join(json.dumps(h, sort_keys=True) for h in history) or "(none)")
+        return parse_action(self._complete(SYSTEM, prompt))
+
+    def expected_target(self, text, snapshot):
+        """The judge's reply, as text: its own system prompt and only the
+        step's text and the snapshot, so it never sees the acting model's
+        messages. run_steps parses it with parse_expected."""
+        return self._complete(JUDGE_SYSTEM, JUDGE_PROMPT.format(text=text, snapshot=shown_snapshot(snapshot)))
+
+    def _complete(self, system, prompt):
+        """One chat completion: the reply's content, the provider's token
+        counts added to the session's; ModelError when the endpoint fails."""
         req = urllib.request.Request(
             f"{self.t['llm_url']}/chat/completions", method="POST",
-            data=json.dumps(self.body([{"role": "system", "content": SYSTEM},
+            data=json.dumps(self.body([{"role": "system", "content": system},
                                        {"role": "user", "content": prompt}])).encode(),
             headers={"Content-Type": "application/json"})
         try:
@@ -303,7 +348,7 @@ class ChatModel:
         S.STATS["tokens_out"] += int(u.get("completion_tokens") or 0)
         msg = ((d.get("choices") or [{}])[0].get("message") or {})
         S.STATS["reasoning_chars"] += len(msg.get("reasoning") or msg.get("reasoning_content") or "")
-        return parse_action(msg.get("content") or "")
+        return msg.get("content") or ""
 
 
 # --- the browser ----------------------------------------------------------------
@@ -567,7 +612,30 @@ def _seen_errors(trail):
     return out
 
 
-def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=time.time):
+def ask_judge(judge, n, text, page, stream, max_calls, deadline, clock):
+    """{expected, expected_why} for step n, asked before its first action. The
+    call counts against the calls and wall envelopes like the acting model's;
+    a spent envelope, a failed call or an answer that is not one JSON target
+    gives `expected: null` with the reason, and nothing else about the step."""
+    if S.STATS["calls"] >= max_calls:
+        return {"expected": None, "expected_why": "not asked: the calls envelope was spent"}
+    if clock() > deadline:
+        return {"expected": None, "expected_why": "not asked: the wall envelope was spent"}
+    snap = page.snapshot() or ""
+    S.STATS["calls"] += 1
+    S.STATS["requests"] += 1
+    try:
+        expected, why = parse_expected(judge.expected_target(text, snap))
+    except ModelError as e:
+        expected, why = None, f"judge call failed: {e}"[:300]
+    rec = {"expected": expected, "expected_why": why}
+    # no "action" key: the stream's readers take this call for no browser action
+    _append(stream, {"step": n, "call": S.STATS["calls"], "url": page.url(), "snapshot_chars": len(snap),
+                     "judge": rec})
+    return rec
+
+
+def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=time.time, judge=None):
     """Open `url` and take every step in order. Returns (results, stop):
     results is one {step, verdict, note} per step, in order, a pass also
     carrying the evidence it was accepted on, as also appended to
@@ -575,8 +643,10 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     "seconds" when the envelope ran out. A step that ran out of calls,
     repeated one browser action on an unchanged snapshot, or repeated one
     refused pass verdict on an unchanged snapshot, is `inconclusive` with the
-    reason in `note`; the repeated-action count starts again whenever the
-    snapshot changes, and a `wait`, which only passes time, never counts
+    reason in `note`; with a `judge` (an object with expected_target), each
+    step's line also carries `expected` and `expected_why` from ask_judge,
+    asked before the step's first action. The repeated-action count starts
+    again whenever the snapshot changes, and a `wait`, which only passes time, never counts
     toward it, so a step may wait as long as its call budget allows; a spent
     calls envelope leaves the steps it did not
     reach inconclusive too, never failed. Each step that was taken leaves
@@ -594,6 +664,8 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
         if stop:
             rec = {"step": n, "verdict": "inconclusive" if stop == "calls" else "fail",
                    "note": f"not reached: the {stop} envelope was spent"}
+            if judge is not None:
+                rec.update(expected=None, expected_why=f"not asked: the {stop} envelope was spent")
             results.append(rec)
             _append(jsonl, rec)
             continue
@@ -602,6 +674,8 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
         refusals, refused_prev = 0, None  # the same refused pass verdict, an unchanged page
         step_start = clock()
         _drain(page)  # nothing the page did before this step belongs to it
+        # the judge names where the result should appear before anything is done
+        expected = ask_judge(judge, n, text, page, stream, max_calls, deadline, clock) if judge is not None else {}
         while verdict is None:
             if S.STATS["calls"] >= max_calls:
                 stop, verdict, note = "calls", "inconclusive", "calls exhausted"
@@ -695,6 +769,7 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
         rec = {"step": n, "verdict": verdict, "note": note}
         if verdict == "pass":
             rec["evidence"] = evidence
+        rec.update(expected)
         results.append(rec)
         _append(jsonl, rec)
         S.PROGRESS.add(f"step {n}: {verdict}")
@@ -704,7 +779,9 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
 README_FILE = "README.md"
 BADGE = {"pass": "🟢 PASS", "fail": "🔴 FAIL", "inconclusive": "🟡 INCONCLUSIVE"}
 FILES_EXPLAINED = (
-    ("steps.jsonl", "one line per step: its verdict, the model's note, and for a pass the page text it quoted."),
+    ("steps.jsonl", "one line per step: its verdict, the model's note, for a pass the page text it quoted, "
+                    "and `expected` and `expected_why`: where a separate judge said, before the step's first "
+                    "action, the result should appear, and why (`expected` is null when the judge gave no answer)."),
     ("steps/NN.png", "the page at the moment step NN got its verdict."),
     ("steps/NN.trail.jsonl", "every browser action in step NN, with the requests the page made after it."),
     ("stream.jsonl", "every call to the model: the action it chose and what happened when it was done."),
@@ -788,14 +865,14 @@ def _readme(outcome, detail):
         print(f"README.md not written: {e}", file=sys.stderr)
 
 
-def main(model=None, page=None):
+def main(model=None, page=None, judge=None):
     try:
-        return _main(model, page)
+        return _main(model, page, judge)
     finally:
         S.PROGRESS.stop()
 
 
-def _main(model, page):
+def _main(model, page, judge):
     t = S.TASK
     url, steps = t.get("url"), list(t.get("steps") or [])
     records = S.RECORDS_DIR
@@ -814,11 +891,15 @@ def _main(model, page):
         page = page or PlaywrightPage(records)
     except BrowserError as e:
         return fail("env", str(e))
-    model = model or ChatModel(t)
+    if model is None:
+        # one endpoint, two prompts: the judge's never carries the acting model's messages;
+        # a model a test hands in brings its own judge or none
+        model = ChatModel(t)
+        judge = judge or model
     deadline = S.T0 + int(t.get("max_seconds") or 900)
     try:
         try:
-            results, stop = run_steps(model, page, url, steps, records, max_calls, deadline)
+            results, stop = run_steps(model, page, url, steps, records, max_calls, deadline, judge=judge)
         finally:
             page.close()  # before any fail() below pushes the records: this is what saves trace.zip and video.webm
     except BrowserError as e:
