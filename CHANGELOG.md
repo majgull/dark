@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A user-arm run whose model call runs past its wall envelope now ends the run itself and writes its records. The runner kills the sandbox at the envelope, counted from the spawn, while the arm checked the same limit only between calls, each of which can take `llm_timeout`, so a late call left a `fail:budget` row with `records: null`. The arm now keeps the last `RECORDS_RESERVE_SECONDS` (120 s) of the envelope for ending the run: no model call starts inside them, each call's timeout is cut to the time left before them, and a call that runs out that time ends the run with stop reason `seconds`.
+
 ## [0.6.1] - 2026-09-28
 
 ### Added
