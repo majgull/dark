@@ -157,7 +157,10 @@ def main():
         tdir = index[tid][1]
         import tomllib
         with open(os.path.join(tdir, "task.toml"), "rb") as f:
-            lang = tomllib.load(f)["lang"]
+            meta = tomllib.load(f)
+        if meta.get("class") == "user":  # no acceptance and no oracle: nothing to validate
+            continue
+        lang = meta["lang"]
         for half in ("oracle", "start"):
             dest = tempfile.mkdtemp(prefix=f"val-{tid}-{half}-")
             build(tdir, lang, args.templates, half == "oracle", dest)

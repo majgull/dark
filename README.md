@@ -61,6 +61,7 @@ checked in one run; a task name found in two sets is refused, naming both,
 rather than one silently winning.
 
 `dark user --task <task.toml> --tier <id>` runs one user-arm task: a browser sandbox checks a deployed URL step by step.
+The example is `dark user --task bench/tasks/hello-user/task.toml --tier example-small`: three steps a stranger can check on https://example.com, with `example-small` the placeholder tier in `runner/models.toml`.
 
 `dark demo <records>` cuts that run's records into a captioned `demo.mp4` (needs ffmpeg with libass and libx264; `--voice` adds speech with piper).
 

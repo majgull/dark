@@ -475,6 +475,14 @@ class UserTasks(unittest.TestCase):
                                    "Add one item to the cart"))
         self.assertFalse(os.path.exists(t.acceptance_dir))  # no hidden tests to need
 
+    def test_the_example_user_task_loads(self):
+        # bench/tasks/hello-user, the one README names for `dark user`
+        here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        t = tasks.load_task(os.path.join(here, "bench", "tasks", "hello-user"))
+        self.assertEqual((t.id, t.cls, t.url, t.lang), ("hello-user", "user", "https://example.com", ""))
+        self.assertEqual(len(t.steps), 3)
+        self.assertIn("Example Domain", t.steps[0])
+
     def test_the_url_is_required_for_a_user_task(self):
         self.refuse("url", "a", 'steps = ["x"]\nspec = "s"\n')
         self.refuse("url", "b", 'url = "ftp://x"\nsteps = ["x"]\nspec = "s"\n')
