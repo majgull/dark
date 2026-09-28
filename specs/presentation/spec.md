@@ -16,6 +16,8 @@ This is the spec for one feature. Read `AGENTS.md`, `memory/constitution.md` and
 3. **Two colours, both shown.** The expected mark and the actual mark are both drawn, in two fixed colours named in the explainer; when they differ, both stay on screen for the held frame. Test: a step whose click missed the expected target renders both marks.
 4. **Plain words.** Caption and voice text pass a check against `docs/concepts.md`: no in-house term appears unless the explainer defines it. Test: a caption containing an undefined term fails the cut.
 5. **From the records only.** The cut is generated from the records with no per-demo hand-written configuration and no knowledge outside the records. Test: the cut of a fixture run is byte-stable across two invocations with the same versions.
+6. **Layout.** No captions over the footage and no subtitle track in the file; the spoken words go beside the cut as `transcript.md` and `transcript.vtt`. Step and heading text sit in their own strip above the page, never over it. An intro card, the story of the run and a conclusion frame it. Test: the output has no subtitle stream and the page region of every frame is free of overlay text.
+7. **Narration follows the screen.** Every element shown (a card item, a mark, a held frame) gets its own sentence and appears when that sentence starts; timing comes from word alignment of the rendered speech, never from fixed timers. The narration check refuses a bookmark nothing carries, a bookmark whose next words do not name what it shows, and two bookmarks under 4 words apart (the rules of rave `bin/rave-narrate`, to be moved or called here). Test: a script violating each rule is refused.
 
 ## Candidate engine
 
