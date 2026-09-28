@@ -81,6 +81,12 @@ FRAGMENT_SPLIT = re.compile(r"\s[—–-]\s|;\s+|\.\s+")  # where a model joins 
 LINE_MARKER = re.compile(r"^[-*]\s+")  # the `- ` an accessibility tree puts before a node
 ROLE_PREFIX = re.compile(r'^[a-z][a-z-]*(?:\s+"[^"]*")?\s*:')  # `button "Open": ` / `text: `
 ACTION_TIMEOUT_MS = 10000
+# seconds of the wall envelope kept back for ending the run: the last browser
+# action (a goto takes up to 30 s), the screenshot, closing the page (which
+# writes trace.zip and video.webm), README.md and the records push, and the
+# sandbox's boot, since the runner counts its envelope from the spawn and the
+# arm from its own start. No model call starts inside it, and none may run into it.
+RECORDS_RESERVE_SECONDS = 120
 VIEWPORT = {"width": 1280, "height": 720}  # Playwright's default, spelled out: the video is this size too
 TRACE_FILE, VIDEO_FILE = "trace.zip", "video.webm"  # beside steps.jsonl in the records
 TRAIL_SUFFIX = ".trail.jsonl"  # <records>/steps/<NN>.trail.jsonl, beside the step's <NN>.png
@@ -315,29 +321,36 @@ class ChatModel:
             body["temperature"] = t["temperature"]
         return body
 
-    def next_action(self, n, text, url, snapshot, history, earlier=None):
+    def next_action(self, n, text, url, snapshot, history, earlier=None, timeout=None):
+        """`timeout` is the time the run has left for this call; the call
+        waits no longer than that, nor than the task's llm_timeout."""
         prompt = PROMPT.format(spec=self.t.get("spec", ""), n=n, total=len(self.t.get("steps") or []),
                                text=text, url=url, snapshot=shown_snapshot(snapshot),
                                earlier=earlier_steps(earlier),
                                history="\n".join(json.dumps(h, sort_keys=True) for h in history) or "(none)")
-        return parse_action(self._complete(SYSTEM, prompt))
+        return parse_action(self._complete(SYSTEM, prompt, timeout))
 
-    def expected_target(self, text, snapshot):
+    def expected_target(self, text, snapshot, timeout=None):
         """The judge's reply, as text: its own system prompt and only the
         step's text and the snapshot, so it never sees the acting model's
-        messages. run_steps parses it with parse_expected."""
-        return self._complete(JUDGE_SYSTEM, JUDGE_PROMPT.format(text=text, snapshot=shown_snapshot(snapshot)))
+        messages. run_steps parses it with parse_expected. `timeout` as for
+        next_action."""
+        return self._complete(JUDGE_SYSTEM, JUDGE_PROMPT.format(text=text, snapshot=shown_snapshot(snapshot)),
+                              timeout)
 
-    def _complete(self, system, prompt):
+    def _complete(self, system, prompt, timeout=None):
         """One chat completion: the reply's content, the provider's token
-        counts added to the session's; ModelError when the endpoint fails."""
+        counts added to the session's; ModelError when the endpoint fails.
+        The call waits no longer than `timeout` seconds when given, nor than
+        the task's llm_timeout."""
         req = urllib.request.Request(
             f"{self.t['llm_url']}/chat/completions", method="POST",
             data=json.dumps(self.body([{"role": "system", "content": system},
                                        {"role": "user", "content": prompt}])).encode(),
             headers={"Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=int(self.t.get("llm_timeout") or 600)) as r:
+            limit = int(self.t.get("llm_timeout") or 600)
+            with urllib.request.urlopen(req, timeout=limit if timeout is None else min(limit, timeout)) as r:
                 d = json.loads(r.read())
         except urllib.error.HTTPError as e:
             raise ModelError(f"HTTP {e.code}: {e.read().decode(errors='replace')[:300]}") from None
@@ -614,18 +627,22 @@ def _seen_errors(trail):
 
 def ask_judge(judge, n, text, page, stream, max_calls, deadline, clock):
     """{expected, expected_why} for step n, asked before its first action. The
-    call counts against the calls and wall envelopes like the acting model's;
-    a spent envelope, a failed call or an answer that is not one JSON target
-    gives `expected: null` with the reason, and nothing else about the step."""
+    call counts against the calls and wall envelopes like the acting model's:
+    `deadline` is the end of the time calls may use (run_steps passes its own
+    deadline less the records reserve), the call is given only the time left
+    before it. A spent envelope, a failed call or an answer that is not one
+    JSON target gives `expected: null` with the reason, and nothing else about
+    the step."""
     if S.STATS["calls"] >= max_calls:
         return {"expected": None, "expected_why": "not asked: the calls envelope was spent"}
-    if clock() > deadline:
+    if deadline - clock() <= 0:
         return {"expected": None, "expected_why": "not asked: the wall envelope was spent"}
     snap = page.snapshot() or ""
     S.STATS["calls"] += 1
     S.STATS["requests"] += 1
     try:
-        expected, why = parse_expected(judge.expected_target(text, snap))
+        left = max(0.001, deadline - clock())  # the snapshot took some of it
+        expected, why = parse_expected(judge.expected_target(text, snap, timeout=left))
     except ModelError as e:
         expected, why = None, f"judge call failed: {e}"[:300]
     rec = {"expected": expected, "expected_why": why}
@@ -635,7 +652,8 @@ def ask_judge(judge, n, text, page, stream, max_calls, deadline, clock):
     return rec
 
 
-def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=time.time, judge=None):
+def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=time.time, judge=None,
+              reserve=RECORDS_RESERVE_SECONDS):
     """Open `url` and take every step in order. Returns (results, stop):
     results is one {step, verdict, note} per step, in order, a pass also
     carrying the evidence it was accepted on, as also appended to
@@ -652,8 +670,11 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     reach inconclusive too, never failed. Each step that was taken leaves
     <records_dir>/steps/<NN>.png and its trail, one {t, action, target,
     requests} line per action, as <records_dir>/steps/<NN>.trail.jsonl. The
-    transcript of every call goes to <records_dir>/stream.jsonl. ModelError
-    and BrowserError propagate."""
+    transcript of every call goes to <records_dir>/stream.jsonl. The last
+    `reserve` seconds before `deadline` are the records': no call starts
+    inside them, each call is given only the time left before them, and a
+    call that fails once that time is spent is the "seconds" stop. Any other
+    ModelError, and BrowserError, propagate."""
     steps_dir = os.path.join(records_dir, "steps")
     os.makedirs(steps_dir, exist_ok=True)
     jsonl = os.path.join(records_dir, "steps.jsonl")
@@ -675,12 +696,12 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
         step_start = clock()
         _drain(page)  # nothing the page did before this step belongs to it
         # the judge names where the result should appear before anything is done
-        expected = ask_judge(judge, n, text, page, stream, max_calls, deadline, clock) if judge is not None else {}
+        expected = ask_judge(judge, n, text, page, stream, max_calls, deadline - reserve, clock) if judge is not None else {}
         while verdict is None:
             if S.STATS["calls"] >= max_calls:
                 stop, verdict, note = "calls", "inconclusive", "calls exhausted"
                 break
-            if clock() > deadline:
+            if deadline - reserve - clock() <= 0:  # no call starts inside the reserve
                 stop, verdict, note = "seconds", "fail", "the wall envelope was spent before a verdict"
                 break
             snap = page.snapshot() or ""
@@ -690,7 +711,15 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                 pending = None
             S.STATS["calls"] += 1
             S.STATS["requests"] += 1
-            action = model.next_action(n, text, page.url(), snap, history, earlier=results)
+            left = max(0.001, deadline - reserve - clock())  # the snapshot took some of it
+            try:
+                action = model.next_action(n, text, page.url(), snap, history, earlier=results, timeout=left)
+            except ModelError:
+                if deadline - reserve - clock() >= 1:
+                    raise
+                # the call ran out the time it was given: the envelope, not the model
+                stop, verdict, note = "seconds", "fail", "the wall envelope was spent before a verdict"
+                break
             is_wait = action.get("do") == "wait"  # a wait only passes time: it never counts as stuck
             key = json.dumps(action, sort_keys=True)
             entry = {"step": n, "call": S.STATS["calls"], "url": page.url(), "snapshot_chars": len(snap),
