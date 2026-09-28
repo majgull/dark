@@ -40,6 +40,7 @@ without it, the same command with no argument checks the two example tasks kept 
 python3 -m venv .venv && . .venv/bin/activate
 pip install .                                # installs the dark console script
 dark --help                                  # the commands the runner offers
+dark check-config                            # config from --conf, $DARK_CONF, else ./runner here
 (cd runner && bash verify.sh)                # tests, config check, no binaries
 python3 bench/tools/check_tasks.py           # the two example tasks: 0 problems
 ```

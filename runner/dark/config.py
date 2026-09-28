@@ -362,6 +362,29 @@ def load_budgets(path, catalog):
                    watchdog=watchdog, shift=shift, think=think)
 
 
+PACKAGE_CONF = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def conf_dir(conf=None, environ=os.environ, cwd=None, package_conf=None):
+    """The directory holding models.toml, budgets.toml and host.toml: `conf`
+    (--conf), else $DARK_CONF, else ./runner when the current directory is a
+    dark checkout, else beside the package. The first two are taken as given,
+    so a miss there names that directory; of the other two, the first that
+    holds models.toml wins, and when neither does the refusal names both."""
+    if conf:
+        return conf
+    if environ.get("DARK_CONF"):
+        return environ["DARK_CONF"]
+    tried = []
+    for d in (os.path.join(cwd or os.getcwd(), "runner"), package_conf or PACKAGE_CONF):
+        if os.path.isfile(os.path.join(d, "models.toml")):
+            return d
+        if d not in tried:
+            tried.append(d)
+    raise ConfigError(f"no models.toml in {', '.join(tried)}; "
+                      "pass --conf <dir> or set DARK_CONF to the directory holding the config files")
+
+
 def load(conf_dir):
     """(catalog, budgets) from <conf_dir>/models.toml and budgets.toml."""
     catalog = load_catalog(os.path.join(conf_dir, "models.toml"))

@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `dark` finds its config after `pip install .`: without `--conf` or `$DARK_CONF` it reads `./runner` when the current directory is a dark checkout, then the toml files beside the package as before. When neither holds `models.toml`, every command and MCP tool refuses with exit code 2, naming the directories tried and saying to pass `--conf <dir>` or set `DARK_CONF`, instead of naming a `models.toml` in site-packages that was never installed.
+
 ## [0.6.1] - 2026-09-28
 
 ### Added

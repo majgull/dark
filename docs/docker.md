@@ -73,7 +73,8 @@ DARK_CONF_DIR=$HOME/.config/dark docker compose -p dark up -d gitea runner
 ```
 
 Inside the container, `dark` takes its config directory from `--conf`, else
-`$DARK_CONF`, else the toml files beside the package. Editing a toml needs a
+`$DARK_CONF`, else `./runner` when the working directory is a dark checkout,
+else the toml files beside the package. Editing a toml needs a
 runner restart (`docker compose -p dark restart runner`), never a rebuild.
 
 ### Several task sets
