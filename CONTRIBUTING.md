@@ -13,9 +13,13 @@ hygiene test; it is listed in the `dev` extra in `pyproject.toml`.
 
 `bash verify.sh` is the one gate for the runner: the unit tests, the config
 validation and the no-binaries check. It prints `verify OK` when all three
-pass.
+pass. Install the package with its `dev` extra first, in a virtual
+environment; without `pytest` the hygiene test fails with
+`ModuleNotFoundError: No module named 'pytest'`:
 
 ```
+python3 -m venv .venv && . .venv/bin/activate
+pip install '.[dev]'
 cd runner && bash verify.sh
 ```
 

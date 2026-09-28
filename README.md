@@ -38,7 +38,7 @@ without it, the same command with no argument checks the two example tasks kept 
 
 ```
 python3 -m venv .venv && . .venv/bin/activate
-pip install .                                # installs the dark console script
+pip install '.[dev]'                         # dark console script, plus pytest: verify.sh needs it
 dark --help                                  # the commands the runner offers
 (cd runner && bash verify.sh)                # tests, config check, no binaries
 python3 bench/tools/check_tasks.py           # the two example tasks: 0 problems
