@@ -57,6 +57,7 @@ python3 bench/tools/validate.py              # reference solutions pass, startin
 ```
 
 `dark user --task <task.toml> --tier <id>` runs one user-arm task: a browser sandbox checks a deployed URL step by step.
+The example is `dark user --task bench/tasks/hello-user/task.toml --tier example-small`: three steps a stranger can check on https://example.com, with `example-small` the placeholder tier in `runner/models.toml`.
 
 `python3 -m dark long --task <dir> --tier <id>` runs one long-arm task: a session executor works in the task's several repositories and a reviewer session judges the branches it pushed.
 

@@ -21,7 +21,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # dark/tasks.py is the one implementation of the task path
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "runner"))
 
-from dark.tasks import TaskError, task_dirs  # noqa: E402
+from dark.tasks import TaskError, load_task, task_dirs  # noqa: E402
 
 # The task set lives in its own repository (github.com/majgull/dark-tasks); DARK_TASKS
 # names one or more checkouts of it, `:` separated. Unset, the two example
@@ -40,6 +40,14 @@ def check(path):
         return [f"{tid}: task.toml: {e}"]
     if d.get("id") != tid:
         problems.append(f"{tid}: id {d.get('id')!r} != directory name")
+    if d.get("class") == "user":
+        # a user task is only its task.toml (a url and steps, no language and
+        # no acceptance); the runner's loader is the one check of that shape
+        try:
+            load_task(path)
+        except TaskError as e:
+            problems.append(f"{tid}: {e}")
+        return problems
     if d.get("class") not in CLASSES:
         problems.append(f"{tid}: class must be one of {CLASSES}")
     if d.get("lang") not in LANGS:

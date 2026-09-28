@@ -1,0 +1,10 @@
+id = "hello-user"
+title = "hello-user: example.com names itself and links to more information"
+class = "user"
+url = "https://example.com"
+steps = [
+  "Open the page and check that its main heading reads Example Domain",
+  "Check that the page says the domain is for use in examples or documentation",
+  "Check that the page has a link to more information about the domain",
+]
+spec = """Check the public example page at https://example.com the way a stranger would: it names itself, says what the domain is for, and links to more information. Nothing on the page needs signing in or changing."""
