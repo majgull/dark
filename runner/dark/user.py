@@ -389,7 +389,13 @@ class ChatModel:
                                text=text, url=url, snapshot=shown_snapshot(snapshot),
                                earlier=earlier_steps(earlier),
                                history="\n".join(json.dumps(h, sort_keys=True) for h in history) or "(none)")
-        return parse_action(self._complete(SYSTEM, prompt, timeout))
+        content, finish, thought = self._complete(SYSTEM, prompt, timeout)
+        action = parse_action(content)
+        if action.get("do") == "invalid" and finish == "length":
+            # the thinking used the whole token budget and no answer was written:
+            # say so in the record, and to the model, instead of "not JSON"
+            action.update(cut="length", reasoning_chars=thought)
+        return action
 
     def expected_target(self, text, snapshot, timeout=None):
         """The judge's reply, as text: its own system prompt and only the
@@ -397,11 +403,12 @@ class ChatModel:
         messages. run_steps parses it with parse_expected. `timeout` as for
         next_action."""
         return self._complete(JUDGE_SYSTEM, JUDGE_PROMPT.format(text=text, snapshot=shown_snapshot(snapshot)),
-                              timeout)
+                              timeout)[0]
 
     def _complete(self, system, prompt, timeout=None):
-        """One chat completion: the reply's content, the provider's token
-        counts added to the session's; ModelError when the endpoint fails.
+        """One chat completion: (the reply's content, its finish_reason, the
+        characters of reasoning), the provider's token counts added to the
+        session's; ModelError when the endpoint fails.
         The call waits no longer than `timeout` seconds when given, nor than
         the task's llm_timeout."""
         req = urllib.request.Request(
@@ -420,9 +427,11 @@ class ChatModel:
         u = d.get("usage") or {}
         S.STATS["tokens_in"] += int(u.get("prompt_tokens") or 0)
         S.STATS["tokens_out"] += int(u.get("completion_tokens") or 0)
-        msg = ((d.get("choices") or [{}])[0].get("message") or {})
-        S.STATS["reasoning_chars"] += len(msg.get("reasoning") or msg.get("reasoning_content") or "")
-        return msg.get("content") or ""
+        choice = (d.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        thought = len(msg.get("reasoning") or msg.get("reasoning_content") or "")
+        S.STATS["reasoning_chars"] += thought
+        return msg.get("content") or "", choice.get("finish_reason"), thought
 
 
 # --- the browser ----------------------------------------------------------------
@@ -815,6 +824,10 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                 else:
                     verdict, note = action["verdict"], str(action.get("note") or "")[:300]
                     evidence = str(action.get("evidence") or "") if verdict == "pass" else ""
+            elif action.get("do") == "invalid" and action.get("cut") == "length":
+                history.append({"action": action, "error": "no reply: your thinking used the whole token "
+                                                           "budget before any answer; think briefly and "
+                                                           "reply with one JSON object"})
             elif action.get("do") == "invalid":
                 history.append({"action": action, "error": "not one JSON action; reply with one JSON object"})
             else:

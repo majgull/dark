@@ -528,6 +528,14 @@ class Steps(unittest.TestCase):
                                        "more characters of this page are not shown]"))
         self.assertEqual(shown[:U.SNAPSHOT_CHARS], longer[:U.SNAPSHOT_CHARS])
 
+    def test_a_cut_reply_tells_the_model_it_ran_out_of_thinking(self):
+        cut = {"do": "invalid", "reply": "", "cut": "length", "reasoning_chars": 50569}
+        model = ScriptedModel([cut, {"do": "invalid", "reply": "sure"}, verdict(), verdict(), verdict()])
+        self.run_steps(model, FakePage())
+        errors = [h["error"] for h in model.asked[2]["history"]]
+        self.assertTrue(errors[0].startswith("no reply: your thinking used the whole token budget"))
+        self.assertEqual(errors[1], "not one JSON action; reply with one JSON object")
+
     def test_a_refused_quote_names_the_fragment_the_page_does_not_show(self):
         page = FakePage(snapshot='- heading "Shop"\n'
                                  '- listitem "Lofi Jazzy": Lofi Jazzy: 7 songs, 2 saved, 5 not saved\n'
@@ -1099,6 +1107,17 @@ class Model(unittest.TestCase):
                 with self.assertRaises(U.ModelError):
                     m.next_action(1, "x", "u", "", [], timeout=left)
         self.assertEqual(seen, [42.5, 300, 300])
+
+    def test_a_reply_cut_at_the_token_limit_says_so(self):
+        # a reasoning model at reasoning_effort low used all 14858 tokens thinking
+        # (50569 characters) and wrote no answer, 17 times in one run
+        llm = fakes.FakeLLM([{"content": "", "reasoning": "hmm " * 500, "finish_reason": "length"},
+                             {"content": "", "finish_reason": "stop"}])
+        self.addCleanup(llm.close)
+        m = U.ChatModel({"llm_url": f"{llm.url}/v1", "llm_model": "m"})
+        self.assertEqual(m.next_action(1, "x", "u", "", []),
+                         {"do": "invalid", "reply": "", "cut": "length", "reasoning_chars": 2000})
+        self.assertEqual(m.next_action(1, "x", "u", "", []), {"do": "invalid", "reply": ""})
 
     def test_an_endpoint_failure_is_a_model_error(self):
         llm = fakes.FakeLLM([{"status": 503, "content": "down"}])
