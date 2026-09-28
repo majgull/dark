@@ -17,8 +17,9 @@ the snapshot the model was shown for that call, compared with case,
 whitespace and the punctuation at a line edge ignored, with the snapshot's
 role prefixes taken off and with a fragment boundary drawn where the model
 joined separate elements. A step that runs out of calls, repeats one
-browser action on an unchanged page, or repeats one refused pass verdict on
-an unchanged page, is recorded inconclusive by the arm itself; a pass that
+browser action on an unchanged page, or has one pass verdict refused for
+the same missing quote three times on an unchanged page (however its note is
+worded), is recorded inconclusive by the arm itself; a pass that
 names another identifier than an earlier step named (job HL-17 where step 3
 sent HL-18) is refused the same way; a wait only
 passes time and never counts toward the repetition. Then a screenshot is
@@ -659,8 +660,9 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     carrying the evidence it was accepted on, as also appended to
     <records_dir>/steps.jsonl; stop is None, or "calls" /
     "seconds" when the envelope ran out. A step that ran out of calls,
-    repeated one browser action on an unchanged snapshot, or repeated one
-    refused pass verdict on an unchanged snapshot, is `inconclusive` with the
+    repeated one browser action on an unchanged snapshot, or had a pass
+    verdict refused for the same reason three times on an unchanged
+    snapshot, whatever its note said, is `inconclusive` with the
     reason in `note`; with a `judge` (an object with expected_target), each
     step's line also carries `expected` and `expected_why` from ask_judge,
     asked before the step's first action. The repeated-action count starts
@@ -737,16 +739,19 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                                     "error": (f'evidence not found on the page: "{missing}"' if missing
                                               else "evidence not found on the page")})
                     # a verdict is not an action: it never feeds the stuck count,
-                    # but the same refused verdict three times tells the model
-                    # nothing new either, so the step ends naming the quote
-                    refusals = refusals + 1 if refused_prev == (snap, key) else 1
-                    refused_prev = (snap, key)
+                    # but the same refusal three times tells the model nothing new
+                    # either, so the step ends naming the quote. The count keys on
+                    # the page and the refusal (the fragment it could not find),
+                    # not on the whole action: a model that rewords its note each
+                    # time never reset it before (1070: 13 calls in one step)
+                    refusals = refusals + 1 if refused_prev == (snap, history[-1]["error"]) else 1
+                    refused_prev = (snap, history[-1]["error"])
                 elif action.get("verdict") == "pass" and id_drift(action, results):
                     # the page's words, but about another job than the earlier step's:
                     # refused like a missing quote, and counted the same way
                     history.append({"action": action, "error": id_drift(action, results)})
-                    refusals = refusals + 1 if refused_prev == (snap, key) else 1
-                    refused_prev = (snap, key)
+                    refusals = refusals + 1 if refused_prev == (snap, history[-1]["error"]) else 1
+                    refused_prev = (snap, history[-1]["error"])
                 else:
                     verdict, note = action["verdict"], str(action.get("note") or "")[:300]
                     evidence = str(action.get("evidence") or "") if verdict == "pass" else ""

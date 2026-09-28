@@ -459,6 +459,19 @@ class Steps(unittest.TestCase):
         self.assertEqual(U.named_ids("run 1041-user-print-clone-user-20260925-200450, on 2026-09-24"),
                          {"user-print-clone-user-20260925": {"200450"}})
 
+    def test_the_same_refused_quote_three_times_ends_the_step_however_the_note_is_worded(self):
+        # thread 1070: glmf reworded its note on every refused pass, so the step
+        # spent 13 calls; the quote was the same and the page never changed
+        model = ScriptedModel([verdict(evidence="job 18", note="the shop lists job 18"),
+                               verdict(evidence="job 18", note="job 18 is on the shop page"),
+                               verdict(evidence="job 18", note="the page shows job 18 queued"),
+                               verdict(), verdict(), verdict()])
+        results, _ = self.run_steps(model, FakePage())
+        self.assertEqual(results[0], {"step": 1, "verdict": "inconclusive",
+                                      "note": "evidence not found: job 18"})
+        self.assertEqual(model.asked[3]["step"], 2)  # the fourth call already belongs to step 2
+        self.assertEqual([r["verdict"] for r in results], ["inconclusive", "pass", "pass"])
+
     def test_a_refused_quote_names_the_fragment_the_page_does_not_show(self):
         page = FakePage(snapshot='- heading "Shop"\n'
                                  '- listitem "Lofi Jazzy": Lofi Jazzy: 7 songs, 2 saved, 5 not saved\n'
