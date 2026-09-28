@@ -8,6 +8,8 @@ echo "== tests"
 PYTHONWARNINGS=ignore::ResourceWarning python3 -m unittest discover -s tests -t . -q
 echo "== config"
 python3 -m dark check-config
+echo "== release pressure"
+python3 -m dark.pressure ../CHANGELOG.md
 echo "== no binaries"
 bash ops/no-binaries.sh
 echo "== no credentials"
