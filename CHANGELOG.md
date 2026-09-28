@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-28
+
 ### Added
 
 - `runner/verify.sh` ends with a credential scan: `runner/ops/leaks.sh` runs gitleaks over the repository's git history (or a given log range) and fails when it finds a credential, or when gitleaks is not installed, since a skipped scan would pass everything. CI installs gitleaks 8.30.1, checked against its published sha256, and checks out the full history.
