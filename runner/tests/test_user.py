@@ -42,7 +42,7 @@ class ScriptedModel:
         self.actions = list(actions)
         self.asked = []
 
-    def next_action(self, n, text, url, snapshot, history, earlier=None):
+    def next_action(self, n, text, url, snapshot, history, earlier=None, timeout=None):
         self.asked.append({"step": n, "text": text, "url": url, "snapshot": snapshot,
                            "history": list(history), "earlier": list(earlier or [])})
         return self.actions.pop(0)
@@ -622,6 +622,94 @@ class Steps(unittest.TestCase):
         self.assertEqual(U.parse_action('{"verdict": "pass"}')["do"], "invalid")
 
 
+class FakeClock:
+    """time.time for a test: it moves only when a fake model spends time."""
+
+    def __init__(self, now=0.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+
+class SlowModel:
+    """A model that takes `seconds` of the fake clock per reply, a wait. A call
+    given a timeout shorter than that, or than `llm_timeout` when it is given
+    none, uses up that timeout and fails the way urlopen's timeout does. Every
+    call's start and timeout are kept."""
+
+    def __init__(self, clock, seconds, llm_timeout=300):
+        self.clock, self.seconds, self.llm_timeout = clock, seconds, llm_timeout
+        self.calls = []
+
+    def next_action(self, n, text, url, snapshot, history, earlier=None, timeout=None):
+        self.calls.append({"start": self.clock.now, "timeout": timeout})
+        limit = self.llm_timeout if timeout is None else min(self.llm_timeout, timeout)
+        if self.seconds > limit:
+            self.clock.now += limit
+            raise U.ModelError("TimeoutError: timed out")
+        self.clock.now += self.seconds
+        return {"do": "wait", "seconds": 1}
+
+
+class WallEnvelope(unittest.TestCase):
+    """Issue 1072: the runner kills the sandbox when the wall envelope is
+    spent, so the arm must end the run itself before that, with room left to
+    write and push its records: no call starts inside the reserve, and no call
+    may run past it."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        reset_session(self.tmp, {"token": TOKEN})
+        self.records = S.RECORDS_DIR
+        self.clock = FakeClock(1000.0)
+
+    def run_steps(self, model, max_seconds):
+        self.deadline = self.clock.now + max_seconds
+        return U.run_steps(model, FakePage(), "https://app.example.test/", STEPS, self.records, 20,
+                           self.deadline, clock=self.clock)
+
+    def jsonl(self):
+        with open(os.path.join(self.records, "steps.jsonl")) as f:
+            return [json.loads(l) for l in f]
+
+    def test_a_slow_model_ends_the_run_on_seconds_with_its_records_written_in_time(self):
+        # 250 s a reply against a 600 s envelope: the third call would start at
+        # 500 s and end at 750 s, long after the runner killed the sandbox
+        model = SlowModel(self.clock, seconds=250)
+        results, stop = self.run_steps(model, max_seconds=600)
+        self.assertEqual(stop, "seconds")
+        self.assertLessEqual(self.clock.now, self.deadline)  # steps.jsonl was written before max_seconds
+        self.assertLessEqual(self.clock.now, self.deadline - U.RECORDS_RESERVE_SECONDS)
+        self.assertEqual([r["verdict"] for r in self.jsonl()], ["fail"] * 3)
+        self.assertEqual(results[0]["note"], "the wall envelope was spent before a verdict")
+
+    def test_no_call_starts_inside_the_reserve(self):
+        model = SlowModel(self.clock, seconds=100)
+        _, stop = self.run_steps(model, max_seconds=1000)
+        self.assertEqual(stop, "seconds")
+        self.assertLessEqual(self.clock.now, self.deadline)
+        self.assertTrue(model.calls)
+        for call in model.calls:
+            self.assertGreater(self.deadline - call["start"], U.RECORDS_RESERVE_SECONDS, call)
+
+    def test_no_call_is_given_longer_than_the_time_left_before_the_reserve(self):
+        model = SlowModel(self.clock, seconds=100)
+        self.run_steps(model, max_seconds=1000)
+        for call in model.calls:
+            self.assertIsNotNone(call["timeout"], call)
+            self.assertLessEqual(call["timeout"], self.deadline - U.RECORDS_RESERVE_SECONDS - call["start"], call)
+
+    def test_a_model_error_with_time_left_is_still_a_model_error(self):
+        class Down:
+            def next_action(self, *a, **kw):
+                raise U.ModelError("HTTP 503: down")
+
+        with self.assertRaises(U.ModelError):
+            self.run_steps(Down(), max_seconds=1000)
+
+
 class Trail(unittest.TestCase):
     """Item 2: every step leaves a trail.jsonl beside its screenshot, one line
     per action with the requests the page made before the next snapshot, and
@@ -776,6 +864,20 @@ class Model(unittest.TestCase):
         self.assertIn("STEP 2 of 3: Sign in as the demo user", body["messages"][1]["content"])
         self.assertIn('button "Buy"', body["messages"][1]["content"])
         self.assertEqual((S.STATS["tokens_in"], S.STATS["tokens_out"]), (70, 9))
+
+    def test_a_call_is_given_no_longer_than_the_time_it_is_left(self):
+        seen = []
+
+        def urlopen(req, timeout=None):
+            seen.append(timeout)
+            raise urllib.error.URLError("timed out")
+
+        m = U.ChatModel({"llm_url": "http://llm.example.test/v1", "llm_model": "m", "llm_timeout": 300})
+        with mock.patch.object(U.urllib.request, "urlopen", urlopen):
+            for left in (42.5, None, 900):
+                with self.assertRaises(U.ModelError):
+                    m.next_action(1, "x", "u", "", [], timeout=left)
+        self.assertEqual(seen, [42.5, 300, 300])
 
     def test_an_endpoint_failure_is_a_model_error(self):
         llm = fakes.FakeLLM([{"status": 503, "content": "down"}])
