@@ -13,9 +13,13 @@ hygiene test; it is listed in the `dev` extra in `pyproject.toml`.
 
 `bash verify.sh` is the one gate for the runner: the unit tests, the config
 validation and the no-binaries check. It prints `verify OK` when all three
-pass.
+pass. Install the package with its `dev` extra first, in a virtual
+environment; without `pytest` the hygiene test fails with
+`ModuleNotFoundError: No module named 'pytest'`:
 
 ```
+python3 -m venv .venv && . .venv/bin/activate
+pip install '.[dev]'
 cd runner && bash verify.sh
 ```
 
@@ -30,15 +34,18 @@ python3 bench/tools/check_tasks.py
 ```
 
 For the full set, clone dark-tasks anywhere and point the tools at it with
-`DARK_TASKS`. The task path may name several task sets at once, `:` separated,
-so a public set and a private one are checked in one run; a task name in two
-task sets is refused, naming both:
+`DARK_TASKS`; they never look for a clone beside this checkout:
 
 ```
-export DARK_TASKS=$HOME/src/dark-tasks:$HOME/src/my-tasks
+git clone https://github.com/majgull/dark-tasks $HOME/src/dark-tasks
+export DARK_TASKS=$HOME/src/dark-tasks
 python3 bench/tools/check_tasks.py
 python3 bench/tools/validate.py
 ```
+
+The task path may name several task sets at once, `:` separated, such as
+`$HOME/src/dark-tasks:$HOME/src/my-tasks`, so a public set and a private one
+are checked in one run; a task name in two task sets is refused, naming both.
 
 CI clones dark-tasks, checks out the commit named in `bench/dark-tasks.ref`
 and runs the task tools on that checkout. When the task set changes, bump the
