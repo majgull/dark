@@ -10,7 +10,7 @@ instrument: the tools that validate a task set against its reference solutions a
 deliberately broken copies, the frozen limits a comparison runs under, and the arms (the
 ways a model is put to a task). The **templates** are the Go and Python starting trees a
 task is laid over. The task set itself, with its hidden tests, is the repository
-[dark-tasks](https://github.com/majgull/dark-tasks); two example tasks stay here so the
+[dark-tasks](https://github.com/majgull/dark-tasks); three example tasks stay here so the
 tools run without another checkout.
 
 ## What you need
@@ -33,7 +33,7 @@ files, with your own endpoints and model ids, outside the checkout.
 The bench tools need Python 3, `bash`, coreutils and `git`. The task check reads the task
 set [dark-tasks](https://github.com/majgull/dark-tasks) from wherever `DARK_TASKS` (or a
 path given as its argument) points; a clone is never found by its place on disk alone.
-With neither, the same command checks the two example tasks kept here.
+With neither, the same command checks the three example tasks kept here.
 
 ## Quick start
 
@@ -42,7 +42,7 @@ python3 -m venv .venv && . .venv/bin/activate
 pip install '.[dev]'                         # dark console script, plus pytest: verify.sh needs it
 dark --help                                  # the commands the runner offers
 (cd runner && bash verify.sh)                # tests, config check, no binaries
-python3 bench/tools/check_tasks.py           # the two example tasks: 0 problems
+python3 bench/tools/check_tasks.py           # the three example tasks: 0 problems
 ```
 
 For real use, clone [dark-tasks](https://github.com/majgull/dark-tasks) and point
@@ -73,7 +73,7 @@ The example is `dark user --task bench/tasks/hello-user/task.toml --tier example
 
 ```
 runner/      the pipeline: the dark/ package, models.toml, budgets.toml, host.toml, ops/, tests/
-bench/       tools/ that validate a task set, frozen/ limits, arms.toml; tasks/ and mutants/ hold two examples
+bench/       tools/ that validate a task set, frozen/ limits, arms.toml; tasks/ holds three examples, mutants/ one
 templates/   the Go and Python starting trees a task is laid over
 docs/        concepts.md (the terms the code uses), history.md (where it came from) and fresh-container.md
 ```

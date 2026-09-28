@@ -26,7 +26,7 @@ cd runner && bash verify.sh
 ## Check the tasks
 
 The task set lives in its own repository,
-[dark-tasks](https://github.com/majgull/dark-tasks). The two example tasks
+[dark-tasks](https://github.com/majgull/dark-tasks). The three example tasks
 under `bench/tasks/` let every tool run without a second checkout:
 
 ```
