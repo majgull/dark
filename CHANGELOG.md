@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-28
+
 ### Added
 
 - `bench/tasks/hello-user`, an example user task: three steps a stranger can check on https://example.com, so `dark user` has a task to try; `check_tasks.py` checks a user task with the runner's loader and `validate.py` skips it, as it has no acceptance.
