@@ -467,3 +467,42 @@ class ConfDirLookup(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("--conf <dir>", out)
 
+
+class CheckConfigExitCode(unittest.TestCase):
+    """check-config exits 0 only when it prints `config OK`; a missing or
+    unreadable config file is exit code 2."""
+
+    def setUp(self):
+        self.conf = write_conf(tempfile.mkdtemp())
+        with open(os.path.join(self.conf, "host.toml"), "w") as f:
+            f.write("[host]\n")
+
+    def check(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = M.main(["--conf", self.conf, "check-config"])
+        return rc, buf.getvalue()
+
+    def test_all_three_present_is_0(self):
+        rc, out = self.check()
+        self.assertEqual(rc, 0)
+        self.assertIn("config OK", out)
+
+    def test_each_missing_file_is_2(self):
+        for name in ("models.toml", "budgets.toml", "host.toml"):
+            with self.subTest(name=name):
+                self.setUp()
+                os.remove(os.path.join(self.conf, name))
+                rc, out = self.check()
+                self.assertEqual(rc, 2)
+                self.assertNotIn("config OK", out)
+                self.assertIn(os.path.join(self.conf, name), out)
+
+    def test_an_unreadable_file_is_2(self):
+        path = os.path.join(self.conf, "budgets.toml")
+        os.remove(path)
+        os.mkdir(path)  # open() refuses a directory even as root, unlike chmod 000
+        rc, out = self.check()
+        self.assertEqual(rc, 2)
+        self.assertNotIn("config OK", out)
+        self.assertIn(path, out)
