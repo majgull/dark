@@ -513,6 +513,21 @@ class Steps(unittest.TestCase):
         self.assertIsNotNone(U.first_missing_fragment(quote, self.RECORDS_PAGE))
         self.assertEqual(U.first_missing_fragment('link "Issues 3"', self.RECORDS_PAGE), 'link "Issues 3"')
 
+    def test_a_long_page_is_shown_whole_up_to_the_cut_and_a_cut_page_says_so(self):
+        # a Gitea folder page: its file tree came first, and at 12000 characters the
+        # model never saw the folder's own files or README
+        tree = "".join(f'  - link "run-{i:03d}":\n    - /url: /dark-records/adhoc/src/branch/main/run-{i:03d}\n'
+                       for i in range(190))
+        page = '- main "adhoc/run-189 at main":\n' + tree + '  - link "steps.jsonl":\n  - heading "README.md"'
+        self.assertGreater(len(page), 12000)
+        self.assertEqual(U.shown_snapshot(page), page)
+        self.assertIsNone(U.first_missing_fragment('link "steps.jsonl"', U.shown_snapshot(page)))
+        longer = page + "\n" + "- text: x\n" * (U.SNAPSHOT_CHARS // 10)
+        shown = U.shown_snapshot(longer)
+        self.assertTrue(shown.endswith(f"[the snapshot is cut here: {len(longer) - U.SNAPSHOT_CHARS} "
+                                       "more characters of this page are not shown]"))
+        self.assertEqual(shown[:U.SNAPSHOT_CHARS], longer[:U.SNAPSHOT_CHARS])
+
     def test_a_refused_quote_names_the_fragment_the_page_does_not_show(self):
         page = FakePage(snapshot='- heading "Shop"\n'
                                  '- listitem "Lofi Jazzy": Lofi Jazzy: 7 songs, 2 saved, 5 not saved\n'

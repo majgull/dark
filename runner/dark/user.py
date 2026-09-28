@@ -75,7 +75,10 @@ except ImportError:  # injected as /opt/user.py beside /opt/session.py and run a
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import session as S  # noqa: E402
 
-SNAPSHOT_CHARS = 12000  # the page as the model sees it, cut to this
+# the page as the model sees it, cut to this: 12000 hid the folder of a Gitea records
+# page behind its file tree (37 percent of 362 recorded snapshots were longer; 95
+# percent are within 32000), and the model judged a page it had not been shown
+SNAPSHOT_CHARS = 32000
 JOIN_CHARS = "—–-\"'…."  # the punctuation an accessibility snapshot puts at a line's edge
 MIN_FRAGMENT = 8  # a quote part this short is a word, not a quote: it keeps its neighbour
 # the ARIA roles an accessibility snapshot names its nodes by, as the model copies them into a quote
@@ -163,8 +166,14 @@ class BrowserError(Exception):
 # --- the model ------------------------------------------------------------------
 def shown_snapshot(snapshot):
     """The page as the model sees it: cut to SNAPSHOT_CHARS, the one place
-    that cut is spelled, so a pass verdict is judged against what was shown."""
-    return (snapshot or "")[:SNAPSHOT_CHARS]
+    that cut is spelled, so a pass verdict is judged against what was shown.
+    A cut page ends with a line saying so and how much is missing, so the
+    model does not take the part it was shown for the whole page."""
+    snapshot = snapshot or ""
+    if len(snapshot) <= SNAPSHOT_CHARS:
+        return snapshot
+    return (snapshot[:SNAPSHOT_CHARS] +
+            f"\n[the snapshot is cut here: {len(snapshot) - SNAPSHOT_CHARS} more characters of this page are not shown]")
 
 
 def _normalised(text):
