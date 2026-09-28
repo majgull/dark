@@ -30,9 +30,10 @@ lets in besides the service host. A
 sandbox reaches Gitea and one model gate, and `DARK_CONF_DIR` keeps the three toml
 files, with your own endpoints and model ids, outside the checkout.
 
-The bench tools need Python 3, `bash`, coreutils and `git`. The task check needs the task
-set [dark-tasks](https://github.com/majgull/dark-tasks) cloned beside this checkout;
-without it, the same command with no argument checks the two example tasks kept here.
+The bench tools need Python 3, `bash`, coreutils and `git`. The task check reads the task
+set [dark-tasks](https://github.com/majgull/dark-tasks) from wherever `DARK_TASKS` (or a
+path given as its argument) points; a clone is never found by its place on disk alone.
+With neither, the same command checks the two example tasks kept here.
 
 ## Quick start
 
@@ -44,17 +45,20 @@ dark --help                                  # the commands the runner offers
 python3 bench/tools/check_tasks.py           # the two example tasks: 0 problems
 ```
 
-For real use, point `DARK_TASKS` at a task set, such as a clone of
-[dark-tasks](https://github.com/majgull/dark-tasks). It takes several task sets
-at once, `:` separated, so a public set and a private one are checked in one
-run; a task name found in two sets is refused, naming both, rather than one
-silently winning:
+For real use, clone [dark-tasks](https://github.com/majgull/dark-tasks) and point
+`DARK_TASKS` at the clone:
 
 ```
-export DARK_TASKS=$HOME/src/dark-tasks:$HOME/src/my-tasks
-python3 bench/tools/check_tasks.py           # every task in both sets
-python3 bench/tools/validate.py              # reference solutions pass, starting trees fail
+git clone https://github.com/majgull/dark-tasks $HOME/src/dark-tasks
+export DARK_TASKS=$HOME/src/dark-tasks
+python3 bench/tools/check_tasks.py           # every task in the set
+python3 bench/tools/validate.py              # reference solutions pass, starting trees fail (needs Go)
 ```
+
+`DARK_TASKS` takes several task sets at once, `:` separated, such as
+`$HOME/src/dark-tasks:$HOME/src/my-tasks`, so a public set and a private one are
+checked in one run; a task name found in two sets is refused, naming both,
+rather than one silently winning.
 
 `dark user --task <task.toml> --tier <id>` runs one user-arm task: a browser sandbox checks a deployed URL step by step.
 
