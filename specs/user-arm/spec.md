@@ -48,7 +48,7 @@ Each run's records repository holds, besides the transcript and task record ever
 
 | path | what it holds |
 |---|---|
-| `steps.jsonl` | one line per step, in order: `step`, `verdict`, `note`, and `evidence` on a pass |
+| `steps.jsonl` | one line per step, in order: `step`, `verdict`, `note`, `evidence` on a pass, and `expected` and `expected_why`, where the judge said before the step's first action the result should appear (`expected` null when it gave no answer) |
 | `steps/<NN>.png` | a full-page screenshot taken when the step's verdict was given |
 | `steps/<NN>.trail.jsonl` | one line per action of the step: `t` (seconds since the step began), `action`, `target` (the locator, address, key or seconds it acted on) and `requests`, the requests to the target's own origin that the action set off before the next snapshot, each `method`, `url` and `status` |
 | `stream.jsonl` | every model call: step, call number, URL, snapshot size, the action and its result |
