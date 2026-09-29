@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-09-29
+
 ### Fixed
 
 - A long or session run that failed before pi started (a clone that failed, say) crashed while summing a stream that did not exist, and was recorded as `fail:structural` (crash) with no reason. It now ends as the failure it was, with its records and the empty stream's sum.
