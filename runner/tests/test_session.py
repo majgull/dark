@@ -7,6 +7,7 @@ The counts come from the events themselves, so a refused call is not confused
 with a lost record.
 """
 
+import hashlib
 import io
 import json
 import os
@@ -226,6 +227,21 @@ class RecordsPushLive(unittest.TestCase):
         self.assertEqual(fakes.branch_file(self.tmp, "dark-records/s1", "main", "run-1/brief.md"),
                          "brief text")
         self.assertNotIn("tok", fakes.branch_file(self.tmp, "dark-records/s1", "main", "run-1/task.json"))
+
+    def test_a_run_that_failed_before_pi_started_still_gets_its_records(self):
+        # a clone that fails ends in fail("env"), which pushes records before
+        # any stream exists; the sum must not raise and turn it into a crash
+        os.unlink(session.STREAM_PATH)
+        kw = session.records_kw()
+        self.assertEqual(kw["records"], "dark-records/s1/run-1")
+        self.assertEqual(kw["records_sha256"], hashlib.sha256(b"").hexdigest())
+        self.assertEqual(fakes.branch_file(self.tmp, "dark-records/s1", "main", "run-1/stream.jsonl"), "")
+
+    def test_a_crash_names_the_missing_path(self):
+        e = FileNotFoundError(2, "No such file or directory", "/opt/records/stream.jsonl")
+        self.assertEqual(repr(e), "FileNotFoundError(2, 'No such file or directory')")
+        self.assertIn("(file: /opt/records/stream.jsonl)", session.crash_text(e))
+        self.assertNotIn("(file:", session.crash_text(ValueError("x")))
 
     def test_a_second_runs_records_do_not_clobber_the_first(self):
         session.push_records({})

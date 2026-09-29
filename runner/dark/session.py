@@ -292,8 +292,19 @@ def records_kw(extra_files=None, extra_paths=None):
     except Exception as e:  # noqa: BLE001 — records must never crash the run
         ok, info = False, f"{type(e).__name__}: {e}"
     if ok:
-        return {"records": info, "records_sha256": sha256_file(STREAM_PATH)}
+        # a run that failed before pi started has no stream; push_records
+        # kept an empty one, so the sum is the empty file's
+        sha = (sha256_file(STREAM_PATH) if os.path.exists(STREAM_PATH)
+               else hashlib.sha256(b"").hexdigest())
+        return {"records": info, "records_sha256": sha}
     return {"records": f"PUSH FAILED: {info}"}
+
+
+def crash_text(e):
+    """The AGENT-DONE line for an exception nothing else caught. An OSError's
+    repr leaves out the path, and the path is what says what was missing."""
+    fn = getattr(e, "filename", None)
+    return f"AGENT-DONE fail (crash): {e!r}" + (f" (file: {fn})" if fn else "")
 
 
 # --- the runtime the VM cannot fetch for itself -------------------------------
@@ -674,5 +685,5 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as e:  # noqa: BLE001 — always leave a trace on the issue
-        comment(f"AGENT-DONE fail (crash): {e!r}\n" + done("fail", "crash", error=type(e).__name__))
+        comment(crash_text(e) + "\n" + done("fail", "crash", error=type(e).__name__))
         raise

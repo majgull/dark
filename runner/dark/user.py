@@ -1045,5 +1045,5 @@ if __name__ == "__main__":
     except SystemExit:
         raise
     except Exception as e:  # noqa: BLE001 — always leave a trace on the issue
-        S.comment(f"AGENT-DONE fail (crash): {e!r}\n" + S.done("fail", "crash", error=type(e).__name__))
+        S.comment(S.crash_text(e) + "\n" + S.done("fail", "crash", error=type(e).__name__))
         raise
