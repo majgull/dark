@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A long or session run that failed before pi started (a clone that failed, say) crashed while summing a stream that did not exist, and was recorded as `fail:structural` (crash) with no reason. It now ends as the failure it was, with its records and the empty stream's sum.
 - A crash's `AGENT-DONE` line names the file an `OSError` was about, in the session and user arms as in the chat arm.
+- The test suite no longer depends on the host's DNS: git gets a default e-mail, so a runner on the host's network with a slow resolver no longer turns every clone and push into a 10 s wait and the suite into an hour of heartbeat failures.
 
 ## [0.6.3] - 2026-09-29
 
