@@ -26,9 +26,10 @@ host, named by `sandbox_container` and `sandbox_snapshot` in `runner/host.toml`.
 `sandbox_pool` (default `""`, no Proxmox pool) is the pool each clone is placed in, so
 the throwaways stay grouped, and its `sandbox_allow_in` (default `""`) is a
 comma-separated list of `"<ipv4>:<tcp port>"` clients the clone's default-drop firewall
-lets in besides the service host. A
-sandbox reaches Gitea and one model gate, and `DARK_CONF_DIR` keeps the three toml
-files, with your own endpoints and model ids, outside the checkout.
+lets in besides the service host. On the container backend a
+sandbox reaches only Gitea and the gates, the reverse proxies in front of the model
+endpoint, Anthropic's API and the trace collector, and `DARK_CONF_DIR` keeps the three
+toml files, with your own endpoints and model ids, outside the checkout.
 
 The bench tools need Python 3, `bash`, coreutils and `git`. The task check reads the task
 set [dark-tasks](https://github.com/majgull/dark-tasks) from wherever `DARK_TASKS` (or a

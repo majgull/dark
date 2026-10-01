@@ -1,7 +1,7 @@
 # The docker deployment
 
-`compose.yaml` runs the runner without Proxmox. Gitea, the runner, a model
-gate and an optional local model are services on one internal network; each
+`compose.yaml` runs the runner without Proxmox. Gitea, the runner, the gates
+and an optional local model are services on one internal network; each
 sandbox, the throwaway container a run executes or judges in, is created as a
 sibling container on that same network through the docker socket the runner
 mounts. The pipeline is the same: a branch is cloned into a fresh sandbox, the
@@ -151,8 +151,13 @@ docker ps -a --filter label=dark.vmid
 
 ## The model gate
 
-A sandbox on `back` reaches exactly two things: Gitea and the model gate.
-The gate is a pinned reverse proxy that listens on `http://model-gate:11434`
+A sandbox on `back` reaches Gitea and three gates, and nothing else. A gate
+here is a pinned reverse proxy that forwards to one configured upstream: the
+model gate to the model endpoint, the claude gate (`claude-gate`) to
+Anthropic's API for a run whose tier is written `claude:<model-id>`, and the
+OTLP gate (`otlp-gate`, see [Traces](#traces)) to a trace collector.
+
+The model gate listens on `http://model-gate:11434`
 and forwards to `DARK_MODEL_UPSTREAM`. The runner and every sandbox use
 `http://model-gate:11434/v1`; they never name a provider directly. The
 bundled `ollama` service is on `front` only, so it can pull models and no
@@ -332,7 +337,7 @@ of a real container on the Proxmox host, taken from a named snapshot.
 |---|---|---|
 | A fresh disk per run, discarded at the end | Kept: a fresh writable layer per container, removed with force afterwards | Kept: a full clone of the source container's snapshot per run, destroyed with `--purge` afterwards |
 | A second fresh sandbox for staging | Kept: a second container | Kept: a second full clone |
-| Egress denied, the service host only | Kept: the internal network has no route off the host; Gitea and the model gate are reachable by name, and the gate is the only model URL | Kept: the same default-drop firewall file with `GROUP agentfw`, on a bridge that reaches only the service host |
+| Egress denied, the service host only | Kept: the internal network has no route off the host; Gitea and the gates are reachable by name, and a gate is the only model URL | Kept: the same default-drop firewall file with `GROUP agentfw`, on a bridge that reaches only the service host |
 | DNS and DHCP inside the sandbox | Kept, mechanism changed: docker's own DNS, no DHCP | Kept: `ip=dhcp` on the clone's net0; DNS as the source container resolves it |
 | Ingress denied | Weakened: any container on the network can open a port to another; a Proxmox firewall dropped inbound | Kept: the firewall file drops inbound |
 | Kernel isolation from the runner host | Weakened, the largest difference: the container shares the host kernel, so an escape is a host compromise, not a guest one | Weakened, as with docker: the container shares the Proxmox host's kernel, so an escape is a compromise of that host |

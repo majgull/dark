@@ -12,7 +12,9 @@ A constitution is the short file of rules a project never breaks, read before an
 - **staging**: running the hidden acceptance tests against the branch a run pushed, in a second fresh sandbox.
 - **judge**: whatever decides a run's outcome, which is the hidden acceptance tests for a code task and a reviewer session for a long task.
 - **ledger**: the append-only file of JSON lines where every run is written; each line is a row, and the closing row of a run is its `run.end` row.
-- **model gate**: the reverse proxy in front of the models, and the only model address a sandbox is given.
+- **model gate**: the reverse proxy in front of the configured model endpoint.
+- **claude gate**: the reverse proxy in front of Anthropic's API, used by a run that has Claude Code as its executor.
+- **OTLP gate**: the reverse proxy in front of the trace collector.
 - **records repository**: a Git repository, one per shift, that holds a session's kept transcript and task record.
 - **evidence**: run logs, recordings and images.
 - **the gate**: `runner/verify.sh`, the one script that runs the tests, the configuration check and the no-binaries check.
@@ -27,8 +29,8 @@ A constitution is the short file of rules a project never breaks, read before an
 5. The executor reports what happened and never decides an outcome. (docs/concepts.md)
 6. A staging verdict is trusted only when it carries a one-time value the executor never saw. (docs/concepts.md)
 7. The executor holds the agent token and never the acceptance archive. (docs/docker.md)
-8. On the container backend a sandbox reaches Gitea and the model gate and nothing else. (docs/docker.md)
-9. A sandbox is given the model gate's address and never a model provider's own address. (docs/docker.md)
+8. On the container backend a sandbox reaches Gitea, the model gate, the claude gate and the OTLP gate, and nothing else. (docs/docker.md)
+9. A sandbox is given the address of a gate and never a model provider's own address. (docs/docker.md)
 10. The docker socket is mounted into the runner and never into a sandbox. (docs/docker.md)
 11. A user-arm sandbox is given a URL and numbered steps only, with no work repository and nothing to clone. (docs/concepts.md)
 12. The user arm's target network drops every connection its subnet opens except one accept per named `host:port`. (docs/docker.md)

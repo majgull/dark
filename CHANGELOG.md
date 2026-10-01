@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `DARK_GITEA_ROOT_URL` sets the bundled Gitea's public address in `compose.yaml`, so a deployment behind a reverse proxy no longer needs an untracked override file for that one value.
 - `compose.yaml` sets the bundled Gitea's `[oauth2_client]` keys from `DARK_GITEA_OAUTH_AUTO_REGISTRATION`, `DARK_GITEA_OAUTH_ACCOUNT_LINKING` and `DARK_GITEA_OAUTH_USERNAME`, each defaulting to Gitea's own.
 
+### Changed
+
+- The constitution (rules 8 and 9), `docs/docker.md` and the README name every gate a sandbox on the container backend reaches: the model gate, the claude gate and the OTLP gate, which has been on the internal network since 0.6.0.
+
 ## [0.6.4] - 2026-09-29
 
 ### Fixed
