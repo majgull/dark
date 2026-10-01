@@ -96,11 +96,19 @@ class Catalog:
     models: dict
     defaults: dict
 
+    def resolve(self, mid):
+        """The catalog key `mid` names: itself when it is a key, else its
+        `:latest` entry, else the same refusal `model` gives. So a tier may be
+        written by its short name (`llama3.2` means `llama3.2:latest`)."""
+        if mid in self.models:
+            return mid
+        latest = mid + ":latest"
+        if latest in self.models:
+            return latest
+        raise ConfigError(f"models.toml: unknown model id {mid!r}")
+
     def model(self, mid):
-        try:
-            return self.models[mid]
-        except KeyError:
-            raise ConfigError(f"models.toml: unknown model id {mid!r}") from None
+        return self.models[self.resolve(mid)]
 
     def provider_of(self, mid):
         return self.providers[self.model(mid).provider]

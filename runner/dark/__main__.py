@@ -430,7 +430,9 @@ def cmd_user(args):
         print(f"user: {task.id} is class {task.cls}, not a user task")
         return 2
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
-    catalog.model(args.tier)  # an unknown tier is one config line, before anything starts
+    # an unknown tier is one config line, before anything starts; the resolved
+    # id (llama3.2 -> llama3.2:latest) is what the run records and every later lookup use
+    args.tier = catalog.resolve(args.tier)
     pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px, shift=args.shift or "adhoc")
     if not px.reachable() and not pre.wake():
         print(json.dumps({"run": None, "outcome": "refused", "detail": f"{host.proxmox}: unreachable and the wake failed"}))
@@ -479,9 +481,10 @@ def cmd_long(args):
         print(f"long: {task.id} is class {task.cls}, not a long task")
         return 2
     catalog, budgets, host, ledger, gitea, px = _ctx(args)
-    catalog.model(args.tier)  # an unknown tier is one config line, before anything starts
-    judge_tier = args.judge_tier or args.tier
-    catalog.model(judge_tier)
+    # an unknown tier is one config line, before anything starts; the resolved
+    # id (llama3.2 -> llama3.2:latest) is what the run records and every later lookup use
+    args.tier = catalog.resolve(args.tier)
+    judge_tier = catalog.resolve(args.judge_tier or args.tier)
     pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px, shift="adhoc")
     if not px.reachable() and not pre.wake():
         print(json.dumps({"run": None, "outcome": "refused", "detail": f"{host.proxmox}: unreachable and the wake failed"}))

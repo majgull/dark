@@ -180,6 +180,45 @@ class LoadsFixture(Fixture):
         self.assertEqual(cat.with_role("validator"), ["example-small"])
 
 
+RESOLVE_MODELS = """
+[defaults]
+timeout = 100
+max_tokens = 2048
+[provider.gate]
+url = "http://g/v1"
+catalog = "models"
+[model."llama3.2:latest"]
+provider = "gate"
+cost = "local"
+speed = "fast"
+watts = "low"
+"""
+
+
+class ResolveTier(unittest.TestCase):
+    """A tier may be named by its short name: `llama3.2` means `llama3.2:latest`."""
+
+    def catalog(self, extra=""):
+        p = os.path.join(tempfile.mkdtemp(), "models.toml")
+        with open(p, "w") as f:
+            f.write(RESOLVE_MODELS + extra)
+        return config.load_catalog(p)
+
+    def test_short_name_resolves_to_latest(self):
+        cat = self.catalog()
+        self.assertEqual(cat.resolve("llama3.2"), "llama3.2:latest")
+        self.assertEqual(cat.resolve("llama3.2:latest"), "llama3.2:latest")
+
+    def test_unknown_name_refuses_naming_it(self):
+        with self.assertRaises(config.ConfigError) as cm:
+            self.catalog().resolve("nope")
+        self.assertIn("nope", str(cm.exception))
+
+    def test_an_exact_key_wins_over_latest(self):
+        cat = self.catalog('[model."llama3.2"]\nprovider = "gate"\ncost = "local"\nspeed = "fast"\nwatts = "low"\n')
+        self.assertEqual(cat.resolve("llama3.2"), "llama3.2")
+
+
 class Refusals(Fixture):
     def refuse(self, models=MODELS, budgets=BUDGETS, needle=""):
         with self.assertRaises(config.ConfigError) as cm:
