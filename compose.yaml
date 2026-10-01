@@ -27,7 +27,8 @@ services:
     environment:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__server__HTTP_PORT: "3000"
-      GITEA__server__ROOT_URL: http://localhost:3410/
+      # DARK_GITEA_ROOT_URL is Gitea's public address, http://localhost:3410/ by default.
+      GITEA__server__ROOT_URL: ${DARK_GITEA_ROOT_URL:-http://localhost:3410/}
       GITEA__server__SSH_DISABLED: "true"
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__service__DISABLE_REGISTRATION: "true"

@@ -27,7 +27,8 @@ docker compose -p dark exec runner dark preflight --no-model
 ```
 
 `-p dark` is the compose project name; the bootstrap takes the same one.
-Gitea answers on `http://localhost:3410`.
+Gitea answers on `http://localhost:3410`; set `DARK_GITEA_ROOT_URL` to serve
+it under a different address, for example behind a reverse proxy.
 
 ### The session runtime archive
 

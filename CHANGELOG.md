@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A tier can be named by its short name: `--tier llama3.2` means `--tier llama3.2:latest`, and the run records the full id.
 - A tier written `claude:<model-id>` runs Claude Code in print mode (stream-json out, `--dangerously-skip-permissions`) in place of pi for the session arm (`dark long`'s coder): the OAuth token is read fresh from one root-only file outside every repo (`host.claude_oauth_token_file`, default `/run/dark/secrets/claude-oauth-token`) and reaches only the sandbox's own process environment as `CLAUDE_CODE_OAUTH_TOKEN`, never a task file, a log or the ledger; a missing file refuses the run before anything is spawned. Claude Code's own stream-json is counted into the same STATS a pi session's is, so it reaches the same `run.end` ledger row. Docker only for now; the sandbox image pins `@anthropic-ai/claude-code`, and a new `claude-gate` service (compose.yaml) is the one added real-internet hop, for `api.anthropic.com` alone.
 - A judging review (`dark long`'s `judge_tier`) accepts a `claude:<model-id>` tier through the same path: the same token file, the same sandbox-environment-only reach, the same refusal on a miss.
+- `DARK_GITEA_ROOT_URL` sets the bundled Gitea's public address in `compose.yaml`, so a deployment behind a reverse proxy no longer needs an untracked override file for that one value.
 
 ## [0.6.4] - 2026-09-29
 
