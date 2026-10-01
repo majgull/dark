@@ -73,7 +73,8 @@ def make(host, template):
     if host.backend == "docker":
         return docker.Docker(host.sandbox_image, network=host.sandbox_network,
                              cpus=host.sandbox_cpus, memory=host.sandbox_memory,
-                             pids=host.sandbox_pids, target_network=host.target_network)
+                             pids=host.sandbox_pids, target_network=host.target_network,
+                             claude_network=host.claude_network)
     if host.backend == "lxc":
         return lxc.Lxc(host.proxmox, host.sandbox_container, host.sandbox_snapshot,
                        bridge=host.sandbox_bridge, pool=host.sandbox_pool,

@@ -377,18 +377,22 @@ class HostKeys(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertRegex(text, rf"(?m)^{key} = .*# {config.HOST_ENV[key]}\b")
 
-    def test_claude_token_file_and_gate_url(self):
-        self.assertEqual(config.Host().claude_oauth_token_file, "/run/dark/secrets/claude-oauth-token")
-        self.assertEqual(config.Host().claude_gate_url, "")
+    def test_claude_gate_url_and_network(self):
+        self.assertEqual((config.Host().claude_gate_url, config.Host().claude_network), ("", ""))
         h = self.load_host('[host]\nclaude_gate_url = "http://gate-a:8443"\n',
-                           {"DARK_CLAUDE_TOKEN_FILE": "/run/dark/secrets/other-token"})
-        self.assertEqual(h.claude_oauth_token_file, "/run/dark/secrets/other-token")
-        self.assertEqual(h.claude_gate_url, "http://gate-a:8443")
+                           {"DARK_CLAUDE_NETWORK": "dark_claude"})
+        self.assertEqual((h.claude_gate_url, h.claude_network), ("http://gate-a:8443", "dark_claude"))
+
+    def test_the_host_holds_no_claude_token(self):
+        # the claude gate is the only holder: no key, no variable, no field
+        # through which the runner could be given one
+        self.assertFalse([k for k in config.HOST_ENV if "token" in k and "claude" in k])
+        self.assertFalse([v for v in config.HOST_ENV.values() if "CLAUDE" in v and "TOKEN" in v])
 
     def test_the_example_host_file_names_the_claude_keys_too(self):
         with open(os.path.join(HERE, "host.toml")) as f:
             text = f.read()
-        for key in ("claude_oauth_token_file", "claude_gate_url"):
+        for key in ("claude_gate_url", "claude_network"):
             with self.subTest(key=key):
                 self.assertRegex(text, rf"(?m)^{key} = .*# {config.HOST_ENV[key]}\b")
 

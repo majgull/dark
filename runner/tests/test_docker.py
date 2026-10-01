@@ -11,19 +11,15 @@ from unittest import mock
 
 from dark import docker as D
 from dark import sandbox
-from dark import vm
 
 FAKE = r'''#!/usr/bin/env bash
 # A fake docker CLI: records argv to $FAKE_DOCKER_LOG and keeps one state
-# file per container under $FAKE_DOCKER_STATE. When $FAKE_DOCKER_LOG_ENV
-# names a variable, it also records that variable's value as it sees it in
-# its own environment.
+# file per container under $FAKE_DOCKER_STATE.
 log="${FAKE_DOCKER_LOG:?}"
 state="${FAKE_DOCKER_STATE:?}"
 mkdir -p "$state"
 args=("$@")
 { printf '%s' "${args[0]}"; for a in "${args[@]:1}"; do printf '\t%s' "$a"; done; printf '\n'; } >> "$log"
-[ -n "${FAKE_DOCKER_LOG_ENV:-}" ] && printf 'env\t%s\t%s\n' "$FAKE_DOCKER_LOG_ENV" "${!FAKE_DOCKER_LOG_ENV}" >> "$log"
 cmd="${args[0]}"
 set -- "${args[@]:1}"
 case "$cmd" in
@@ -37,7 +33,7 @@ case "$cmd" in
       case "$1" in --name) name="$2"; shift 2 ;; *) shift ;; esac
     done
     : > "$state/$name"
-    exit "${FAKE_DOCKER_CREATE_RC:-0}" ;;
+    exit 0 ;;
   cp)
     mkdir -p "${FAKE_DOCKER_CP:?}"
     cp -a "$1" "$FAKE_DOCKER_CP/"
@@ -176,37 +172,34 @@ class DockerTest(unittest.TestCase):
         for flag in ("--cpus", "--memory", "--pids-limit"):
             self.assertNotIn(flag, create)
 
-    def test_spawn_passes_env_names_to_create_and_values_in_its_environment(self):
-        with mock.patch.dict(os.environ, {"FAKE_DOCKER_LOG_ENV": "CLAUDE_CODE_OAUTH_TOKEN"}):
-            self.d.spawn(9500, "dark-x1", self.files(), self.runcmd(),
-                         env={"CLAUDE_CODE_OAUTH_TOKEN": "tok-abc", "FOO": "bar"})
-        create = [l for l in self.fake.lines() if l[0] == "create"][0]
-        self.assertIn("--env", create)
-        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", create)
-        self.assertIn("FOO", create)
-        for arg in create:
-            self.assertNotIn("tok-abc", arg)
-        # the value reaches the CLI over its own environment, which is how
-        # docker resolves a bare --env NAME
-        self.assertIn(["env", "CLAUDE_CODE_OAUTH_TOKEN", "tok-abc"], self.fake.lines())
-        for dp, _, fns in os.walk(self.fake.cp):
-            for fn in fns:
-                self.assertNotIn("tok-abc", self.read(os.path.join(dp, fn)))
+    def test_a_claude_sandbox_joins_the_claude_network_before_it_starts(self):
+        d = D.Docker(IMAGE, network=NET, claude_network="dark-claude")
+        d.spawn(9500, "dark-x1", {}, [], claude=True)
+        lines = self.fake.lines()
+        self.assertIn(["network", "connect", "dark-claude", "dark-x1"], lines)
+        self.assertLess(lines.index(["network", "connect", "dark-claude", "dark-x1"]),
+                        lines.index(["start", "dark-x1"]))
+        # created on the internal network like every sandbox; the claude gate's is a second one
+        create = [l for l in lines if l[0] == "create"][0]
+        self.assertEqual(create[create.index("--network") + 1], NET)
 
-    def test_a_failed_create_leaves_the_token_out_of_the_error(self):
-        patch = mock.patch.dict(os.environ, {"FAKE_DOCKER_CREATE_RC": "1"})
-        patch.start()
-        self.addCleanup(patch.stop)
-        with self.assertRaises(vm.VMError) as cm:
-            self.d.spawn(9500, "dark-x1", self.files(), self.runcmd(),
-                         env={"CLAUDE_CODE_OAUTH_TOKEN": "tok-abc"})
-        self.assertNotIn("tok-abc", str(cm.exception))
-        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", str(cm.exception))
+    def test_no_other_sandbox_joins_the_claude_network(self):
+        d = D.Docker(IMAGE, network=NET, claude_network="dark-claude", target_network="dark-target")
+        d.spawn(9500, "dark-x1", {}, [])
+        d.spawn(9501, "dark-x2", {}, [], cls="user")
+        # and a claude sandbox with no claude network configured joins nothing more
+        D.Docker(IMAGE, network=NET).spawn(9502, "dark-x3", {}, [], claude=True)
+        self.assertEqual([l for l in self.fake.lines() if l[0] == "network"],
+                         [["network", "connect", "dark-target", "dark-x2"]])
 
-    def test_spawn_without_env_omits_the_flag(self):
-        self.d.spawn(9500, "dark-x1", {}, [])
-        create = [l for l in self.fake.lines() if l[0] == "create"][0]
-        self.assertNotIn("--env", create)
+    def test_no_sandbox_is_given_an_environment_variable(self):
+        # nothing a sandbox needs is a secret the runner holds: the Claude
+        # token stays in the claude gate, so create never carries --env
+        D.Docker(IMAGE, network=NET, claude_network="dark-claude").spawn(9500, "dark-x1", {}, [], claude=True)
+        self.d.spawn(9501, "dark-x2", self.files(), self.runcmd())
+        for create in [l for l in self.fake.lines() if l[0] == "create"]:
+            self.assertNotIn("--env", create)
+            self.assertNotIn("-e", create)
 
     def test_spawn_writes_files_and_modes(self):
         self.d.spawn(9500, "dark-x1", self.files(), self.runcmd())

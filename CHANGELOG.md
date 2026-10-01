@@ -9,14 +9,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - A tier can be named by its short name: `--tier llama3.2` means `--tier llama3.2:latest`, and the run records the full id.
-- A tier written `claude:<model-id>` runs Claude Code in print mode (stream-json out, `--dangerously-skip-permissions`) in place of pi for the session arm (`dark long`'s coder): the OAuth token is read fresh from one root-only file outside every repo (`host.claude_oauth_token_file`, default `/run/dark/secrets/claude-oauth-token`) and reaches only the sandbox's own process environment as `CLAUDE_CODE_OAUTH_TOKEN`, never a task file, a log or the ledger; a missing file refuses the run before anything is spawned. Claude Code's own stream-json is counted into the same STATS a pi session's is, so it reaches the same `run.end` ledger row. Docker only for now; the sandbox image pins `@anthropic-ai/claude-code`, and a new `claude-gate` service (compose.yaml) is the one added real-internet hop, for `api.anthropic.com` alone.
-- A judging review (`dark long`'s `judge_tier`) accepts a `claude:<model-id>` tier through the same path: the same token file, the same sandbox-environment-only reach, the same refusal on a miss.
+- A tier written `claude:<model-id>` runs Claude Code in the sandbox in place of pi, as the session of a `dark long` run, as its judge (`--judge-tier`), or both. The claude gate, a new compose service behind the profile `claude`, forwards to Anthropic's API and puts the token on each request: the token file is mounted into the gate alone, the runner reads none, and Claude Code in the sandbox is given a placeholder. The gate is on a network of its own that only such a run's sandbox joins. Claude Code's stream is counted into the same `run.end` row (calls, tokens, tool calls). Docker backend only; the sandbox image pins `@anthropic-ai/claude-code` by sha256; `docs/docker.md` has the setup.
 - `DARK_GITEA_ROOT_URL` sets the bundled Gitea's public address in `compose.yaml`, so a deployment behind a reverse proxy no longer needs an untracked override file for that one value.
 - `compose.yaml` sets the bundled Gitea's `[oauth2_client]` keys from `DARK_GITEA_OAUTH_AUTO_REGISTRATION`, `DARK_GITEA_OAUTH_ACCOUNT_LINKING` and `DARK_GITEA_OAUTH_USERNAME`, each defaulting to Gitea's own.
 
 ### Changed
 
-- The constitution (rules 8 and 9), `docs/docker.md` and the README name every gate a sandbox on the container backend reaches: the model gate, the claude gate and the OTLP gate, which has been on the internal network since 0.6.0.
+- The constitution (rules 7 to 9), `docs/docker.md` and the README say what a sandbox on the container backend reaches: Gitea, the model gate and the OTLP gate, which has been on the internal network since 0.6.0, and for a sandbox that runs Claude Code the claude gate. No sandbox holds the Claude token.
 
 ## [0.6.4] - 2026-09-29
 

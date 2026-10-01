@@ -325,28 +325,22 @@ class Runner:
                     raise
         return full
 
-    def _claude_spawn_kw(self, tier):
+    def _claude_spawn_kw(self, tier, session=True):
         """spawn() keywords a claude:<model-id> run needs beyond the
-        protocol's: CLAUDE_CODE_OAUTH_TOKEN in the sandbox's own process
-        environment, never in agent_task/task.json, a log or the ledger.
-        Read fresh from host.claude_oauth_token_file (one root-only file
-        outside every repo) for every such run. (spawn_kw, "") for any other
-        tier or when the docker backend is in use with the file present;
-        (None, why) when a claude run cannot get its token — the caller
-        refuses before spawning anything."""
+        protocol's: its sandbox also joins host.claude_network, the network
+        the claude gate is on. The gate holds the Claude token and puts it on
+        each request, so nothing here reads a token and no sandbox is given
+        one. ({}, "") for any other tier; (None, why) when a claude run
+        cannot work, and the caller refuses before spawning anything."""
         if not config.is_claude_tier(tier):
             return {}, ""
+        if not session:
+            return None, "claude tiers run Claude Code, which only the session executor starts"
         if self.host.backend != "docker":
             return None, f"claude tiers need the docker backend, host.backend is {self.host.backend!r}"
-        path = self.host.claude_oauth_token_file
-        try:
-            with open(path) as f:
-                token = f.read().strip()
-        except OSError as e:
-            return None, f"claude token file {path}: {e.strerror or e}"
-        if not token:
-            return None, f"claude token file {path} is empty"
-        return {"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}}, ""
+        if not self.host.claude_gate_url:
+            return None, "claude tiers need host.claude_gate_url, the address of the claude gate"
+        return {"claude": True}, ""
 
     # --- one run -----------------------------------------------------------------
     def run(self, task, tier, env, slot=0, think=None, base=None):
@@ -431,13 +425,13 @@ class Runner:
             # where the session arm pushes its kept stream; only the session
             # executor implements this, so only it gets a repo
             "records_repo": self._ensure_records_repo() if self.executor == "session" else None,
-            # the proxy a claude:-tier run's Claude Code reaches Anthropic
-            # through; not a secret, so it travels with everything else here
+            # the claude gate's address, where a claude:-tier run's Claude
+            # Code sends its requests; an address, never a credential
             "claude_base_url": self.host.claude_gate_url}
         # only the session executor has a tool set to choose; the pipeline's
         # has no tools and records none
         st.tools = agent_task["tools"] if self.executor == "session" else None
-        spawn_kw, why = self._claude_spawn_kw(tier)
+        spawn_kw, why = self._claude_spawn_kw(tier, session=self.executor == "session")
         if spawn_kw is None:
             return st.end("fail:structural", "env", why, reserved=reserved)
         xvmid = self.budgets.shift["vmid_base"] + slot

@@ -608,18 +608,15 @@ cost = "sub-window"
 speed = "fast"
 """
 
-FAKE_TOKEN = "fake-oauth-token-do-not-leak"
-
-
 class ClaudeTier(Base):
-    """claude:<model-id> runs (dark/run.py): the OAuth token is read
-    fresh from one root-only file for every such run and put only in the
-    sandbox's own process environment, never in agent_task/task.json; a
-    missing file refuses the run before anything is spawned. What
-    dark/session.py itself does with a claude:-tier's stream is
-    test_session.py's job (CountingClaude, ClaudeSubprocess); this proves
-    run.py's token handling and that its counts still reach the same
-    run.end ledger row a pi session's do."""
+    """claude:<model-id> runs (dark/run.py): the runner reads no token and
+    gives the sandbox none, because the claude gate holds it; the sandbox is
+    told to join the claude gate's network and is given the gate's address,
+    and a run that cannot reach a gate is refused before anything is
+    spawned. What dark/session.py itself does with a claude:-tier's stream
+    is test_session.py's job (CountingClaude, ClaudeSubprocess); this proves
+    run.py's part and that the counts still reach the same run.end ledger
+    row a pi session's do."""
 
     def setUp(self):
         super().setUp()
@@ -631,27 +628,24 @@ class ClaudeTier(Base):
         # staging VM to fake a second AGENT-DONE for
         loaded = tasks.load_task(make_task(os.path.join(self.tmp, "bench"), "hello"))
         self.task = dataclasses.replace(loaded, cls="long")
-        self.token_file = os.path.join(self.tmp, "claude-token")
-        self.host.claude_oauth_token_file = self.token_file
         self.host.backend = "docker"
-
-    def write_token(self, text=FAKE_TOKEN):
-        with open(self.token_file, "w") as f:
-            f.write(text)
+        self.host.claude_gate_url = "http://claude-gate:8443"
+        self.host.claude_network = "dark_claude"
 
     def executor_runner(self, done_fields):
         """A run() through the claude:-tier path: launch() is overridden the
-        same way ReviewMode's is, so the token and task.json this run was
-        given can be inspected directly, with no real session.py process."""
+        same way ReviewMode's is, so the spawn keywords and the task.json
+        this run was given can be inspected directly, with no real
+        session.py process."""
         r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
                         log=lambda *a: None, shift="s1")
         r.executor = "session"
-        self.sent, self.spawn_envs = {}, {}
+        self.sent, self.spawn_kws = {}, {}
 
-        def launch(vmid, name, files, runcmd, env=None):
-            self.spawn_envs[name] = env
+        def launch(vmid, name, files, runcmd, **spawn_kw):
+            self.spawn_kws[name] = spawn_kw
             if "/opt/task.json" not in files:
-                return   # the staging VM: no claude token to give it
+                return   # the staging VM
             self.sent = json.loads(files["/opt/task.json"][0])
             r.gitea.comment(self.sent["repo"], self.sent["issue"], "AGENT-ALIVE\n" + spec.TAG_PREFIX +
                             json.dumps({"v": 2, "ev": "start", "model": self.sent["llm_model"],
@@ -662,15 +656,23 @@ class ClaudeTier(Base):
         r.net_ip = lambda vmid: "10.0.0.1"
         return r
 
-    def test_missing_token_file_refuses_before_anything_is_spawned(self):
+    def test_no_gate_address_refuses_before_anything_is_spawned(self):
+        self.host.claude_gate_url = ""
         r = self.executor_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
         res = r.run(self.task, "claude:claude-sonnet-5", self.env())
         self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "env"))
-        self.assertIn(self.token_file, res.detail)
+        self.assertIn("claude_gate_url", res.detail)
+        self.assertEqual(r.launched, [])
+
+    def test_the_pipeline_executor_is_refused_before_anything_is_spawned(self):
+        r = self.executor_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
+        r.executor = "agent"
+        res = r.run(self.task, "claude:claude-sonnet-5", self.env())
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "env"))
+        self.assertIn("session executor", res.detail)
         self.assertEqual(r.launched, [])
 
     def test_a_non_docker_backend_is_refused_before_anything_is_spawned(self):
-        self.write_token()
         self.host.backend = "proxmox"
         r = self.executor_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
         res = r.run(self.task, "claude:claude-sonnet-5", self.env())
@@ -678,13 +680,16 @@ class ClaudeTier(Base):
         self.assertIn("docker", res.detail)
         self.assertEqual(r.launched, [])
 
-    def test_the_token_reaches_only_the_sandbox_env_never_task_json(self):
-        self.write_token()
+    def test_the_sandbox_joins_the_claude_network_and_is_given_the_gate_and_no_token(self):
         r = self.executor_runner({"outcome": "ok", "calls": 3, "tokens_in": 4927, "tokens_out": 147,
                                   "reasoning_chars": 42, "tool_calls": 2})
         res = r.run(self.task, "claude:claude-sonnet-5", self.env())
-        self.assertEqual(self.spawn_envs["dark-x0"], {"CLAUDE_CODE_OAUTH_TOKEN": FAKE_TOKEN})
-        self.assertNotIn(FAKE_TOKEN, json.dumps(self.sent))
+        # the one keyword: join the claude gate's network. No environment,
+        # no file: the runner has no Claude token to pass on
+        self.assertEqual(self.spawn_kws["dark-x0"], {"claude": True})
+        self.assertEqual(self.sent["claude_base_url"], "http://claude-gate:8443")
+        # the gate's address is the only thing about Claude in task.json
+        self.assertEqual(sorted(k for k in self.sent if "claude" in k), ["claude_base_url"])
         end = self.led.last("run.end")
         self.assertEqual((end["outcome"], end["tier"]), (res.outcome, "claude:claude-sonnet-5"))
         self.assertEqual((end["tokens_in"], end["tokens_out"], end["tool_calls"]), (4927, 147, 2))
@@ -692,33 +697,34 @@ class ClaudeTier(Base):
     def review_runner(self, done_fields):
         r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
                         log=lambda *a: None, shift="s1")
-        self.sent, self.spawn_env = {}, None
+        self.sent, self.spawn_kw = {}, None
 
-        def launch(vmid, name, files, runcmd, env=None):
+        def launch(vmid, name, files, runcmd, **spawn_kw):
             self.sent = json.loads(files["/opt/task.json"][0])
-            self.spawn_env = env
+            self.spawn_kw = spawn_kw
             r.gitea.comment(self.sent["repo"], self.sent["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX +
                             json.dumps({"v": 2, "ev": "done", "seconds": 3, **done_fields}))
         r.launch = launch
         r.net_ip = lambda vmid: "10.0.0.1"
         return r
 
-    def test_judge_tier_missing_token_file_refuses_before_anything_is_spawned(self):
+    def test_judge_tier_without_a_gate_address_refuses_before_anything_is_spawned(self):
+        self.host.claude_gate_url = ""
         r = self.review_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
         res = r.review("judge this", {}, "claude:claude-sonnet-5", "review-x", shift="s1")
         self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "env"))
+        self.assertIn("claude_gate_url", res.detail)
         self.assertEqual(r.launched, [])
 
-    def test_judge_tier_reads_the_verdict_and_the_token_never_reaches_task_json(self):
-        self.write_token()
+    def test_judge_tier_reads_the_verdict_and_joins_the_claude_network(self):
         r = self.review_runner({"outcome": "ok", "calls": 3, "tokens_in": 100, "tokens_out": 20,
                                 "reasoning_chars": 0, "tool_calls": 1,
                                 "verdict": "pass", "verdict_reason": "looks fine"})
         res = r.review("judge this", {}, "claude:claude-sonnet-5", "review-x", shift="s1",
                        review_branches=[{"name": "api", "url": "file:///dev/null", "branch": "run/x"}])
         self.assertEqual(res.outcome, "pass", res.detail)
-        self.assertEqual(self.spawn_env, {"CLAUDE_CODE_OAUTH_TOKEN": FAKE_TOKEN})
-        self.assertNotIn(FAKE_TOKEN, json.dumps(self.sent))
+        self.assertEqual(self.spawn_kw, {"claude": True})
+        self.assertEqual(self.sent["claude_base_url"], "http://claude-gate:8443")
         end = self.led.last("run.end")
         self.assertEqual((end["tier"], end["tokens_in"], end["tool_calls"]), ("claude:claude-sonnet-5", 100, 1))
 

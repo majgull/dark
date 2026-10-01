@@ -20,9 +20,8 @@ ROLES = ("validator", "planner", "planner-light", "reviewer")
 HARD_KEYS = ("runs", "calls", "seconds", "max_reasoning_chars")
 
 # a tier written "claude:<model-id>" runs Claude Code in place of pi
-# (dark/session.py) or the pipeline; the id is still a normal models.toml
-# entry (a provider, a window, a role), only its own id carries the prefix,
-# the same way "glm-5.3-flash:cloud" already carries one.
+# (dark/session.py); the id is still a normal models.toml entry (a provider,
+# a window, a role), only its own id carries the prefix.
 CLAUDE_PREFIX = "claude:"
 
 
@@ -414,7 +413,7 @@ HOST_ENV = {
     "org": "DARK_ORG", "gitea_url": "DARK_GITEA_URL", "gitea_lan_url": "DARK_GITEA_LAN",
     "git_lan_url": "DARK_GIT_LAN",
     "admin_token_file": "DARK_ADMIN_TOKEN_FILE", "agent_token_file": "DARK_AGENT_TOKEN_FILE",
-    "claude_oauth_token_file": "DARK_CLAUDE_TOKEN_FILE", "claude_gate_url": "DARK_CLAUDE_GATE_URL",
+    "claude_gate_url": "DARK_CLAUDE_GATE_URL", "claude_network": "DARK_CLAUDE_NETWORK",
     "proxmox": "DARK_PROXMOX", "backend": "DARK_BACKEND", "ntfy_url": "DARK_NTFY", "state_dir": "DARK_STATE",
     "sandbox_image": "DARK_SANDBOX_IMAGE", "sandbox_network": "DARK_SANDBOX_NETWORK",
     "sandbox_cpus": "DARK_SANDBOX_CPUS", "sandbox_memory": "DARK_SANDBOX_MEMORY",
@@ -440,14 +439,15 @@ class Host:
     git_lan_url: str = ""     # where VMs clone/push from; "" = gitea_lan_url
     admin_token_file: str = "~/.dark/dark-admin.token"
     agent_token_file: str = "~/.dark/dark-agent.token"
-    # a claude:<model-id> tier's CLAUDE_CODE_OAUTH_TOKEN: one root-only file
-    # outside every repo, read fresh for each such run and put only in the
-    # sandbox's own process environment, never in a task file, a log or the
-    # ledger. claude_gate_url: the proxy a claude:-tier run's Claude Code
-    # reaches the real Anthropic API through (dark/docker.py's compose.yaml
-    # adds it beside the model gate); "" = Claude Code's own default.
-    claude_oauth_token_file: str = "/run/dark/secrets/claude-oauth-token"
+    # a claude:<model-id> tier (docker backend): claude_gate_url is the claude
+    # gate's address, the reverse proxy Claude Code reaches Anthropic's API
+    # through. The gate holds the Claude token and puts it on each request,
+    # so the runner reads no token and no sandbox is given one. "" = claude
+    # tiers are refused. claude_network is the docker network the gate is on,
+    # which a sandbox that runs Claude Code joins besides sandbox_network;
+    # "" = it joins nothing more (the gate is then on sandbox_network).
     claude_gate_url: str = ""
+    claude_network: str = ""
     backend: str = "proxmox"  # the compute plane: "proxmox", "docker" or "lxc"
     proxmox: str = "cpu-host"
     # docker backend (dark/docker.py): the image a sandbox is created from,
@@ -498,8 +498,7 @@ class Host:
     agent_token: str = ""
 
     def __post_init__(self):
-        for f in ("state_dir", "templates_dir", "bench_dir", "admin_token_file", "agent_token_file",
-                  "claude_oauth_token_file"):
+        for f in ("state_dir", "templates_dir", "bench_dir", "admin_token_file", "agent_token_file"):
             setattr(self, f, os.path.expanduser(getattr(self, f)))
         self.wake_timeout = int(self.wake_timeout)
         self.work_org = self.work_org or self.org

@@ -23,12 +23,15 @@ START_SCRIPT = "/opt/dark-start.sh"
 
 class Docker:
     def __init__(self, image, network="dark", cpus=None, memory=None, pids=None,
-                 cli="docker", timeout=120, target_network=""):
+                 cli="docker", timeout=120, target_network="", claude_network=""):
         self.image = image
         self.network = network
         # a user-arm sandbox also joins this one: a normal (non-internal)
         # network the application under check is reachable on
         self.target_network = target_network
+        # a sandbox that runs Claude Code also joins this one: the internal
+        # network the claude gate is on, which no other sandbox is given
+        self.claude_network = claude_network
         self.cpus = cpus
         self.memory = memory
         self.pids = pids
@@ -36,16 +39,10 @@ class Docker:
         self.timeout = timeout
         self._names = {}  # vmid -> container name, filled by spawn
 
-    def run(self, args, check=True, timeout=None, env=None):
-        """One docker call. `env` ({name: value}) is merged over os.environ
-        for this call only, never placed in argv: the CLI reads such a value
-        from its own environment, so it stays out of the process list and out
-        of an error text built from `args`."""
+    def run(self, args, check=True, timeout=None):
         cmd = [self.cli, *args]
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True,
-                               timeout=timeout or self.timeout,
-                               env={**os.environ, **env} if env else None)
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout or self.timeout)
         except subprocess.TimeoutExpired:
             raise vm.VMError(f"docker {args!r}: no answer in {timeout or self.timeout}s") from None
         if check and r.returncode != 0:
@@ -76,18 +73,14 @@ class Docker:
         out += [" ".join(shlex.quote(a) for a in cmd) for cmd in runcmd]
         return "\n".join(out) + "\n"
 
-    def spawn(self, vmid, name, files, runcmd, cls=None, image=None, env=None):
+    def spawn(self, vmid, name, files, runcmd, cls=None, image=None, claude=False):
         """Create the container, write `files` in (modes honoured), copy in a
         start script built from `runcmd` and start it. A container of the same
         name left over from an earlier run is removed first. `image` is the
         image for this one sandbox (a user-arm run's browser image); None is
         the backend's own, host.sandbox_image. A "user" sandbox joins
-        target_network as well, before it starts. `env` ({name: value}) is
-        set on the container at create time, never written to a file: a
-        claude:<model-id> run's CLAUDE_CODE_OAUTH_TOKEN, so it reaches the
-        sandbox's process environment only. Only each name goes on the
-        create line; the value is read by docker from the environment of the
-        call itself, so neither argv nor a failure message carries it."""
+        target_network as well, and a sandbox that runs Claude Code
+        (`claude`) joins claude_network as well, both before it starts."""
         if self._exists(name):
             self.reap(vmid, name)
         self._names[vmid] = name
@@ -112,13 +105,13 @@ class Docker:
                 args += ["--memory", str(self.memory)]
             if self.pids:
                 args += ["--pids-limit", str(self.pids)]
-            for k in (env or {}):
-                args += ["--env", k]
             args += [image or self.image, "/bin/sh", START_SCRIPT]
-            self.run(args, timeout=300, env=env)
+            self.run(args, timeout=300)
             self.run(["cp", tmp + "/.", f"{name}:/"], timeout=120)
             if cls == "user" and self.target_network:
                 self.run(["network", "connect", self.target_network, name], timeout=60)
+            if claude and self.claude_network:
+                self.run(["network", "connect", self.claude_network, name], timeout=60)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         self.run(["start", name], timeout=120)

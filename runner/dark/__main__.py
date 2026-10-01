@@ -433,6 +433,11 @@ def cmd_user(args):
     # an unknown tier is one config line, before anything starts; the resolved
     # id (llama3.2 -> llama3.2:latest) is what the run records and every later lookup use
     args.tier = catalog.resolve(args.tier)
+    if config.is_claude_tier(args.tier):
+        # the user arm asks the model through the chat endpoint; Claude Code
+        # is an executor for a session, not a chat endpoint
+        print(f"user: {args.tier} runs Claude Code, which the user arm does not use; name a chat tier")
+        return 2
     pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px, shift=args.shift or "adhoc")
     if not px.reachable() and not pre.wake():
         print(json.dumps({"run": None, "outcome": "refused", "detail": f"{host.proxmox}: unreachable and the wake failed"}))

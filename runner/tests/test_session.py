@@ -14,6 +14,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 from dark import session
 from dark import spec
@@ -239,9 +240,7 @@ class ClaudeModelId(unittest.TestCase):
 
 class ClaudeSubprocess(unittest.TestCase):
     """run_claude() against the fake `claude` script on PATH: a real
-    subprocess, a real stream-json reply, and proof the OAuth token this run
-    was given never lands in any file the run wrote (only the fake script's
-    own environment carries it, never a command-line argument or a file)."""
+    subprocess and a real stream-json reply, counted into STATS."""
 
     def setUp(self):
         for k in session.STATS:
@@ -252,18 +251,12 @@ class ClaudeSubprocess(unittest.TestCase):
         session.TASK.update({"token": "", "llm_model": "claude:claude-sonnet-5"})
         self.tmp = tempfile.mkdtemp()
         self.saved_path = os.environ.get("PATH", "")
-        self.saved_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
         os.environ["PATH"] = FAKE_CLAUDE_BIN + os.pathsep + self.saved_path
         os.environ["FAKE_CLAUDE_STREAM"] = CLAUDE_FIX
-        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = "fake-oauth-token-do-not-leak"
 
     def tearDown(self):
         os.environ["PATH"] = self.saved_path
         os.environ.pop("FAKE_CLAUDE_STREAM", None)
-        if self.saved_token is None:
-            os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-        else:
-            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = self.saved_token
         session.PROGRESS.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
@@ -299,14 +292,6 @@ class ClaudeSubprocess(unittest.TestCase):
         self.assertEqual(session.STATS["tool_calls"], 1)
         self.assertEqual(session.STATS["tokens_in"], 256)
         self.assertEqual(session.STATS["tokens_out"], 700)
-
-    def test_the_fake_token_never_lands_in_any_file_the_run_wrote(self):
-        stream_path = os.path.join(self.tmp, "stream.jsonl")
-        session.run_claude("claude-sonnet-5", 1e12, stream_path, work=self.tmp)
-        for dp, _, fns in os.walk(self.tmp):
-            for fn in fns:
-                with open(os.path.join(dp, fn), errors="replace") as f:
-                    self.assertNotIn("fake-oauth-token-do-not-leak", f.read(), fn)
 
 
 class Config(unittest.TestCase):
@@ -614,8 +599,8 @@ class ToolSet(unittest.TestCase):
 class ClaudeInvocation(unittest.TestCase):
     """run_claude()'s own argv and environment, against a fake Popen (no
     real process): the flags code.claude.com/docs/en/cli-reference.md shows
-    together (-p at the end, after --output-format/--verbose), the token
-    never an argument, and the quiet-egress env vars always set."""
+    together (-p at the end, after --output-format/--verbose), a placeholder
+    in place of a token, and the quiet-egress env vars always set."""
 
     def setUp(self):
         self.saved = session.subprocess.Popen
@@ -632,7 +617,17 @@ class ClaudeInvocation(unittest.TestCase):
         cmd, env = ToolSet.Popen.seen[-1]
         self.assertEqual(cmd, ["claude", "--model", "claude-sonnet-5", "--output-format", "stream-json",
                               "--verbose", "--dangerously-skip-permissions", "-p", cmd[-1]])
-        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", " ".join(cmd))  # never a command-line argument
+
+    def test_claude_code_is_given_a_placeholder_never_a_token(self):
+        # whatever the sandbox's environment holds under that name, Claude
+        # Code starts with the placeholder: the claude gate puts the real
+        # token on each request, and it is the only one that can read it
+        with mock.patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "something-left-in-the-environment"}):
+            session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        cmd, env = ToolSet.Popen.seen[-1]
+        self.assertEqual(env["CLAUDE_CODE_OAUTH_TOKEN"], session.CLAUDE_TOKEN_PLACEHOLDER)
+        self.assertEqual(session.CLAUDE_TOKEN_PLACEHOLDER, "held-by-the-claude-gate")
+        self.assertNotIn("something-left-in-the-environment", " ".join(cmd) + " ".join(env.values()))
 
     def test_the_quiet_egress_env_is_always_set(self):
         session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")

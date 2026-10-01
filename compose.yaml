@@ -1,25 +1,27 @@
 # The docker deployment of dark factory: Gitea, the runner, a model gate, an
-# otlp gate, a claude gate and an optional local model, on one internal
-# network. The runner spawns each sandbox as a sibling container on that
-# network through the mounted docker socket, so a sandbox reaches Gitea and
-# the model gate by service name and has no other egress. The gate is the one
-# model hop: sandboxes and the runner speak to it only, and it forwards to the
+# OTLP gate and an optional local model, on one internal network. The runner
+# spawns each sandbox as a sibling container on that network through the
+# mounted docker socket, so a sandbox reaches Gitea and the gates by service
+# name and has no other egress. The model gate is the one model hop:
+# sandboxes and the runner speak to it only, and it forwards to the
 # configured endpoint, bundled or external, so no sandbox holds a real
-# endpoint or token. A claude:<model-id> tier's sandbox is the one exception
-# that needs a second, real endpoint on the internet (Claude Code, not pi,
-# talks to Anthropic directly): the claude gate is that one added hop, so the
-# sandbox still holds no more than a service name for it.
+# endpoint or token. A run whose tier is claude:<model-id> has Claude Code as
+# its executor, which speaks to Anthropic's API: the claude gate (profile
+# `claude`) is that hop, on a network of its own that only such a run's
+# sandbox joins, and it holds the token, so that sandbox holds none either.
 #
 #   docker compose up -d gitea runner          # the pipeline
 #   bash runner/ops/docker-bootstrap.sh        # users, orgs, tokens (once)
 #   DARK_MODEL_UPSTREAM=http://host:11434 docker compose --profile model up -d
+#   docker compose --profile claude up -d claude-gate    # claude:<model-id> tiers
 #
 # `back` is internal: no container on it has a route off the host. Gitea and
 # the gates also join `front`, a normal compose network: Gitea needs it to
 # publish its host port and the gates need it to reach an upstream elsewhere.
 # ollama, the bundled endpoint, is on `front` only so a sandbox cannot reach it
 # directly. Sandboxes are created on `back` only, so the runner's own
-# containers never get `front`.
+# containers never get `front`. `claude` is internal as well and holds the
+# claude gate and, for the length of its run, a sandbox that runs Claude Code.
 
 services:
   gitea:
@@ -75,6 +77,11 @@ services:
       # the network docker compose names for `back`, so a spawned sandbox
       # joins the same one the runner and Gitea are on
       DARK_SANDBOX_NETWORK: ${COMPOSE_PROJECT_NAME:-dark}_back
+      # a claude:<model-id> tier: the claude gate's address, and the network
+      # docker compose names for `claude`, which a sandbox that runs Claude
+      # Code joins besides `back`. Both exist once the `claude` profile is up.
+      DARK_CLAUDE_GATE_URL: http://claude-gate:8443
+      DARK_CLAUDE_NETWORK: ${COMPOSE_PROJECT_NAME:-dark}_claude
       DARK_SANDBOX_CPUS: "2"
       DARK_SANDBOX_MEMORY: 2g
       DARK_SANDBOX_PIDS: "512"
@@ -136,28 +143,30 @@ services:
       - back
       - front
 
-  # The one real-internet hop a claude:<model-id> tier's sandbox gets, beside
-  # Gitea and the model gate: a pinned reverse proxy that listens on 8443 and
-  # forwards to DARK_CLAUDE_UPSTREAM, api.anthropic.com by default (Claude
-  # Code's own API calls, feature-flag fetches and telemetry event logging —
-  # code.claude.com/docs/en/network-config, "Network access requirements",
-  # fetched 2026-09-30). Point host.toml's claude_gate_url at
-  # http://claude-gate:8443; dark/session.py sets Claude Code's
-  # ANTHROPIC_BASE_URL to it, so the sandbox never holds api.anthropic.com
-  # itself. The same page names a second required host for this credential,
-  # platform.claude.com (OAuth exchange/refresh/revocation), that
-  # ANTHROPIC_BASE_URL does not redirect; this gate does not cover it, so a
-  # deployment enabling claude:-tiers still needs its own decision for that
-  # one host (a second gate, or a narrow direct-egress rule on `back`) before
-  # depending on token refresh mid-run; not done here.
+  # The hop to Anthropic's API for a run whose tier is claude:<model-id>, and
+  # the only holder of the Claude token. A pinned reverse proxy that listens
+  # on 8443 and forwards to DARK_CLAUDE_UPSTREAM, https://api.anthropic.com by
+  # default, replacing the Authorization header of every request with
+  # `Bearer <token>`. The token is the file claude-oauth-token (the output of
+  # `claude setup-token`) in the directory DARK_CLAUDE_TOKEN_DIR names, or in
+  # the named volume `claude-secrets` when that is unset; it is read at each
+  # request, one trailing newline dropped, and mounted here read-only and
+  # nowhere else. Claude Code in the sandbox is given this gate as its
+  # ANTHROPIC_BASE_URL and a placeholder as its token (dark/session.py), so
+  # neither the runner nor a sandbox holds the real one. The gate is on
+  # `claude`, which only a sandbox that runs Claude Code joins, so no other
+  # sandbox can spend the token. Not started unless the profile is asked for.
   claude-gate:
     image: caddy:2.11.4-alpine
+    profiles: ["claude"]
     environment:
       DARK_CLAUDE_UPSTREAM: ${DARK_CLAUDE_UPSTREAM:-https://api.anthropic.com}
     entrypoint: ["/bin/sh", "-c"]
-    command: ["exec caddy reverse-proxy --from :8443 --to \"$$DARK_CLAUDE_UPSTREAM\""]
+    command: ["exec caddy reverse-proxy --from :8443 --to \"$$DARK_CLAUDE_UPSTREAM\" --header-up \"Authorization: Bearer {file./run/dark/secrets/claude-oauth-token}\""]
+    volumes:
+      - ${DARK_CLAUDE_TOKEN_DIR:-claude-secrets}:/run/dark/secrets:ro
     networks:
-      - back
+      - claude
       - front
 
   # The bundled model endpoint, on `front` only: it can pull models, and a
@@ -174,9 +183,12 @@ services:
 networks:
   back:
     internal: true
+  claude:
+    internal: true
   front: {}
 
 volumes:
   gitea-data: {}
   runner-state: {}
+  claude-secrets: {}
   ollama-models: {}

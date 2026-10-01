@@ -103,6 +103,17 @@ class UserCommand(unittest.TestCase):
         self.assertIn("ghost", out[-1])
         self.assertEqual(self.calls, [])
 
+    def test_a_claude_tier_is_refused_in_one_line(self):
+        # Claude Code is an executor for a session; the user arm asks its
+        # model through the chat endpoint, which a claude: tier has none of
+        extra = '\n[model."claude:claude-sonnet-5"]\nprovider = "cloud"\ncost = "sub-window"\nspeed = "fast"\n'
+        with open(os.path.join(self.conf, "models.toml"), "a") as f:
+            f.write(extra)
+        rc, out = self.cli("--task", self.task_dir, "--tier", "claude:claude-sonnet-5")
+        self.assertEqual((rc, len(out)), (2, 1))
+        self.assertIn("Claude Code", out[0])
+        self.assertEqual(self.calls, [])
+
     def test_task_and_tier_are_required(self):
         with redirect_stdout(io.StringIO()), mock.patch("sys.stderr", io.StringIO()):
             with self.assertRaises(SystemExit):

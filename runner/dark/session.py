@@ -370,12 +370,19 @@ CLAUDE_PREFIX = "claude:"
 # both Datadog telemetry/error-report hosts, and ENABLE_CLAUDEAI_MCP_SERVERS
 # turns off the claude.ai MCP connector fetch through mcp-proxy.anthropic.com
 # (on by default for a claude.ai-authenticated token, which a setup-token
-# credential is). Turned off so this sandbox needs no host beyond the two
-# the same page names as required: api.anthropic.com (API calls; reached
-# through claude_base_url, dark/run.py's gate, never directly) and
-# platform.claude.com (this credential's OAuth exchange/refresh/revocation).
+# credential is). Turned off so this sandbox needs no host beyond
+# api.anthropic.com, reached through claude_base_url (the claude gate) and
+# never directly. The same page names platform.claude.com for the
+# credential's OAuth exchange, refresh and revocation; a sandbox has no
+# route to it, and a long-lived token runs without it.
 CLAUDE_QUIET_ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
                     "ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
+
+# What Claude Code is given as its token. It is not one: the claude gate
+# replaces the Authorization header of every request with the real token,
+# which only the gate can read. Claude Code needs some value to start in
+# this mode, and sent to Anthropic unchanged this one is refused (401).
+CLAUDE_TOKEN_PLACEHOLDER = "held-by-the-claude-gate"
 
 
 def claude_model_id():
@@ -531,14 +538,15 @@ def run_claude(model_id, deadline, stream_path, review=False, work=None):
     """Claude Code in print mode, stream-json out, permission prompts
     skipped (safe only because the sandbox is the boundary), in place of pi.
     Same brief, same envelope, same heartbeat and done tag: only the brain
-    changes for the arm this run is. The OAuth token is never a command-line
-    argument (visible to `ps` in the sandbox); it reaches `claude` only
-    through the process environment dark/run.py already put it in."""
+    changes for the arm this run is. No real token is in this sandbox:
+    Claude Code gets a placeholder, and its requests go to the claude gate
+    (TASK["claude_base_url"]), which puts the real one on each of them."""
     work = work or WORK
     brief = build_brief(work, review)
     # the sandbox runs as root, and Claude Code refuses
     # --dangerously-skip-permissions for root unless told it is in a sandbox
-    env = dict(os.environ, IS_SANDBOX="1", **CLAUDE_QUIET_ENV)
+    env = dict(os.environ, IS_SANDBOX="1", CLAUDE_CODE_OAUTH_TOKEN=CLAUDE_TOKEN_PLACEHOLDER,
+               **CLAUDE_QUIET_ENV)
     if TASK.get("claude_base_url"):
         env["ANTHROPIC_BASE_URL"] = TASK["claude_base_url"]
     cmd = ["claude", "--model", model_id, "--output-format", "stream-json", "--verbose",
