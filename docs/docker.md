@@ -151,11 +151,12 @@ docker ps -a --filter label=dark.vmid
 
 ## The model gate
 
-A sandbox on `back` reaches Gitea and three gates, and nothing else. A gate
+A sandbox on `back` reaches Gitea and two gates, and nothing else. A gate
 here is a pinned reverse proxy that forwards to one configured upstream: the
-model gate to the model endpoint, the claude gate (`claude-gate`) to
-Anthropic's API for a run whose tier is written `claude:<model-id>`, and the
-OTLP gate (`otlp-gate`, see [Traces](#traces)) to a trace collector.
+model gate to the model endpoint, and the OTLP gate (`otlp-gate`, see
+[Traces](#traces)) to a trace collector. A third gate, the claude gate, is on
+a network of its own that only a sandbox running Claude Code joins (see
+[Claude Code as the executor](#claude-code-as-the-executor)).
 
 The model gate listens on `http://model-gate:11434`
 and forwards to `DARK_MODEL_UPSTREAM`. The runner and every sandbox use
@@ -228,6 +229,69 @@ docker compose -p dark --profile model up -d
 Nothing in the checkout changes; `git status --short` stays clean. The
 bundled `ollama` is not started unless the `model` profile is asked for, and
 it is never used when `DARK_MODEL_UPSTREAM` names somewhere else.
+
+## Claude Code as the executor
+
+A tier whose id is written `claude:<model-id>` runs [Claude Code](https://code.claude.com/docs), Anthropic's coding-agent CLI, in the sandbox in place of pi. `dark long` takes such a tier for its session (`--tier`), for its judge (`--judge-tier`) or for both. It runs only when you name it, on the docker backend only; the user arm refuses it, because it asks its model through the chat endpoint.
+
+Claude Code speaks to Anthropic's API and needs a token of your Claude account. Neither is handed to a sandbox:
+
+- **The claude gate** (`claude-gate` in `compose.yaml`, behind the profile `claude`) is a third reverse proxy. It forwards to `https://api.anthropic.com` (`DARK_CLAUDE_UPSTREAM`) and replaces the `Authorization` header of every request with `Bearer <token>`.
+- **The token** is a file named `claude-oauth-token`, mounted read-only into the claude gate and into nothing else. The runner never reads it, and Claude Code in the sandbox is started with a placeholder in its place, which Anthropic refuses when it arrives unreplaced. So the token cannot end up in a work repository, a record or the ledger: it is never where the model is.
+- **The network.** The claude gate is on `claude`, a second internal network. A sandbox whose run has a `claude:` tier joins it besides `back`, before it starts; no other sandbox does, so no other run can spend the token.
+
+Set it up once:
+
+```
+claude setup-token                               # on a machine with a browser; prints a token valid for one year
+sudo install -d -m 0700 /etc/dark/secrets
+sudo sh -c 'umask 077; cat > /etc/dark/secrets/claude-oauth-token'    # paste the token, Enter, Ctrl-D
+DARK_CLAUDE_TOKEN_DIR=/etc/dark/secrets docker compose -p dark --profile claude up -d claude-gate
+```
+
+With `DARK_CLAUDE_TOKEN_DIR` unset the gate reads the file from the named volume `claude-secrets` instead (`docker run --rm -i -v dark_claude-secrets:/s busybox sh -c 'umask 077; cat > /s/claude-oauth-token'` writes it there, the volume carrying the project name as its prefix). The file is read at every request, so a new token needs no restart; one trailing newline is dropped.
+
+Then give the tier an entry in `models.toml`, with a provider and a window of its own so that its calls are counted apart from your other models. dark itself never calls this provider: its `url` is only a label, and preflight leaves a `claude:` id out of the check that every id is served.
+
+```toml
+[provider.claude]
+url = "http://claude-gate:8443"
+catalog = "models"
+window = "claude"
+think_api = "none"
+
+[model."claude:claude-sonnet-5"]     # what follows "claude:" is passed to `claude --model`
+provider = "claude"
+cost = "sub-window"
+speed = "fast"
+```
+
+and in `budgets.toml` the window, and the tier's rank in the cost order:
+
+```toml
+[window.claude]
+daily_calls = 2000
+daily_tokens = 200000000
+
+[admission]
+cost_order = ["local/low", "local/high", "sub-window/fast"]
+```
+
+`compose.yaml` already gives the runner the gate's address (`DARK_CLAUDE_GATE_URL`, `claude_gate_url` in `host.toml`) and the network's name (`DARK_CLAUDE_NETWORK`, `claude_network`). A run on such a tier is refused before anything is spawned when the address is empty or the backend is not docker.
+
+```
+docker compose -p dark exec runner dark long --task <task-dir> --tier claude:claude-sonnet-5 --judge-tier claude:claude-sonnet-5
+```
+
+The run is recorded like any other. Its `run.end` row counts one call per request Claude Code made, the tool calls it ran, and the tokens Claude Code reports at the end; the input count includes what was read from and written to the prompt cache, so it is large. `stream.jsonl` in the records repository is Claude Code's own stream.
+
+What to know before relying on it:
+
+- The gate does not ask who is calling. Whatever is on the `claude` network can spend the token, which is why only the sandboxes that need it are put there, and why the gate publishes no port.
+- The calls count against your Claude account's own limits. The window above only counts them; Anthropic's refusal is the real bound, and it reaches the run as its failure detail.
+- A sandbox has no route to `platform.claude.com`, where Claude Code exchanges and refreshes a login. The token from `claude setup-token` is valid for one year and needs neither; when it expires or is revoked, runs end with Anthropic's 401 until the file holds a new one.
+- Claude Code runs with its permission prompts skipped, which it allows as root only when `IS_SANDBOX=1` is set. The sandbox is the boundary, as it is for pi.
+- The version is pinned by sha256 in `runner/sandbox/Dockerfile`; change it there and rebuild the sandbox image.
 
 ## The user arm's target network
 

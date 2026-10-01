@@ -28,8 +28,11 @@ the throwaways stay grouped, and its `sandbox_allow_in` (default `""`) is a
 comma-separated list of `"<ipv4>:<tcp port>"` clients the clone's default-drop firewall
 lets in besides the service host. On the container backend a
 sandbox reaches only Gitea and the gates, the reverse proxies in front of the model
-endpoint, Anthropic's API and the trace collector, and `DARK_CONF_DIR` keeps the three
-toml files, with your own endpoints and model ids, outside the checkout.
+endpoint and the trace collector, and `DARK_CONF_DIR` keeps the three toml files, with
+your own endpoints and model ids, outside the checkout. A tier written
+`claude:<model-id>` runs Claude Code as the executor through one more gate, which
+holds the token so that no sandbox does;
+[docs/docker.md](docs/docker.md#claude-code-as-the-executor) has the setup.
 
 The bench tools need Python 3, `bash`, coreutils and `git`. The task check reads the task
 set [dark-tasks](https://github.com/majgull/dark-tasks) from wherever `DARK_TASKS` (or a

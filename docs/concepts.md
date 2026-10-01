@@ -127,6 +127,17 @@ outcome. It runs with `python3 -m dark long --task <dir> --tier <id>`.
 
 **pi**: the coding-agent CLI the session arm drives inside the machine.
 
+**Claude Code**: Anthropic's coding-agent CLI. A tier whose id is written
+`claude:<model-id>` makes the session arm drive it in place of pi, for the
+session of a long-arm run, for its reviewer session, or for both.
+
+**model gate, OTLP gate, claude gate**: on the docker deployment, the three
+reverse proxies a sandbox can reach, each forwarding to one configured
+upstream: the model endpoint, the trace collector, and Anthropic's API. The
+claude gate is reachable only by a sandbox that runs Claude Code, and it
+holds the Claude token and puts it on each request, so no sandbox has it.
+None of them is the **gate** above.
+
 **thinking level**: dark's own budget of visible thinking characters per call
 (`none`, `low`, `medium`, `high`), cut live from the stream and the same for
 every tier.
