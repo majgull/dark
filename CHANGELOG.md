@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - The constitution (rules 7 to 9), `docs/docker.md` and the README say what a sandbox on the container backend reaches: Gitea, the model gate and the OTLP gate, which has been on the internal network since 0.6.0, and for a sandbox that runs Claude Code the claude gate. No sandbox holds the Claude token.
+- Every service in `compose.yaml` now sets `restart: unless-stopped`, so a deployment comes back on its own after a reboot or a docker daemon restart, unless it was stopped by hand.
 
 ## [0.6.4] - 2026-09-29
 

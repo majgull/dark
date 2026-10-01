@@ -22,10 +22,14 @@
 # directly. Sandboxes are created on `back` only, so the runner's own
 # containers never get `front`. `claude` is internal as well and holds the
 # claude gate and, for the length of its run, a sandbox that runs Claude Code.
+#
+# Every service restarts on its own after a reboot or a docker daemon
+# restart, unless it was stopped by hand.
 
 services:
   gitea:
     image: docker.gitea.com/gitea:1.26.2
+    restart: unless-stopped
     environment:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__server__HTTP_PORT: "3000"
@@ -51,6 +55,7 @@ services:
     build:
       context: .
       dockerfile: runner/Dockerfile
+    restart: unless-stopped
     working_dir: /root/dark-runner/runner
     command: ["sleep", "infinity"]
     environment:
@@ -118,6 +123,7 @@ services:
   # endpoint elsewhere.
   model-gate:
     image: caddy:2.11.4-alpine
+    restart: unless-stopped
     environment:
       DARK_MODEL_UPSTREAM: ${DARK_MODEL_UPSTREAM:-http://ollama:11434}
     entrypoint: ["/bin/sh", "-c"]
@@ -135,6 +141,7 @@ services:
   # collector elsewhere.
   otlp-gate:
     image: caddy:2.11.4-alpine
+    restart: unless-stopped
     environment:
       DARK_OTLP_UPSTREAM: ${DARK_OTLP_UPSTREAM:-http://127.0.0.1:9}
     entrypoint: ["/bin/sh", "-c"]
@@ -158,6 +165,7 @@ services:
   # sandbox can spend the token. Not started unless the profile is asked for.
   claude-gate:
     image: caddy:2.11.4-alpine
+    restart: unless-stopped
     profiles: ["claude"]
     environment:
       DARK_CLAUDE_UPSTREAM: ${DARK_CLAUDE_UPSTREAM:-https://api.anthropic.com}
@@ -174,6 +182,7 @@ services:
   # is asked for.
   ollama:
     image: ollama/ollama:0.34.3
+    restart: unless-stopped
     profiles: ["model"]
     volumes:
       - ollama-models:/root/.ollama
