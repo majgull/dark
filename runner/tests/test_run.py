@@ -678,6 +678,20 @@ class ClaudeTier(Base):
         r.net_ip = lambda vmid: "10.0.0.1"
         return r
 
+    def test_the_user_arm_refuses_a_claude_tier_before_anything_is_spawned(self):
+        from dark import tasks
+        body = ('url = "https://app.example.test/"\nsteps = ["Open the page"]\n'
+                'spec = "Check that a visitor can reach the page."\n')
+        task = tasks.load_task(make_user_task(os.path.join(self.tmp, "bench"), tid="shop", body=body))
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        launched = []
+        r.launch = lambda *a, **kw: launched.append(a)
+        with self.assertRaises(config.ConfigError) as cm:
+            r.user(task, "claude:claude-sonnet-5")
+        self.assertIn("user arm", str(cm.exception))
+        self.assertEqual(launched, [])
+
     def test_no_gate_address_refuses_before_anything_is_spawned(self):
         self.host.claude_gate_url = ""
         r = self.executor_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})

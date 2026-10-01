@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - A run records the catalog's own tier id in every ledger row: a short name like `llama3.2` is resolved to `llama3.2:latest` once, in `_Run`, however the run started, so `run.start` and `run.end` never disagree and exact-match lookups find it.
+- The user arm refuses a `claude:` tier before it spawns a sandbox, in one line, instead of starting an arm that does not run Claude Code.
 
 ## [0.6.4] - 2026-09-29
 

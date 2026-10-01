@@ -809,6 +809,8 @@ class Runner:
         of the shift is the run's issue tracker and its push target, as in
         review mode. `env` carries a frozen envelope when one was given;
         else it is computed for the class like any other."""
+        if config.is_claude_tier(tier):
+            raise config.ConfigError("user: claude tiers run Claude Code, which the user arm does not use")
         t_queued = self.clock()
         shift = shift or self.shift
         run_id = f"{task.id}-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
