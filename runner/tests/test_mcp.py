@@ -1,7 +1,8 @@
 """python3 -m dark mcp: the Model Context Protocol server over stdio
 (dark/mcp.py). Every test starts the server as a real subprocess and talks to
 it over pipes. Most run it with a fake `dark` module: a package named dark, in a
-directory under /tmp/fx put first on the children's PYTHONPATH, so the
+directory under the temporary directory put first on the children's
+PYTHONPATH, so the
 `python3 -m dark <verb>` a tool call starts is the fake, which records its argv
 and stdin and prints what the test tells it to. The server itself is started by
 a one-line `python3 -c` that puts runner/ first on its own sys.path, so the fake
@@ -19,7 +20,7 @@ import threading
 import tomllib
 import unittest
 
-FX = "/tmp/fx"
+FX = os.path.join(tempfile.gettempdir(), "fx")
 RUNNER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(RUNNER)
 
@@ -101,7 +102,8 @@ class Session:
 
 
 class ServerCase(unittest.TestCase):
-    """A directory under /tmp/fx holding the fake dark package and its call log."""
+    """A directory under the temporary directory holding the fake dark package
+    and its call log."""
 
     def setUp(self):
         os.makedirs(FX, exist_ok=True)
@@ -362,7 +364,8 @@ class ToolCalls(ServerCase):
         self.assertEqual(call["argv"], ["user", "--task=/w/u", "--tier=mid"])
 
     def ledger_conf(self):
-        """A DARK_CONF whose ledger holds five rows of two kinds, written under /tmp/fx."""
+        """A DARK_CONF whose ledger holds five rows of two kinds, written under
+        the temporary directory."""
         conf = os.path.join(self.dir, "conf")
         state = os.path.join(self.dir, "state")
         os.makedirs(conf)

@@ -568,7 +568,8 @@ class ToolSet(unittest.TestCase):
     def argv(self, tools=None):
         if tools:
             session.TASK["tools"] = tools
-        session.run_session("node", "cli", "/tmp/h", 1e12, None, work="/tmp")
+        session.run_session("node", "cli", os.path.join(tempfile.gettempdir(), "h"), 1e12,
+                            None, work=tempfile.gettempdir())
         return ToolSet.Popen.seen[-1]
 
     REDUCED = ["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"]
@@ -613,7 +614,7 @@ class ClaudeInvocation(unittest.TestCase):
         session.subprocess.Popen = self.saved
 
     def test_the_argv_matches_the_documented_flag_shape(self):
-        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        session.run_claude("claude-sonnet-5", 1e12, None, work=tempfile.gettempdir())
         cmd, env = ToolSet.Popen.seen[-1]
         self.assertEqual(cmd, ["claude", "--model", "claude-sonnet-5", "--output-format", "stream-json",
                               "--verbose", "--dangerously-skip-permissions", "-p", cmd[-1]])
@@ -623,14 +624,14 @@ class ClaudeInvocation(unittest.TestCase):
         # Code starts with the placeholder: the claude gate puts the real
         # token on each request, and it is the only one that can read it
         with mock.patch.dict(os.environ, {"CLAUDE_CODE_OAUTH_TOKEN": "something-left-in-the-environment"}):
-            session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+            session.run_claude("claude-sonnet-5", 1e12, None, work=tempfile.gettempdir())
         cmd, env = ToolSet.Popen.seen[-1]
         self.assertEqual(env["CLAUDE_CODE_OAUTH_TOKEN"], session.CLAUDE_TOKEN_PLACEHOLDER)
         self.assertEqual(session.CLAUDE_TOKEN_PLACEHOLDER, "held-by-the-claude-gate")
         self.assertNotIn("something-left-in-the-environment", " ".join(cmd) + " ".join(env.values()))
 
     def test_the_quiet_egress_env_is_always_set(self):
-        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        session.run_claude("claude-sonnet-5", 1e12, None, work=tempfile.gettempdir())
         _, env = ToolSet.Popen.seen[-1]
         self.assertEqual(env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
         self.assertEqual(env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
@@ -638,18 +639,18 @@ class ClaudeInvocation(unittest.TestCase):
     def test_root_in_the_sandbox_may_skip_permission_prompts(self):
         # a real run as root without it ended rc 1 with no model call:
         # Claude Code refuses the skip flag for root outside a sandbox
-        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        session.run_claude("claude-sonnet-5", 1e12, None, work=tempfile.gettempdir())
         _, env = ToolSet.Popen.seen[-1]
         self.assertEqual(env["IS_SANDBOX"], "1")
 
     def test_a_claude_base_url_becomes_anthropic_base_url(self):
         session.TASK["claude_base_url"] = "http://claude-gate:8443"
-        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        session.run_claude("claude-sonnet-5", 1e12, None, work=tempfile.gettempdir())
         _, env = ToolSet.Popen.seen[-1]
         self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://claude-gate:8443")
 
     def test_no_claude_base_url_leaves_anthropic_base_url_unset(self):
-        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        session.run_claude("claude-sonnet-5", 1e12, None, work=tempfile.gettempdir())
         _, env = ToolSet.Popen.seen[-1]
         self.assertNotIn("ANTHROPIC_BASE_URL", env)
 

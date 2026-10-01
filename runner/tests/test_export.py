@@ -1,7 +1,8 @@
 """Exporter tests: one dark task directory in, the Terminal-Bench layout out.
 
 PyYAML is not a dependency, so task.yaml is checked by lines rather than by
-parsing it. The fixtures live under /tmp/fx, and every export writes there.
+parsing it. The fixtures live under the temporary directory, and every export
+writes there.
 """
 import os
 import shutil
@@ -13,7 +14,7 @@ import unittest
 from dark import export as export_mod
 
 RUNNER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRATCH = "/tmp/fx"
+SCRATCH = os.path.join(tempfile.gettempdir(), "fx")
 TASK_TOML = """id = "{tid}"
 title = "{tid}: a fixture task"
 class = "additive"

@@ -184,7 +184,7 @@ class DryRun(unittest.TestCase):
 
 
 def make_manifest(**kw):
-    base = dict(path="/tmp/m.toml", sha256="abc123", name="exp1", question="q",
+    base = dict(path=os.path.join(HERE, "m.toml"), sha256="abc123", name="exp1", question="q",
                 tasks=("t1", "t2"), judge="acceptance-v4", envelope="frozen/e.toml",
                 rounds=2, order="alternate",
                 arms=(B.Arm(name="pipeline", executor="agent", tier="tier-a", think="low"),

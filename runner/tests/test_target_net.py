@@ -1,6 +1,7 @@
 """target-net.sh against fake docker, iptables and sudo executables.
 
-The script is run as a subprocess with PATH pointing at fakes under /tmp/fx/.
+The script is run as a subprocess with PATH pointing at fakes in the
+temporary directory.
 Each fake appends its argv, tab separated, to a log and answers from a state
 directory of files, so a test reads back exactly what the script asked the
 CLIs to do and what the chain held afterwards. The real docker and iptables
@@ -15,7 +16,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "ops", "target-net.sh")
-FX = "/tmp/fx"
+FX = os.path.join(tempfile.gettempdir(), "fx")
 NET = "dark_target"
 SUBNET = "172.30.41.0/24"
 HOSTPORT = "192.168.1.203:631"

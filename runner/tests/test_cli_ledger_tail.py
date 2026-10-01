@@ -4,7 +4,8 @@ The command reads host.ledger_path through config.load_host, prints the last
 --lines rows (default 20), oldest first, one JSON object per line, and --kind
 keeps rows whose `kind` field matches. A missing or empty ledger prints
 nothing and exits 0, and a line that is not a JSON object is skipped with one
-note on standard error. The fixture ledger lives under /tmp/fx."""
+note on standard error. The fixture ledger lives under the temporary
+directory."""
 
 import io
 import json
@@ -17,7 +18,7 @@ from unittest import mock
 
 from dark import __main__ as M
 
-FX = "/tmp/fx"
+FX = os.path.join(tempfile.gettempdir(), "fx")
 KINDS = ("run.start", "run.end")
 
 

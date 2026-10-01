@@ -2,7 +2,8 @@
 chained task and one with `start/` each export the language template, the
 chain base and the git commit step (thread 1051 item b).
 
-The fixtures live under /tmp/fx, and every export writes there.
+The fixtures live under the temporary directory, and every export writes
+there.
 """
 import os
 import shutil
@@ -11,7 +12,7 @@ import unittest
 
 from dark import export as export_mod
 
-SCRATCH = "/tmp/fx"
+SCRATCH = os.path.join(tempfile.gettempdir(), "fx")
 TASK_TOML = """id = "{tid}"
 title = "{tid}: a fixture task"
 class = "additive"
