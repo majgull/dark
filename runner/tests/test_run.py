@@ -601,6 +601,28 @@ class ReviewMode(Base):
         self.assertIn("report.md missing", res.detail)
 
 
+SHORT_MODEL_EXTRA = """
+[model."shorty:latest"]
+provider = "gate"
+cost = "local"
+speed = "fast"
+watts = "low"
+"""
+
+
+class ShortTierName(ReviewMode):
+    """A short tier name reaches the ledger as the catalog's own id, however
+    the run started: _Run resolves it once, the one place every run passes."""
+
+    def test_a_review_records_the_catalog_id_for_a_short_name(self):
+        self.cat, self.bud = config.load(write_conf(self.tmp, MODELS + SHORT_MODEL_EXTRA, FAST_BUDGETS))
+        r = self.review_runner({"outcome": "ok", "records": "dark-records/s1/review-x-1"})
+        res = r.review("read this", {}, "shorty", "review-x", shift="s1")
+        start = self.led.last("run.start")
+        end = self.led.last("run.end")
+        self.assertEqual((start["tier"], end["tier"], res.tier), ("shorty:latest", "shorty:latest", "shorty:latest"))
+
+
 CLAUDE_MODEL_EXTRA = """
 [model."claude:claude-sonnet-5"]
 provider = "cloud"

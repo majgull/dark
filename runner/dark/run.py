@@ -109,13 +109,15 @@ class _Run:
     def __init__(self, runner, task, tier, arm, run_id, branch, t_queued):
         self.r = runner
         self.task = task
-        self.tier = tier
+        # one spelling per tier: resolve here, the one place every run
+        # passes, so every ledger row carries the catalog's own id
+        self.tier = runner.catalog.resolve(tier)
         self.arm = arm
-        self.model = runner.catalog.model(tier)
+        self.model = runner.catalog.model(self.tier)
         self.full = f"{runner.host.work_org}/{task.repo_name}"
         self.t_queued = t_queued
         self.state = "queued"
-        self.res = RunResult(run=run_id, task=task.id, cls=task.cls, tier=tier, outcome="abort", branch=branch)
+        self.res = RunResult(run=run_id, task=task.id, cls=task.cls, tier=self.tier, outcome="abort", branch=branch)
         self.ended = False
         self.launched = {}  # name -> vmid, VMs not yet reaped
         self.reaps = {}     # name -> True iff the reap confirmed the VM gone
@@ -353,7 +355,7 @@ class Runner:
         self.hold(env.seconds + task.stage_timeout + gate.MARGIN_SECONDS)
         st.meter = self.meter().start()  # energy over the whole window, executor to verdict
         try:
-            return self._run(st, task, tier, env, slot)
+            return self._run(st, task, st.tier, env, slot)
         except L.LedgerError:
             raise  # a record the ledger refused: never a result without one
         except Exception as e:  # noqa: BLE001 — a runner defect must still end the run
@@ -553,6 +555,7 @@ class Runner:
         t_queued = self.clock()
         run_id = f"{task.id}-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
         st = _Run(self, task, tier, arm, run_id, branch, t_queued)
+        tier = st.tier  # the catalog id, as _Run resolved it
         st.base = base
         st.capped = capped or None  # the session was stopped at the default executor's wall cap, it did not finish
         # a re-judgement of a branch an earlier run delivered: the acceptance is
@@ -758,7 +761,7 @@ class Runner:
                 env = budget.envelope(self.budgets, self.ledger, task.cls, tier, think=think, legacy=legacy)
             self.hold(env.seconds + gate.MARGIN_SECONDS)
             st.meter = self.meter().start()  # energy over the whole window, executor to verdict
-            return self._run(st, task, tier, env, slot)
+            return self._run(st, task, st.tier, env, slot)
         except L.LedgerError:
             raise  # never a result without its record (as in run())
         except Exception as e:  # noqa: BLE001

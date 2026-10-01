@@ -326,7 +326,8 @@ class Wiring(unittest.TestCase):
     def end(self, otlp_endpoint, records="dark-records/s1/hello-run"):
         model = SimpleNamespace(paid=False, watts="low", local=True)
         runner = SimpleNamespace(
-            catalog=SimpleNamespace(model=lambda tier: model, provider_of=lambda tier: SimpleNamespace(think_api="none")),
+            catalog=SimpleNamespace(resolve=lambda tier: tier, model=lambda tier: model,
+                                    provider_of=lambda tier: SimpleNamespace(think_api="none")),
             host=config.Host(otlp_endpoint=otlp_endpoint), ledger=self.ledger, log=self.logged.append, shift="s1",
             clock=time.time, gitea=SimpleNamespace(url=self.collector.url, token="tok"), tests_version=lambda: "abc")
         task = SimpleNamespace(id="hello", cls="additive", repo_name="t-hello", after=None)
