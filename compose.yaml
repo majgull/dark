@@ -32,6 +32,11 @@ services:
       GITEA__server__SSH_DISABLED: "true"
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__service__DISABLE_REGISTRATION: "true"
+      # These matter only once an OpenID Connect sign-in source is added to
+      # Gitea; the defaults are Gitea's own.
+      GITEA__oauth2_client__ENABLE_AUTO_REGISTRATION: "${DARK_GITEA_OAUTH_AUTO_REGISTRATION:-false}"
+      GITEA__oauth2_client__ACCOUNT_LINKING: "${DARK_GITEA_OAUTH_ACCOUNT_LINKING:-login}"
+      GITEA__oauth2_client__USERNAME: "${DARK_GITEA_OAUTH_USERNAME:-nickname}"
     volumes:
       - gitea-data:/data
     ports:
