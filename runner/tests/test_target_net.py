@@ -19,7 +19,7 @@ SCRIPT = os.path.join(ROOT, "ops", "target-net.sh")
 FX = os.path.join(tempfile.gettempdir(), "fx")
 NET = "dark_target"
 SUBNET = "172.30.41.0/24"
-HOSTPORT = "192.168.1.203:631"
+HOSTPORT = "192.0.2.203:631"
 TEMPLATE = "{{range .IPAM.Config}}{{.Subnet}}{{end}}"
 
 # Every fake logs one call per line: argv[0], then a tab and each later argv.
@@ -193,11 +193,11 @@ class TargetNet(unittest.TestCase):
         self.assert_iptables([
             self.ipt("-S", "DOCKER-USER"),
             self.ipt("-I", "DOCKER-USER", "1", "-s", SUBNET, "-j", "DROP"),
-            self.ipt("-I", "DOCKER-USER", "1", "-s", SUBNET, "-d", "192.168.1.203/32",
+            self.ipt("-I", "DOCKER-USER", "1", "-s", SUBNET, "-d", "192.0.2.203/32",
                      "-p", "tcp", "--dport", "631", "-j", "ACCEPT"),
         ])
         self.assertEqual(self.read_chain(), [
-            "-A DOCKER-USER -s %s -d 192.168.1.203/32 -p tcp --dport 631 -j ACCEPT" % SUBNET,
+            "-A DOCKER-USER -s %s -d 192.0.2.203/32 -p tcp --dport 631 -j ACCEPT" % SUBNET,
             "-A DOCKER-USER -s %s -j DROP" % SUBNET,
             "-A DOCKER-USER -j RETURN",
         ])
@@ -221,17 +221,17 @@ class TargetNet(unittest.TestCase):
                          [["network", "inspect", "-f", TEMPLATE, NET]])
         self.assert_iptables([
             self.ipt("-S", "DOCKER-USER"),
-            self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-d", "192.168.1.203/32",
+            self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-d", "192.0.2.203/32",
                      "-p", "tcp", "--dport", "631", "-j", "ACCEPT"),
             self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-d", "10.0.0.5/32",
                      "-p", "tcp", "--dport", "8080", "-j", "ACCEPT"),
             self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-j", "DROP"),
             self.ipt("-I", "DOCKER-USER", "1", "-s", SUBNET, "-j", "DROP"),
-            self.ipt("-I", "DOCKER-USER", "1", "-s", SUBNET, "-d", "192.168.1.203/32",
+            self.ipt("-I", "DOCKER-USER", "1", "-s", SUBNET, "-d", "192.0.2.203/32",
                      "-p", "tcp", "--dport", "631", "-j", "ACCEPT"),
         ])
         self.assertEqual(self.read_chain(), [
-            "-A DOCKER-USER -s %s -d 192.168.1.203/32 -p tcp --dport 631 -j ACCEPT" % SUBNET,
+            "-A DOCKER-USER -s %s -d 192.0.2.203/32 -p tcp --dport 631 -j ACCEPT" % SUBNET,
             "-A DOCKER-USER -s %s -j DROP" % SUBNET,
             "-A DOCKER-USER -j RETURN",
         ])
@@ -243,7 +243,7 @@ class TargetNet(unittest.TestCase):
         ])
         self.run_ok("apply", NET, SUBNET, HOSTPORT)
         self.assertEqual(self.read_chain(), [
-            "-A DOCKER-USER -s %s -d 192.168.1.203/32 -p tcp --dport 631 -j ACCEPT" % SUBNET,
+            "-A DOCKER-USER -s %s -d 192.0.2.203/32 -p tcp --dport 631 -j ACCEPT" % SUBNET,
             "-A DOCKER-USER -s %s -j DROP" % SUBNET,
             "-A DOCKER-USER -s 10.9.9.0/24 -j DROP",
             "-A DOCKER-USER -j RETURN",
@@ -252,7 +252,7 @@ class TargetNet(unittest.TestCase):
     def test_apply_reads_through_the_module_iptables_adds(self):
         # what a real `iptables -S` prints for the rule this script inserts
         self.write_chain([
-            "-A DOCKER-USER -s %s -d 192.168.1.203/32 -p tcp -m tcp --dport 631 -j ACCEPT" % SUBNET,
+            "-A DOCKER-USER -s %s -d 192.0.2.203/32 -p tcp -m tcp --dport 631 -j ACCEPT" % SUBNET,
             "-A DOCKER-USER -s %s -j DROP" % SUBNET,
             "-A DOCKER-USER -j RETURN",
         ])
@@ -271,10 +271,10 @@ class TargetNet(unittest.TestCase):
         bad = [
             ("apply",),
             ("apply", NET),
-            ("apply", NET, SUBNET, "192.168.1.203:0"),
-            ("apply", NET, SUBNET, "192.168.1.203:65536"),
-            ("apply", NET, SUBNET, "192.168.1.999:631"),
-            ("apply", NET, SUBNET, "192.168.1.203"),
+            ("apply", NET, SUBNET, "192.0.2.203:0"),
+            ("apply", NET, SUBNET, "192.0.2.203:65536"),
+            ("apply", NET, SUBNET, "192.0.2.999:631"),
+            ("apply", NET, SUBNET, "192.0.2.203"),
             ("apply", NET, SUBNET, "1.2.3.4:80", "1.2.3.4:80"),
             ("apply", NET, "172.30.41.0/33", HOSTPORT),
             ("apply", NET, "172.30.41.0", HOSTPORT),
@@ -301,7 +301,7 @@ class TargetNet(unittest.TestCase):
         ])
         self.assert_iptables([
             self.ipt("-S", "DOCKER-USER"),
-            self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-d", "192.168.1.203/32",
+            self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-d", "192.0.2.203/32",
                      "-p", "tcp", "--dport", "631", "-j", "ACCEPT"),
             self.ipt("-D", "DOCKER-USER", "-s", SUBNET, "-j", "DROP"),
         ])
@@ -322,7 +322,7 @@ class TargetNet(unittest.TestCase):
         self.clear()
         r = self.run_ok("show", NET, SUBNET)
         self.assertIn(SUBNET, r.stdout)
-        self.assertIn("192.168.1.203", r.stdout)
+        self.assertIn("192.0.2.203", r.stdout)
         self.assertEqual(self.calls(self.docker_log), [["network", "inspect", NET]])
         self.assert_iptables([self.ipt("-S", "DOCKER-USER")])
 

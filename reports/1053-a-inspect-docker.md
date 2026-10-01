@@ -33,7 +33,7 @@ Every page returned 200 as HTML (140 to 260 KB of markup each), so I read the `.
 
 ## Export
 
-`PYTHONPATH=runner python3 -m dark export-harbor <dir> /tmp/fx/tb/<name>` over the 31 directories of `/home/blt/main/projects/dark-tasks/tasks/` (readable): 15 exported, 16 refused with `export-harbor: <dir>: missing start`. Exported: csvline-python, duration-python, errwrap-go, intervals-go, median-go, obs-04-tzfix, obs-all, rename-helpers-python, rename-package-go, roman-python, rpn-go, slugify-python, snake-config-go, split-module-python, typehints-python. Refused: csvstat-python, hello-go, hello-python, jsonflat-python, lru-cache-go, obs-01-parse, obs-02-count, obs-03-package, obs-05-report, obs-06-typehints, ratelimit-go, semver-go, smoke-chain-a, smoke-chain-b, vmreap-plan, wcl-python. The refusal contradicts the task format: `bench/README.md` and `runner/dark/tasks.py` both say `start/` is optional, while `runner/dark/export.py` lists it in `REQUIRED`. Not changed (another session edits `runner/dark/`); the acceptance below is over the 15 exported tasks.
+`PYTHONPATH=runner python3 -m dark export-harbor <dir> /tmp/fx/tb/<name>` over the 31 directories of `~/dark-tasks/tasks/` (readable): 15 exported, 16 refused with `export-harbor: <dir>: missing start`. Exported: csvline-python, duration-python, errwrap-go, intervals-go, median-go, obs-04-tzfix, obs-all, rename-helpers-python, rename-package-go, roman-python, rpn-go, slugify-python, snake-config-go, split-module-python, typehints-python. Refused: csvstat-python, hello-go, hello-python, jsonflat-python, lru-cache-go, obs-01-parse, obs-02-count, obs-03-package, obs-05-report, obs-06-typehints, ratelimit-go, semver-go, smoke-chain-a, smoke-chain-b, vmreap-plan, wcl-python. The refusal contradicts the task format: `bench/README.md` and `runner/dark/tasks.py` both say `start/` is optional, while `runner/dark/export.py` lists it in `REQUIRED`. Not changed (another session edits `runner/dark/`); the acceptance below is over the 15 exported tasks.
 
 ## What the export lacks
 
@@ -53,7 +53,7 @@ The first oracle run used the exported directories as they are, with `Sample(san
 Command (from the checkout root, `DARK_TASKS` is the dark-tasks checkout):
 
 ```
-DARK_TASKS=/home/blt/main/projects/dark-tasks /tmp/fx/venv-inspect/bin/inspect eval bench/inspect/dark_tasks.py -T tasks_dir=/tmp/fx/tb --solver oracle --model mockllm/model --log-dir /tmp/fx/inspect-logs
+DARK_TASKS=~/dark-tasks /tmp/fx/venv-inspect/bin/inspect eval bench/inspect/dark_tasks.py -T tasks_dir=/tmp/fx/tb --solver oracle --model mockllm/model --log-dir /tmp/fx/inspect-logs
 ```
 
 Summary line: `accuracy 1.000`, `stderr 0.000`, total time 0:04:45. Per-sample table from `inspect log dump 2026-09-25T18-31-17-00-00_dark-tasks_PgsHpGsFwtKMU63aKPTiNf.eval` (status `success`, model `mockllm/model`, solver `oracle`; `answer` is the exit code of `run-tests.sh`, `oracle exit` is the exit code of `solution.sh` kept in the sample store):
@@ -85,7 +85,7 @@ Negative control: `--solver generate --model mockllm/model` (no tools, the tree 
 Solver `react_bash` is `react(prompt=..., tools=[bash(timeout=180)])`, `react()` and not `basic_agent()`; it is the task's default solver. Command:
 
 ```
-DARK_TASKS=/home/blt/main/projects/dark-tasks OPENAI_BASE_URL=http://192.168.1.206:11434/v1 OPENAI_API_KEY=unused /tmp/fx/venv-inspect/bin/inspect eval bench/inspect/dark_tasks.py -T tasks_dir=/tmp/fx/tb --model openai/dsf:latest --limit 2 --message-limit 30 --log-dir /tmp/fx/inspect-logs
+DARK_TASKS=~/dark-tasks OPENAI_BASE_URL=http://192.0.2.206:11434/v1 OPENAI_API_KEY=unused /tmp/fx/venv-inspect/bin/inspect eval bench/inspect/dark_tasks.py -T tasks_dir=/tmp/fx/tb --model openai/dsf:latest --limit 2 --message-limit 30 --log-dir /tmp/fx/inspect-logs
 ```
 
 The endpoint answered (its model list holds `dsf:latest`; a direct chat request returned a completion). The eval ran to completion, status `success`, total time 0:01:34, `openai/dsf:latest 21,942 tokens [I: 17,787, O: 4,155, R: 0]`, `accuracy 0.500`, `stderr 0.500`. Log `2026-09-25T18-50-15-00-00_dark-tasks_JE6jgufCxTqj8RonXqN23g.eval`. Scores from `inspect log dump`:

@@ -16,6 +16,8 @@ echo "== release pressure"
 python3 -m dark.pressure ../CHANGELOG.md
 echo "== no binaries"
 bash ops/no-binaries.sh
+echo "== no private"
+bash ops/no-private.sh
 echo "== no credentials"
 (cd .. && bash runner/ops/leaks.sh)
 echo "== no /tmp in tests"

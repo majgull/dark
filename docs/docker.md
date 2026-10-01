@@ -321,7 +321,7 @@ above that drop.
 `runner/ops/target-net.sh` writes and removes those rules:
 
 ```
-bash runner/ops/target-net.sh apply  dark_target 172.30.41.0/24 192.168.1.203:631
+bash runner/ops/target-net.sh apply  dark_target 172.30.41.0/24 192.0.2.203:631
 bash runner/ops/target-net.sh show   dark_target 172.30.41.0/24
 bash runner/ops/target-net.sh remove dark_target 172.30.41.0/24
 ```
@@ -349,7 +349,7 @@ sudo install -d /etc/dark
 sudo tee /etc/dark/target-net.env >/dev/null <<'EOF'
 TARGET_NETWORK=dark_target
 TARGET_SUBNET=172.30.41.0/24
-TARGET_ALLOW=192.168.1.203:631
+TARGET_ALLOW=192.0.2.203:631
 EOF
 sudo install -m 0644 runner/ops/dark-target-net.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -357,7 +357,7 @@ sudo systemctl enable --now dark-target-net.service
 ```
 
 `TARGET_ALLOW` is the space-separated list of `host:port` addresses, so two
-of them are `TARGET_ALLOW="192.168.1.203:631 192.168.1.204:8080"`. After
+of them are `TARGET_ALLOW="192.0.2.203:631 192.0.2.204:8080"`. After
 editing the file, `sudo systemctl restart dark-target-net.service` applies
 the change; the work is idempotent, so a restart is always safe. The unit
 creates the network itself; if something else created it first, `apply`

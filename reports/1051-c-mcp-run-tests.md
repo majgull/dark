@@ -45,7 +45,7 @@ Acceptance:
 
     OK
     == config
-    config OK: 2 models across 1 providers, 7 classes, windows []; host org dark, state /home/blt/.dark
+    config OK: 2 models across 1 providers, 7 classes, windows []; host org dark, state ~/.dark
     == no binaries
     no-binaries OK
     verify OK

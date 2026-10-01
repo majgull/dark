@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The constitution (rules 7 to 9), `docs/docker.md` and the README say what a sandbox on the container backend reaches: Gitea, the model gate and the OTLP gate, which has been on the internal network since 0.6.0, and for a sandbox that runs Claude Code the claude gate. No sandbox holds the Claude token.
 - Every service in `compose.yaml` now sets `restart: unless-stopped`, so a deployment comes back on its own after a reboot or a docker daemon restart, unless it was stopped by hand.
+- Real private addresses and real home-directory paths in the docs, the reports and a test are now documentation examples (`192.0.2.0/24` and `~`), and the new `runner/ops/no-private.sh` gate, called by `runner/verify.sh`, keeps them out.
+- `runner/verify.sh` runs the tests under a temporary directory of its own and removes it, so a run leaves nothing in `/tmp`, and a new gate step refuses a test that names `/tmp` by hand.
 
 ### Fixed
 
