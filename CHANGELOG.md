@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-02
+
 ### Added
 
 - A tier can be named by its short name: `--tier llama3.2` means `--tier llama3.2:latest`, and the run records the full id.
