@@ -358,6 +358,32 @@ THINK = {"none": "off", "low": "low", "medium": "medium", "high": "high"}
 # tools = "full" runs pi as shipped, and online
 REDUCED_FLAGS = ["--no-context-files", "--no-extensions", "--no-skills", "--no-prompt-templates"]
 
+# a tier written "claude:<model-id>" (dark/config.py's own is_claude_tier)
+# runs Claude Code in place of pi; session.py is stdlib-only and cannot
+# import that module, so the same prefix is read here from the string
+# dark/run.py already put in TASK["llm_model"].
+CLAUDE_PREFIX = "claude:"
+
+# Claude Code's own settings for the calls it makes beside the API itself
+# (code.claude.com/docs/en/network-config, "Network access requirements",
+# fetched 2026-09-30): CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC turns off
+# both Datadog telemetry/error-report hosts, and ENABLE_CLAUDEAI_MCP_SERVERS
+# turns off the claude.ai MCP connector fetch through mcp-proxy.anthropic.com
+# (on by default for a claude.ai-authenticated token, which a setup-token
+# credential is). Turned off so this sandbox needs no host beyond the two
+# the same page names as required: api.anthropic.com (API calls; reached
+# through claude_base_url, dark/run.py's gate, never directly) and
+# platform.claude.com (this credential's OAuth exchange/refresh/revocation).
+CLAUDE_QUIET_ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                    "ENABLE_CLAUDEAI_MCP_SERVERS": "false"}
+
+
+def claude_model_id():
+    """The model id after "claude:" in this run's tier, or None: dark/run.py
+    decides what a tier means, session.py only reads the string."""
+    m = TASK.get("llm_model") or ""
+    return m[len(CLAUDE_PREFIX):] if m.startswith(CLAUDE_PREFIX) else None
+
 
 def read_stream(proc, deadline, stream_path=None):
     """Count what pi reports as it reports it, and stop the session when it
@@ -411,14 +437,9 @@ def read_stream(proc, deadline, stream_path=None):
     return killed_for, "".join(tail)
 
 
-def run_session(node, cli, home, deadline, stream_path, review=False, work=None):
-    work = work or WORK
-    full = TASK.get("tools") == "full"
-    env = dict(os.environ, HOME=home, NO_COLOR="1", TERM="dumb")
-    if full:
-        env.pop("PI_OFFLINE", None)
-    else:
-        env["PI_OFFLINE"] = "1"
+def build_brief(work, review=False):
+    """The one prompt text a session gets, for pi and for Claude Code alike:
+    review mode, several repositories, or the plain single-repo grant."""
     grant = TASK.get("may_edit") or []
     grant = ("Existing files you may rewrite: " + ", ".join(grant) + ". Any other existing file "
              "must stay as it is.\n" if grant else "Add new files only; do not rewrite an "
@@ -427,13 +448,121 @@ def run_session(node, cli, home, deadline, stream_path, review=False, work=None)
         judged = TASK.get("review_branches") or []
         judge = REVIEW_JUDGE.format(work=work, branches=", ".join(
             f"{b['name']}/ ({b['branch']})" for b in judged)) if judged else ""
-        brief = REVIEW_BRIEF.format(work=work, spec=SPEC_TEXT, judge=judge,
-                                    files=", ".join(TASK.get("review_files") or []))
-    elif TASK.get("repos"):
-        brief = MULTI_BRIEF.format(work=work, names=", ".join(r["name"] for r in TASK["repos"]),
-                                   spec=SPEC_TEXT, grant=grant)
+        return REVIEW_BRIEF.format(work=work, spec=SPEC_TEXT, judge=judge,
+                                   files=", ".join(TASK.get("review_files") or []))
+    if TASK.get("repos"):
+        return MULTI_BRIEF.format(work=work, names=", ".join(r["name"] for r in TASK["repos"]),
+                                  spec=SPEC_TEXT, grant=grant)
+    return BRIEF.format(work=work, lang=TASK.get("lang") or "software", spec=SPEC_TEXT, grant=grant)
+
+
+def read_claude_stream(proc, deadline, stream_path=None):
+    """Count Claude Code's own stream-json the same way read_stream() counts
+    pi's, so the runner cannot tell the two brains apart from the outside:
+    one "assistant" line is one call, its usage is that call's tokens
+    (Claude Code reports usage per turn, not cumulative), a tool_use is asked
+    and its answering tool_result in the next "user" line is one run. Every
+    raw line is written to `stream_path` as it arrives, so a kill at the
+    envelope loses nothing already emitted. Returns (killed_for, tail)."""
+    killed_for = None
+    tail = []
+    seen = set()
+    base_in, base_out = STATS["tokens_in"], STATS["tokens_out"]
+    stream_f = open(stream_path, "w") if stream_path else None
+    try:
+        for line in proc.stdout:
+            if stream_f:
+                stream_f.write(line if line.endswith("\n") else line + "\n")
+                stream_f.flush()
+            tail.append(line[:400])
+            del tail[:-40]
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            t = ev.get("type")
+            if t == "assistant":
+                m = ev.get("message") or {}
+                u = m.get("usage") or {}
+                # Claude Code writes one line per content block, each with
+                # the same message id and the usage the call started with:
+                # a call is one id, counted on its first line
+                if m.get("id") is None or m.get("id") not in seen:
+                    seen.add(m.get("id"))
+                    STATS["calls"] += 1
+                    STATS["requests"] += 1
+                    PROGRESS.add(tag("verify", ok=False, iter=STATS["calls"], calls=STATS["calls"]))
+                    STATS["tokens_in"] += _claude_tokens_in(u)
+                    STATS["tokens_out"] += int(u.get("output_tokens") or 0)
+                for c in m.get("content") or []:
+                    if c.get("type") == "thinking":
+                        STATS["reasoning_chars"] += len(c.get("thinking") or "")
+                    elif c.get("type") == "tool_use":
+                        STATS["asked"] += 1
+            elif t == "user":
+                for c in (ev.get("message") or {}).get("content") or []:
+                    if c.get("type") == "tool_result":
+                        STATS["tool_calls"] += 1
+            elif t == "result" and isinstance(ev.get("usage"), dict):
+                # the per-line usage is what each call started with (output
+                # near zero); the result line carries the session's totals
+                STATS["tokens_in"] = base_in + _claude_tokens_in(ev["usage"])
+                STATS["tokens_out"] = base_out + int(ev["usage"].get("output_tokens") or 0)
+            if STATS["calls"] > MAX_CALLS:
+                killed_for = "calls"
+                break
+            if time.time() > deadline:
+                killed_for = "seconds"
+                break
+    finally:
+        if stream_f:
+            stream_f.close()
+    if killed_for:
+        proc.kill()
+    return killed_for, "".join(tail)
+
+
+def _claude_tokens_in(u):
+    return (int(u.get("input_tokens") or 0) + int(u.get("cache_creation_input_tokens") or 0)
+            + int(u.get("cache_read_input_tokens") or 0))
+
+
+def run_claude(model_id, deadline, stream_path, review=False, work=None):
+    """Claude Code in print mode, stream-json out, permission prompts
+    skipped (safe only because the sandbox is the boundary), in place of pi.
+    Same brief, same envelope, same heartbeat and done tag: only the brain
+    changes for the arm this run is. The OAuth token is never a command-line
+    argument (visible to `ps` in the sandbox); it reaches `claude` only
+    through the process environment dark/run.py already put it in."""
+    work = work or WORK
+    brief = build_brief(work, review)
+    # the sandbox runs as root, and Claude Code refuses
+    # --dangerously-skip-permissions for root unless told it is in a sandbox
+    env = dict(os.environ, IS_SANDBOX="1", **CLAUDE_QUIET_ENV)
+    if TASK.get("claude_base_url"):
+        env["ANTHROPIC_BASE_URL"] = TASK["claude_base_url"]
+    cmd = ["claude", "--model", model_id, "--output-format", "stream-json", "--verbose",
+           "--dangerously-skip-permissions", "-p", brief]
+    proc = subprocess.Popen(cmd, cwd=work, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, bufsize=1)
+    killed_for, tail = read_claude_stream(proc, deadline, stream_path)
+    try:
+        proc.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    err = (proc.stderr.read() or "")[-1200:] if proc.stderr else ""
+    return killed_for, tail, err, proc.returncode
+
+
+def run_session(node, cli, home, deadline, stream_path, review=False, work=None):
+    work = work or WORK
+    full = TASK.get("tools") == "full"
+    env = dict(os.environ, HOME=home, NO_COLOR="1", TERM="dumb")
+    if full:
+        env.pop("PI_OFFLINE", None)
     else:
-        brief = BRIEF.format(work=work, lang=TASK.get("lang") or "software", spec=SPEC_TEXT, grant=grant)
+        env["PI_OFFLINE"] = "1"
+    brief = build_brief(work, review)
     cmd = [node, cli, "--provider", "dark", "--model", TASK["llm_model"], "--api-key", "unused",
            "--mode", "json", "--session-dir", SESSION_DIR]
     if not full:
@@ -521,18 +650,23 @@ def _main_task():
                    + tag("start", model=TASK["llm_model"], calls_max=MAX_CALLS))
     home = PIHOME
     os.makedirs(home, exist_ok=True)
-    try:
-        node, cli = fetch_runtime()
-    except (urllib.error.URLError, OSError, tarfile.TarError) as e:
-        return fail("env", f"runtime: {scrub(str(e))[:300]}")
-    write_models_json(home)
+    claude = claude_model_id()
+    if not claude:
+        try:
+            node, cli = fetch_runtime()
+        except (urllib.error.URLError, OSError, tarfile.TarError) as e:
+            return fail("env", f"runtime: {scrub(str(e))[:300]}")
+        write_models_json(home)
 
     os.makedirs(RECORDS_DIR, exist_ok=True)
     deadline = T0 + int(TASK.get("max_seconds") or 900)
     try:
-        killed_for, tail, err, rc = run_session(node, cli, home, deadline, STREAM_PATH, work=work)
+        if claude:
+            killed_for, tail, err, rc = run_claude(claude, deadline, STREAM_PATH, work=work)
+        else:
+            killed_for, tail, err, rc = run_session(node, cli, home, deadline, STREAM_PATH, work=work)
     except OSError as e:
-        return fail("env", f"pi did not start: {e}")
+        return fail("env", f"{'claude' if claude else 'pi'} did not start: {e}")
     ok, out = True, ""
     for name, d in trees:
         # one repository keeps the unittest default; of several, only the
@@ -559,7 +693,7 @@ def _main_task():
     if killed_for == "seconds":
         return fail("seconds", f"wall envelope spent\n```\n{tail[-800:]}\n```")
     if STATS["calls"] == 0:
-        return fail("llm", f"pi made no model call (rc {rc})\n```\n{err[-600:]}\n```")
+        return fail("llm", f"{'claude' if claude else 'pi'} made no model call (rc {rc})\n```\n{err[-600:]}\n```")
     if not ok:
         return fail("calls", f"verify.sh red when the session ended\n```\n{out[-800:]}\n```")
     if heads == bases:
@@ -636,24 +770,29 @@ def _main_review():
                    + tag("start", model=TASK["llm_model"], calls_max=MAX_CALLS))
     home = PIHOME
     os.makedirs(home, exist_ok=True)
-    try:
-        node, cli = fetch_runtime()
-    except (urllib.error.URLError, OSError, tarfile.TarError) as e:
-        return fail("env", f"runtime: {scrub(str(e))[:300]}")
-    write_models_json(home)
+    claude = claude_model_id()
+    if not claude:
+        try:
+            node, cli = fetch_runtime()
+        except (urllib.error.URLError, OSError, tarfile.TarError) as e:
+            return fail("env", f"runtime: {scrub(str(e))[:300]}")
+        write_models_json(home)
 
     os.makedirs(RECORDS_DIR, exist_ok=True)
     deadline = T0 + int(TASK.get("max_seconds") or 900)
     try:
-        killed_for, tail, err, rc = run_session(node, cli, home, deadline, STREAM_PATH, review=True)
+        if claude:
+            killed_for, tail, err, rc = run_claude(claude, deadline, STREAM_PATH, review=True)
+        else:
+            killed_for, tail, err, rc = run_session(node, cli, home, deadline, STREAM_PATH, review=True)
     except OSError as e:
-        return fail("env", f"pi did not start: {e}")
+        return fail("env", f"{'claude' if claude else 'pi'} did not start: {e}")
     if killed_for == "calls":
         return fail("calls", f"call envelope ({MAX_CALLS}) spent\n```\n{tail[-800:]}\n```")
     if killed_for == "seconds":
         return fail("seconds", f"wall envelope spent\n```\n{tail[-800:]}\n```")
     if STATS["calls"] == 0:
-        return fail("llm", f"pi made no model call (rc {rc})\n```\n{err[-600:]}\n```")
+        return fail("llm", f"{'claude' if claude else 'pi'} made no model call (rc {rc})\n```\n{err[-600:]}\n```")
 
     report = read_report()
     if TASK.get("review_branches"):

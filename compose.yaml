@@ -1,10 +1,14 @@
 # The docker deployment of dark factory: Gitea, the runner, a model gate, an
-# otlp gate and an optional local model, on one internal network. The runner
-# spawns each sandbox as a sibling container on that network through the
-# mounted docker socket, so a sandbox reaches Gitea and the model gate by
-# service name and has no other egress. The gate is the one model hop:
-# sandboxes and the runner speak to it only, and it forwards to the configured
-# endpoint, bundled or external, so no sandbox holds a real endpoint or token.
+# otlp gate, a claude gate and an optional local model, on one internal
+# network. The runner spawns each sandbox as a sibling container on that
+# network through the mounted docker socket, so a sandbox reaches Gitea and
+# the model gate by service name and has no other egress. The gate is the one
+# model hop: sandboxes and the runner speak to it only, and it forwards to the
+# configured endpoint, bundled or external, so no sandbox holds a real
+# endpoint or token. A claude:<model-id> tier's sandbox is the one exception
+# that needs a second, real endpoint on the internet (Claude Code, not pi,
+# talks to Anthropic directly): the claude gate is that one added hop, so the
+# sandbox still holds no more than a service name for it.
 #
 #   docker compose up -d gitea runner          # the pipeline
 #   bash runner/ops/docker-bootstrap.sh        # users, orgs, tokens (once)
@@ -122,6 +126,30 @@ services:
       DARK_OTLP_UPSTREAM: ${DARK_OTLP_UPSTREAM:-http://127.0.0.1:9}
     entrypoint: ["/bin/sh", "-c"]
     command: ["exec caddy reverse-proxy --from :4318 --to \"$$DARK_OTLP_UPSTREAM\""]
+    networks:
+      - back
+      - front
+
+  # The one real-internet hop a claude:<model-id> tier's sandbox gets, beside
+  # Gitea and the model gate: a pinned reverse proxy that listens on 8443 and
+  # forwards to DARK_CLAUDE_UPSTREAM, api.anthropic.com by default (Claude
+  # Code's own API calls, feature-flag fetches and telemetry event logging —
+  # code.claude.com/docs/en/network-config, "Network access requirements",
+  # fetched 2026-09-30). Point host.toml's claude_gate_url at
+  # http://claude-gate:8443; dark/session.py sets Claude Code's
+  # ANTHROPIC_BASE_URL to it, so the sandbox never holds api.anthropic.com
+  # itself. The same page names a second required host for this credential,
+  # platform.claude.com (OAuth exchange/refresh/revocation), that
+  # ANTHROPIC_BASE_URL does not redirect; this gate does not cover it, so a
+  # deployment enabling claude:-tiers still needs its own decision for that
+  # one host (a second gate, or a narrow direct-egress rule on `back`) before
+  # depending on token refresh mid-run; not done here.
+  claude-gate:
+    image: caddy:2.11.4-alpine
+    environment:
+      DARK_CLAUDE_UPSTREAM: ${DARK_CLAUDE_UPSTREAM:-https://api.anthropic.com}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec caddy reverse-proxy --from :8443 --to \"$$DARK_CLAUDE_UPSTREAM\""]
     networks:
       - back
       - front

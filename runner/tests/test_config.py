@@ -377,6 +377,30 @@ class HostKeys(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertRegex(text, rf"(?m)^{key} = .*# {config.HOST_ENV[key]}\b")
 
+    def test_claude_token_file_and_gate_url(self):
+        self.assertEqual(config.Host().claude_oauth_token_file, "/run/dark/secrets/claude-oauth-token")
+        self.assertEqual(config.Host().claude_gate_url, "")
+        h = self.load_host('[host]\nclaude_gate_url = "http://gate-a:8443"\n',
+                           {"DARK_CLAUDE_TOKEN_FILE": "/run/dark/secrets/other-token"})
+        self.assertEqual(h.claude_oauth_token_file, "/run/dark/secrets/other-token")
+        self.assertEqual(h.claude_gate_url, "http://gate-a:8443")
+
+    def test_the_example_host_file_names_the_claude_keys_too(self):
+        with open(os.path.join(HERE, "host.toml")) as f:
+            text = f.read()
+        for key in ("claude_oauth_token_file", "claude_gate_url"):
+            with self.subTest(key=key):
+                self.assertRegex(text, rf"(?m)^{key} = .*# {config.HOST_ENV[key]}\b")
+
+
+class ClaudeTier(unittest.TestCase):
+    def test_a_claude_prefixed_tier_is_recognised(self):
+        self.assertTrue(config.is_claude_tier("claude:claude-sonnet-5"))
+
+    def test_any_other_tier_is_not(self):
+        self.assertFalse(config.is_claude_tier("deepseek-v4-flash:cloud"))
+        self.assertFalse(config.is_claude_tier("local-a"))
+
 
 class ConfDirDefault(unittest.TestCase):
     """--conf, else $DARK_CONF, else beside the package (the runner's checked-in

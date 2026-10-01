@@ -11,15 +11,19 @@ from unittest import mock
 
 from dark import docker as D
 from dark import sandbox
+from dark import vm
 
 FAKE = r'''#!/usr/bin/env bash
 # A fake docker CLI: records argv to $FAKE_DOCKER_LOG and keeps one state
-# file per container under $FAKE_DOCKER_STATE.
+# file per container under $FAKE_DOCKER_STATE. When $FAKE_DOCKER_LOG_ENV
+# names a variable, it also records that variable's value as it sees it in
+# its own environment.
 log="${FAKE_DOCKER_LOG:?}"
 state="${FAKE_DOCKER_STATE:?}"
 mkdir -p "$state"
 args=("$@")
 { printf '%s' "${args[0]}"; for a in "${args[@]:1}"; do printf '\t%s' "$a"; done; printf '\n'; } >> "$log"
+[ -n "${FAKE_DOCKER_LOG_ENV:-}" ] && printf 'env\t%s\t%s\n' "$FAKE_DOCKER_LOG_ENV" "${!FAKE_DOCKER_LOG_ENV}" >> "$log"
 cmd="${args[0]}"
 set -- "${args[@]:1}"
 case "$cmd" in
@@ -33,7 +37,7 @@ case "$cmd" in
       case "$1" in --name) name="$2"; shift 2 ;; *) shift ;; esac
     done
     : > "$state/$name"
-    exit 0 ;;
+    exit "${FAKE_DOCKER_CREATE_RC:-0}" ;;
   cp)
     mkdir -p "${FAKE_DOCKER_CP:?}"
     cp -a "$1" "$FAKE_DOCKER_CP/"
@@ -171,6 +175,38 @@ class DockerTest(unittest.TestCase):
         create = [l for l in self.fake.lines() if l[0] == "create"][0]
         for flag in ("--cpus", "--memory", "--pids-limit"):
             self.assertNotIn(flag, create)
+
+    def test_spawn_passes_env_names_to_create_and_values_in_its_environment(self):
+        with mock.patch.dict(os.environ, {"FAKE_DOCKER_LOG_ENV": "CLAUDE_CODE_OAUTH_TOKEN"}):
+            self.d.spawn(9500, "dark-x1", self.files(), self.runcmd(),
+                         env={"CLAUDE_CODE_OAUTH_TOKEN": "tok-abc", "FOO": "bar"})
+        create = [l for l in self.fake.lines() if l[0] == "create"][0]
+        self.assertIn("--env", create)
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", create)
+        self.assertIn("FOO", create)
+        for arg in create:
+            self.assertNotIn("tok-abc", arg)
+        # the value reaches the CLI over its own environment, which is how
+        # docker resolves a bare --env NAME
+        self.assertIn(["env", "CLAUDE_CODE_OAUTH_TOKEN", "tok-abc"], self.fake.lines())
+        for dp, _, fns in os.walk(self.fake.cp):
+            for fn in fns:
+                self.assertNotIn("tok-abc", self.read(os.path.join(dp, fn)))
+
+    def test_a_failed_create_leaves_the_token_out_of_the_error(self):
+        patch = mock.patch.dict(os.environ, {"FAKE_DOCKER_CREATE_RC": "1"})
+        patch.start()
+        self.addCleanup(patch.stop)
+        with self.assertRaises(vm.VMError) as cm:
+            self.d.spawn(9500, "dark-x1", self.files(), self.runcmd(),
+                         env={"CLAUDE_CODE_OAUTH_TOKEN": "tok-abc"})
+        self.assertNotIn("tok-abc", str(cm.exception))
+        self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", str(cm.exception))
+
+    def test_spawn_without_env_omits_the_flag(self):
+        self.d.spawn(9500, "dark-x1", {}, [])
+        create = [l for l in self.fake.lines() if l[0] == "create"][0]
+        self.assertNotIn("--env", create)
 
     def test_spawn_writes_files_and_modes(self):
         self.d.spawn(9500, "dark-x1", self.files(), self.runcmd())

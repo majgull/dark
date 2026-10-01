@@ -14,7 +14,7 @@ import os
 import time
 from dataclasses import dataclass
 
-from . import admission, budget
+from . import admission, budget, config
 from . import gitea as G
 from . import llm, tasks
 
@@ -90,7 +90,9 @@ class Preflight:
         # 5. catalog: every configured id served by its provider
         if need_model:
             for pname, prov in self.catalog.providers.items():
-                want = self.catalog.ids_by_provider(pname)
+                # a claude:<model-id> tier runs Claude Code against Anthropic,
+                # not this provider's endpoint: its catalog cannot list it
+                want = {i for i in self.catalog.ids_by_provider(pname) if not config.is_claude_tier(i)}
                 if not want:
                     continue
                 try:

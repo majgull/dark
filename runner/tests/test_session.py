@@ -21,6 +21,8 @@ from tests import fakes
 from tests.test_run import Base, LocalRunner
 
 FIX = os.path.join(os.path.dirname(__file__), "fixtures", "pi-stream-tools.jsonl")
+CLAUDE_FIX = os.path.join(os.path.dirname(__file__), "fixtures", "claude-stream-tools.jsonl")
+FAKE_CLAUDE_BIN = os.path.join(os.path.dirname(__file__), "fixtures", "fake-claude-bin")
 
 
 class FakeProc:
@@ -121,6 +123,190 @@ class Counting(unittest.TestCase):
             written = f.read()
         self.assertTrue(written)
         self.assertTrue("".join(fixture_lines()).startswith(written))
+
+
+def claude_fixture_lines():
+    with open(CLAUDE_FIX) as f:
+        return f.readlines()
+
+
+class CountingClaude(unittest.TestCase):
+    """The same counting Counting proves for pi's stream, proven again for
+    Claude Code's own stream-json shape: read_claude_stream() must produce
+    identical STATS from a different wire format, so the runner cannot tell
+    the two brains apart from the outside (dark/run.py's ledger row is the
+    same either way)."""
+
+    def setUp(self):
+        for k in session.STATS:
+            session.STATS[k] = 0
+        session.PROGRESS.cid = None
+        session.MAX_CALLS = 99
+        session.TASK.setdefault("token", "")
+
+    def run_fixture(self, lines=None, deadline=1e12):
+        p = FakeProc(lines if lines is not None else claude_fixture_lines())
+        killed, tail = session.read_claude_stream(p, deadline)
+        return p, killed, tail
+
+    def test_the_recorded_run_counts_three_calls_and_two_tool_results(self):
+        p, killed, _ = self.run_fixture()
+        self.assertIsNone(killed)
+        self.assertFalse(p.killed)
+        self.assertEqual(session.STATS["calls"], 3)
+        self.assertEqual(session.STATS["tool_calls"], 2)
+
+    def test_tool_calls_asked_and_tool_calls_run_are_counted_apart(self):
+        self.run_fixture()
+        # nothing refuses a call in this arm (--dangerously-skip-permissions),
+        # so they agree; counted separately so a run where they do not can say so
+        self.assertEqual(session.STATS["asked"], session.STATS["tool_calls"])
+
+    def test_tokens_and_thinking_are_the_providers_own_numbers(self):
+        self.run_fixture()
+        evs = [json.loads(l) for l in claude_fixture_lines() if l.strip()]
+        want_in, want_out, want_reasoning = 0, 0, 0
+        for e in evs:
+            if e["type"] != "assistant":
+                continue
+            u = (e["message"].get("usage") or {})
+            want_in += (u.get("input_tokens") or 0) + (u.get("cache_creation_input_tokens") or 0) \
+                + (u.get("cache_read_input_tokens") or 0)
+            want_out += u.get("output_tokens") or 0
+            for c in e["message"].get("content") or []:
+                if c.get("type") == "thinking":
+                    want_reasoning += len(c.get("thinking") or "")
+        self.assertEqual(session.STATS["tokens_in"], want_in)
+        self.assertEqual(session.STATS["tokens_out"], want_out)
+        self.assertGreater(want_in, 0)
+        self.assertEqual(session.STATS["reasoning_chars"], want_reasoning)
+        self.assertGreater(want_reasoning, 0)
+
+    def test_a_session_over_the_call_envelope_is_killed_on_the_call_that_passes_it(self):
+        session.MAX_CALLS = 2
+        p, killed, _ = self.run_fixture()
+        self.assertEqual(killed, "calls")
+        self.assertTrue(p.killed)
+        self.assertEqual(session.STATS["calls"], 3)   # the one that passed the cap
+
+    def test_a_session_over_the_wall_deadline_is_killed(self):
+        p, killed, _ = self.run_fixture(deadline=0)
+        self.assertEqual(killed, "seconds")
+        self.assertTrue(p.killed)
+
+    def test_a_line_that_is_not_json_is_skipped_not_fatal(self):
+        lines = ["not json at all\n", *claude_fixture_lines()]
+        _, killed, _ = self.run_fixture(lines)
+        self.assertIsNone(killed)
+        self.assertEqual(session.STATS["calls"], 3)
+
+    def test_the_stream_file_matches_every_line_claude_emitted(self):
+        path = os.path.join(tempfile.mkdtemp(), "stream.jsonl")
+        p = FakeProc(claude_fixture_lines())
+        killed, _ = session.read_claude_stream(p, 1e12, path)
+        self.assertIsNone(killed)
+        with open(path) as f:
+            written = f.read()
+        self.assertEqual(written, "".join(claude_fixture_lines()))
+
+    def test_a_kill_at_the_envelope_keeps_the_stream_up_to_the_kill(self):
+        path = os.path.join(tempfile.mkdtemp(), "stream.jsonl")
+        session.MAX_CALLS = 2
+        p = FakeProc(claude_fixture_lines())
+        killed, _ = session.read_claude_stream(p, 1e12, path)
+        self.assertEqual(killed, "calls")
+        with open(path) as f:
+            written = f.read()
+        self.assertTrue(written)
+        self.assertTrue("".join(claude_fixture_lines()).startswith(written))
+
+
+class ClaudeModelId(unittest.TestCase):
+    def setUp(self):
+        session.TASK.clear()
+
+    def test_a_claude_prefixed_tier_names_the_model_after_the_colon(self):
+        session.TASK["llm_model"] = "claude:claude-sonnet-5"
+        self.assertEqual(session.claude_model_id(), "claude-sonnet-5")
+
+    def test_any_other_tier_is_not_a_claude_tier(self):
+        session.TASK["llm_model"] = "deepseek-v4-flash:cloud"
+        self.assertIsNone(session.claude_model_id())
+
+    def test_no_llm_model_at_all_is_not_a_claude_tier(self):
+        self.assertIsNone(session.claude_model_id())
+
+
+class ClaudeSubprocess(unittest.TestCase):
+    """run_claude() against the fake `claude` script on PATH: a real
+    subprocess, a real stream-json reply, and proof the OAuth token this run
+    was given never lands in any file the run wrote (only the fake script's
+    own environment carries it, never a command-line argument or a file)."""
+
+    def setUp(self):
+        for k in session.STATS:
+            session.STATS[k] = 0
+        session.PROGRESS.cid = None
+        session.MAX_CALLS = 99
+        session.TASK.clear()
+        session.TASK.update({"token": "", "llm_model": "claude:claude-sonnet-5"})
+        self.tmp = tempfile.mkdtemp()
+        self.saved_path = os.environ.get("PATH", "")
+        self.saved_token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        os.environ["PATH"] = FAKE_CLAUDE_BIN + os.pathsep + self.saved_path
+        os.environ["FAKE_CLAUDE_STREAM"] = CLAUDE_FIX
+        os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = "fake-oauth-token-do-not-leak"
+
+    def tearDown(self):
+        os.environ["PATH"] = self.saved_path
+        os.environ.pop("FAKE_CLAUDE_STREAM", None)
+        if self.saved_token is None:
+            os.environ.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        else:
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = self.saved_token
+        session.PROGRESS.stop()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_the_fake_claude_scripts_reply_is_counted_like_any_other(self):
+        stream_path = os.path.join(self.tmp, "stream.jsonl")
+        killed_for, tail, err, rc = session.run_claude("claude-sonnet-5", 1e12, stream_path, work=self.tmp)
+        self.assertIsNone(killed_for, (tail, err))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(session.STATS["calls"], 3)
+        self.assertEqual(session.STATS["tool_calls"], 2)
+
+    def test_one_call_split_over_lines_counts_once_and_the_result_line_sets_the_totals(self):
+        # the shape of a real run: one line per content block of one call,
+        # each with the usage the call started with, totals only at the end
+        start = {"input_tokens": 3, "cache_read_input_tokens": 100, "output_tokens": 2}
+        lines = [
+            {"type": "assistant", "message": {"id": "msg_a", "usage": start,
+                                              "content": [{"type": "thinking", "thinking": "hm"}]}},
+            {"type": "assistant", "message": {"id": "msg_a", "usage": start,
+                                              "content": [{"type": "tool_use", "id": "t1", "name": "Read", "input": {}}]}},
+            {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x"}]}},
+            {"type": "assistant", "message": {"id": "msg_b", "usage": start,
+                                              "content": [{"type": "text", "text": "done"}]}},
+            {"type": "result", "usage": {"input_tokens": 6, "cache_creation_input_tokens": 50,
+                                         "cache_read_input_tokens": 200, "output_tokens": 700}},
+        ]
+        fix = os.path.join(self.tmp, "split.jsonl")
+        with open(fix, "w") as f:
+            f.write("".join(json.dumps(l) + "\n" for l in lines))
+        os.environ["FAKE_CLAUDE_STREAM"] = fix
+        session.run_claude("claude-sonnet-5", 1e12, None, work=self.tmp)
+        self.assertEqual(session.STATS["calls"], 2)
+        self.assertEqual(session.STATS["tool_calls"], 1)
+        self.assertEqual(session.STATS["tokens_in"], 256)
+        self.assertEqual(session.STATS["tokens_out"], 700)
+
+    def test_the_fake_token_never_lands_in_any_file_the_run_wrote(self):
+        stream_path = os.path.join(self.tmp, "stream.jsonl")
+        session.run_claude("claude-sonnet-5", 1e12, stream_path, work=self.tmp)
+        for dp, _, fns in os.walk(self.tmp):
+            for fn in fns:
+                with open(os.path.join(dp, fn), errors="replace") as f:
+                    self.assertNotIn("fake-oauth-token-do-not-leak", f.read(), fn)
 
 
 class Config(unittest.TestCase):
@@ -423,6 +609,54 @@ class ToolSet(unittest.TestCase):
         self.assertNotIn("PI_OFFLINE", env)
         self.assertEqual(cmd[:2], ["node", "cli"])
         self.assertIn("--approve", cmd)
+
+
+class ClaudeInvocation(unittest.TestCase):
+    """run_claude()'s own argv and environment, against a fake Popen (no
+    real process): the flags code.claude.com/docs/en/cli-reference.md shows
+    together (-p at the end, after --output-format/--verbose), the token
+    never an argument, and the quiet-egress env vars always set."""
+
+    def setUp(self):
+        self.saved = session.subprocess.Popen
+        session.subprocess.Popen = ToolSet.Popen
+        ToolSet.Popen.seen = []
+        session.TASK.clear()
+        session.TASK.update({"token": ""})
+
+    def tearDown(self):
+        session.subprocess.Popen = self.saved
+
+    def test_the_argv_matches_the_documented_flag_shape(self):
+        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        cmd, env = ToolSet.Popen.seen[-1]
+        self.assertEqual(cmd, ["claude", "--model", "claude-sonnet-5", "--output-format", "stream-json",
+                              "--verbose", "--dangerously-skip-permissions", "-p", cmd[-1]])
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", " ".join(cmd))  # never a command-line argument
+
+    def test_the_quiet_egress_env_is_always_set(self):
+        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        _, env = ToolSet.Popen.seen[-1]
+        self.assertEqual(env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+        self.assertEqual(env["ENABLE_CLAUDEAI_MCP_SERVERS"], "false")
+
+    def test_root_in_the_sandbox_may_skip_permission_prompts(self):
+        # a real run as root without it ended rc 1 with no model call:
+        # Claude Code refuses the skip flag for root outside a sandbox
+        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        _, env = ToolSet.Popen.seen[-1]
+        self.assertEqual(env["IS_SANDBOX"], "1")
+
+    def test_a_claude_base_url_becomes_anthropic_base_url(self):
+        session.TASK["claude_base_url"] = "http://claude-gate:8443"
+        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        _, env = ToolSet.Popen.seen[-1]
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://claude-gate:8443")
+
+    def test_no_claude_base_url_leaves_anthropic_base_url_unset(self):
+        session.run_claude("claude-sonnet-5", 1e12, None, work="/tmp")
+        _, env = ToolSet.Popen.seen[-1]
+        self.assertNotIn("ANTHROPIC_BASE_URL", env)
 
 
 class ToolSetOnTheLedger(Base):

@@ -12,6 +12,8 @@ gitea_lan_url = "http://localhost:3400"             # DARK_GITEA_LAN   (what VMs
 git_lan_url = ""                                    # DARK_GIT_LAN     (where VMs clone/push from; "" = gitea_lan_url)
 admin_token_file = "~/.dark/dark-admin.token"       # DARK_ADMIN_TOKEN_FILE
 agent_token_file = "~/.dark/dark-agent.token"       # DARK_AGENT_TOKEN_FILE
+claude_oauth_token_file = "/run/dark/secrets/claude-oauth-token"  # DARK_CLAUDE_TOKEN_FILE (root-only, outside every repo; a claude:<model-id> run refuses without it)
+claude_gate_url = ""                                # DARK_CLAUDE_GATE_URL (the proxy a claude:-tier run's Claude Code reaches Anthropic through, e.g. "http://claude-gate:8443"; "" = Claude Code's own default)
 agent_user = "dark-agent"                           # DARK_AGENT_USER  (the Gitea user executor VMs push as)
 backend = "proxmox"                                 # DARK_BACKEND     (the compute plane; "proxmox", "docker" or "lxc")
 proxmox = "cpu-host"                                # DARK_PROXMOX     (example role name for the Proxmox host)

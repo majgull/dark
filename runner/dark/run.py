@@ -24,7 +24,7 @@ import secrets
 import time
 from dataclasses import dataclass, field
 
-from . import budget, gate, otel, power
+from . import budget, config, gate, otel, power
 from . import gitea as G
 from . import ledger as L
 from . import spec, tasks, vm
@@ -325,6 +325,29 @@ class Runner:
                     raise
         return full
 
+    def _claude_spawn_kw(self, tier):
+        """spawn() keywords a claude:<model-id> run needs beyond the
+        protocol's: CLAUDE_CODE_OAUTH_TOKEN in the sandbox's own process
+        environment, never in agent_task/task.json, a log or the ledger.
+        Read fresh from host.claude_oauth_token_file (one root-only file
+        outside every repo) for every such run. (spawn_kw, "") for any other
+        tier or when the docker backend is in use with the file present;
+        (None, why) when a claude run cannot get its token — the caller
+        refuses before spawning anything."""
+        if not config.is_claude_tier(tier):
+            return {}, ""
+        if self.host.backend != "docker":
+            return None, f"claude tiers need the docker backend, host.backend is {self.host.backend!r}"
+        path = self.host.claude_oauth_token_file
+        try:
+            with open(path) as f:
+                token = f.read().strip()
+        except OSError as e:
+            return None, f"claude token file {path}: {e.strerror or e}"
+        if not token:
+            return None, f"claude token file {path} is empty"
+        return {"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}}, ""
+
     # --- one run -----------------------------------------------------------------
     def run(self, task, tier, env, slot=0, think=None, base=None):
         t_queued = self.clock()
@@ -407,10 +430,16 @@ class Runner:
             "ctx": model.ctx,
             # where the session arm pushes its kept stream; only the session
             # executor implements this, so only it gets a repo
-            "records_repo": self._ensure_records_repo() if self.executor == "session" else None}
+            "records_repo": self._ensure_records_repo() if self.executor == "session" else None,
+            # the proxy a claude:-tier run's Claude Code reaches Anthropic
+            # through; not a secret, so it travels with everything else here
+            "claude_base_url": self.host.claude_gate_url}
         # only the session executor has a tool set to choose; the pipeline's
         # has no tools and records none
         st.tools = agent_task["tools"] if self.executor == "session" else None
+        spawn_kw, why = self._claude_spawn_kw(tier)
+        if spawn_kw is None:
+            return st.end("fail:structural", "env", why, reserved=reserved)
         xvmid = self.budgets.shift["vmid_base"] + slot
         xname = f"dark-x{slot}"
         t_spawn = self.clock()
@@ -419,7 +448,8 @@ class Runner:
             ip = self._launch_networked(st, xvmid, xname,
                                         {"/opt/task.json": (json.dumps(agent_task, indent=1), "0600"),
                                          "/opt/agent.py": (src, "0755")},
-                                        [["bash", "-lc", "export HOME=/root; python3 /opt/agent.py >/var/log/agent.log 2>&1"]])
+                                        [["bash", "-lc", "export HOME=/root; python3 /opt/agent.py >/var/log/agent.log 2>&1"]],
+                                        spawn_kw=spawn_kw)
         except vm.VMError as e:
             return st.end("fail:structural", "env", f"executor VM: {e}", reserved=reserved)
         if not ip:
@@ -653,17 +683,22 @@ class Runner:
             "llm_timeout": model.timeout, "temperature": self.catalog.defaults.get("temperature"),
             "llm_stream": bool(prov.stream or prov.wake),
             "heartbeat_seconds": wd["heartbeat_seconds"], "run": res.run, "task": task.id, "class": "review",
-            "runtime_url": self.runtime_url, "max_seconds": env.seconds, "ctx": model.ctx}
+            "runtime_url": self.runtime_url, "max_seconds": env.seconds, "ctx": model.ctx,
+            "claude_base_url": self.host.claude_gate_url}
         vm_files = {"/opt/task.json": (json.dumps(agent_task, indent=1), "0600"),
                    "/opt/agent.py": (self.session_src, "0755")}
         for rel, content in files.items():
             vm_files[f"/opt/work/{rel}"] = (content, "0644")
+        spawn_kw, why = self._claude_spawn_kw(tier)
+        if spawn_kw is None:
+            return st.end("fail:structural", "env", why)
         xvmid = self.budgets.shift["vmid_base"] + slot
         xname = f"dark-x{slot}"
         t_spawn = self.clock()
         try:
             ip = self._launch_networked(st, xvmid, xname, vm_files,
-                                        [["bash", "-lc", "export HOME=/root; python3 /opt/agent.py >/var/log/agent.log 2>&1"]])
+                                        [["bash", "-lc", "export HOME=/root; python3 /opt/agent.py >/var/log/agent.log 2>&1"]],
+                                        spawn_kw=spawn_kw)
         except vm.VMError as e:
             return st.end("fail:structural", "env", f"executor VM: {e}")
         if not ip:

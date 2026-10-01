@@ -96,6 +96,14 @@ class Preflight(unittest.TestCase):
         self.assertFalse(gap.ok)
         self.assertIn("local-b", gap.detail)
 
+    def test_a_claude_tier_is_not_asked_of_its_provider(self):
+        extra = '\n[model."claude:claude-sonnet-5"]\nprovider = "cloud"\ncost = "sub-window"\nspeed = "fast"\n'
+        self.cat, self.bud = config.load(write_conf(self.tmp, MODELS + extra, BUDGETS))
+        checks = self.pre().run(need_vm=False)
+        cloud = [c for c in checks if c.name == "catalog cloud"][0]
+        self.assertTrue(cloud.ok, cloud.line())
+        self.assertEqual(cloud.detail, "1 ids served")
+
     def test_provider_down(self):
         del self.served_ids["cloud"]
         checks = self.pre().run(need_vm=False)

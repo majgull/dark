@@ -601,6 +601,128 @@ class ReviewMode(Base):
         self.assertIn("report.md missing", res.detail)
 
 
+CLAUDE_MODEL_EXTRA = """
+[model."claude:claude-sonnet-5"]
+provider = "cloud"
+cost = "sub-window"
+speed = "fast"
+"""
+
+FAKE_TOKEN = "fake-oauth-token-do-not-leak"
+
+
+class ClaudeTier(Base):
+    """claude:<model-id> runs (dark/run.py): the OAuth token is read
+    fresh from one root-only file for every such run and put only in the
+    sandbox's own process environment, never in agent_task/task.json; a
+    missing file refuses the run before anything is spawned. What
+    dark/session.py itself does with a claude:-tier's stream is
+    test_session.py's job (CountingClaude, ClaudeSubprocess); this proves
+    run.py's token handling and that its counts still reach the same
+    run.end ledger row a pi session's do."""
+
+    def setUp(self):
+        super().setUp()
+        import dataclasses
+        from dark import tasks
+        self.cat, self.bud = config.load(write_conf(self.tmp, MODELS + CLAUDE_MODEL_EXTRA, FAST_BUDGETS))
+        # a long-class task: the run() path a claude:-tier coder actually
+        # takes (dark long) ends at the executor's own done tag, with no
+        # staging VM to fake a second AGENT-DONE for
+        loaded = tasks.load_task(make_task(os.path.join(self.tmp, "bench"), "hello"))
+        self.task = dataclasses.replace(loaded, cls="long")
+        self.token_file = os.path.join(self.tmp, "claude-token")
+        self.host.claude_oauth_token_file = self.token_file
+        self.host.backend = "docker"
+
+    def write_token(self, text=FAKE_TOKEN):
+        with open(self.token_file, "w") as f:
+            f.write(text)
+
+    def executor_runner(self, done_fields):
+        """A run() through the claude:-tier path: launch() is overridden the
+        same way ReviewMode's is, so the token and task.json this run was
+        given can be inspected directly, with no real session.py process."""
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        r.executor = "session"
+        self.sent, self.spawn_envs = {}, {}
+
+        def launch(vmid, name, files, runcmd, env=None):
+            self.spawn_envs[name] = env
+            if "/opt/task.json" not in files:
+                return   # the staging VM: no claude token to give it
+            self.sent = json.loads(files["/opt/task.json"][0])
+            r.gitea.comment(self.sent["repo"], self.sent["issue"], "AGENT-ALIVE\n" + spec.TAG_PREFIX +
+                            json.dumps({"v": 2, "ev": "start", "model": self.sent["llm_model"],
+                                       "calls_max": self.sent["max_calls"]}))
+            r.gitea.comment(self.sent["repo"], self.sent["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX +
+                            json.dumps({"v": 2, "ev": "done", "seconds": 3, **done_fields}))
+        r.launch = launch
+        r.net_ip = lambda vmid: "10.0.0.1"
+        return r
+
+    def test_missing_token_file_refuses_before_anything_is_spawned(self):
+        r = self.executor_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
+        res = r.run(self.task, "claude:claude-sonnet-5", self.env())
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "env"))
+        self.assertIn(self.token_file, res.detail)
+        self.assertEqual(r.launched, [])
+
+    def test_a_non_docker_backend_is_refused_before_anything_is_spawned(self):
+        self.write_token()
+        self.host.backend = "proxmox"
+        r = self.executor_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
+        res = r.run(self.task, "claude:claude-sonnet-5", self.env())
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "env"))
+        self.assertIn("docker", res.detail)
+        self.assertEqual(r.launched, [])
+
+    def test_the_token_reaches_only_the_sandbox_env_never_task_json(self):
+        self.write_token()
+        r = self.executor_runner({"outcome": "ok", "calls": 3, "tokens_in": 4927, "tokens_out": 147,
+                                  "reasoning_chars": 42, "tool_calls": 2})
+        res = r.run(self.task, "claude:claude-sonnet-5", self.env())
+        self.assertEqual(self.spawn_envs["dark-x0"], {"CLAUDE_CODE_OAUTH_TOKEN": FAKE_TOKEN})
+        self.assertNotIn(FAKE_TOKEN, json.dumps(self.sent))
+        end = self.led.last("run.end")
+        self.assertEqual((end["outcome"], end["tier"]), (res.outcome, "claude:claude-sonnet-5"))
+        self.assertEqual((end["tokens_in"], end["tokens_out"], end["tool_calls"]), (4927, 147, 2))
+
+    def review_runner(self, done_fields):
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        self.sent, self.spawn_env = {}, None
+
+        def launch(vmid, name, files, runcmd, env=None):
+            self.sent = json.loads(files["/opt/task.json"][0])
+            self.spawn_env = env
+            r.gitea.comment(self.sent["repo"], self.sent["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX +
+                            json.dumps({"v": 2, "ev": "done", "seconds": 3, **done_fields}))
+        r.launch = launch
+        r.net_ip = lambda vmid: "10.0.0.1"
+        return r
+
+    def test_judge_tier_missing_token_file_refuses_before_anything_is_spawned(self):
+        r = self.review_runner({"outcome": "ok", "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0})
+        res = r.review("judge this", {}, "claude:claude-sonnet-5", "review-x", shift="s1")
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:structural", "env"))
+        self.assertEqual(r.launched, [])
+
+    def test_judge_tier_reads_the_verdict_and_the_token_never_reaches_task_json(self):
+        self.write_token()
+        r = self.review_runner({"outcome": "ok", "calls": 3, "tokens_in": 100, "tokens_out": 20,
+                                "reasoning_chars": 0, "tool_calls": 1,
+                                "verdict": "pass", "verdict_reason": "looks fine"})
+        res = r.review("judge this", {}, "claude:claude-sonnet-5", "review-x", shift="s1",
+                       review_branches=[{"name": "api", "url": "file:///dev/null", "branch": "run/x"}])
+        self.assertEqual(res.outcome, "pass", res.detail)
+        self.assertEqual(self.spawn_env, {"CLAUDE_CODE_OAUTH_TOKEN": FAKE_TOKEN})
+        self.assertNotIn(FAKE_TOKEN, json.dumps(self.sent))
+        end = self.led.last("run.end")
+        self.assertEqual((end["tier"], end["tokens_in"], end["tool_calls"]), ("claude:claude-sonnet-5", 100, 1))
+
+
 class KeepAwake(Base):
     """Every run and staging takes a lease that outlives its own envelope, so
     the VM host is not put to sleep under running work (dark/gate.py)."""

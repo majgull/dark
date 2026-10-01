@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+"""fake-claude: stands in for the real `claude` CLI in tests. Replays the
+stream-json fixture named by FAKE_CLAUDE_STREAM to stdout and exits 0 -
+dark/session.py's run_claude() never runs a real Claude Code process or
+reaches Anthropic in a test. Never prints CLAUDE_CODE_OAUTH_TOKEN or any
+other argument or environment variable it was given.
+"""
+import os
+import sys
+
+with open(os.environ["FAKE_CLAUDE_STREAM"]) as f:
+    sys.stdout.write(f.read())
