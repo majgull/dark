@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from . import budget, config, gate, otel, power
 from . import gitea as G
 from . import ledger as L
-from . import spec, tasks, vm
+from . import spec, status, tasks, vm
 from . import version as dark_version
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -164,6 +164,25 @@ def issue_page(st, env=None, judges=None, may_edit=None, branch=None, usage=None
     return f"{st.arm}: {st.task.id} ({tier})", "\n".join(lines)
 
 
+def _board_body(rows, now):
+    """The Now board's body: a first line saying when it was written, then a
+    markdown table of `rows` (dark/status.py), the issue column linked and a
+    finished run that pushed records given a link to them."""
+    lines = [f"updated {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))} by the runner", "",
+             "| state | arm | task | tier | since | calls | issue | records |",
+             "|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        calls = r["calls"] if r["calls"] is not None else "-"
+        issue = f"#{r['issue']}" if r["issue"] else "-"
+        records = "-"
+        if r["records"] and not str(r["records"]).startswith("PUSH FAILED"):
+            repo, _, run_id = str(r["records"]).rpartition("/")
+            records = f"[records](/{repo}/src/branch/main/{run_id})"
+        lines.append(f"| {r['state']} | {r['arm'] or '-'} | {r['task']} | {r['tier']} | "
+                     f"{status.since(r, now)} | {calls} | {issue} | {records} |")
+    return "\n".join(lines) + "\n"
+
+
 class _Run:
     """The per-run state, transitions and the one run.end."""
 
@@ -251,6 +270,8 @@ class _Run:
                 self.r.gitea.issue_close(self.full, res.issue, comment)
         except G.GiteaError as e:
             self.r.log(f"issue close failed: {e}")
+        if res.issue:
+            self.r._update_board(self.full, self.r.shift)
         if self.r.host.otlp_endpoint:
             # after the row and the issue, so a collector that is slow or down delays only this return
             otel.export_run(self.r.host.otlp_endpoint, row, otel.fetch_stream(self.r.gitea, res.records, log=self.r.log),
@@ -429,6 +450,26 @@ class Runner:
             self.log(f"issue labels {st.res.run}: {e}")
         return labels, milestone
 
+    def _update_board(self, full, shift, just_run=None, just_issue=None):
+        """Rewrite the pinned Now issue of `full` from `shift`'s ledger rows
+        (status.rows). `just_run`/`just_issue` name a run whose run.start was
+        just emitted but carries no issue field yet, the runner's own
+        knowledge filled in for this one render. Best effort, like the
+        labels: a GiteaError is one log line, and neither a run's outcome
+        nor a ledger row moves."""
+        try:
+            n = self.gitea.ensure_board(full)
+            events = []
+            for e in self.ledger.events():
+                if e.get("shift") != shift:
+                    continue
+                if just_run and e.get("kind") == "run.start" and e.get("run") == just_run:
+                    e = dict(e, issue=just_issue)
+                events.append(e)
+            self.gitea.issue_edit(full, n, body=_board_body(status.rows(events), self.clock()))
+        except G.GiteaError as e:
+            self.log(f"board {full}: {e}")
+
     def _claude_spawn_kw(self, tier, session=True):
         """spawn() keywords a claude:<model-id> run needs beyond the
         protocol's: its sandbox also joins host.claude_network, the network
@@ -494,6 +535,7 @@ class Runner:
         self.ledger.emit("run.start", shift=self.shift, task=task.id, run=res.run, cls=task.cls,
                          tier=tier, envelope=envelope, arm=self.arm,
                          **({"frozen": self.frozen} if self.frozen else {}))
+        self._update_board(full, self.shift, res.run, res.issue)
 
         agent_task = {
             "gitea": self.host.gitea_lan_url, "git_url": self._git_url(), "repo": full, "issue": res.issue,
@@ -689,6 +731,7 @@ class Runner:
             self.ledger.emit("run.start", shift=self.shift, task=task.id, run=run_id, cls=task.cls,
                              tier=tier, envelope=dict(env.as_dict(), arm=arm) if env else {"arm": arm},
                              arm=arm, **({"frozen": self.frozen} if self.frozen else {}))
+            self._update_board(st.full, self.shift, run_id, st.res.issue)
             st.go("executing", "session arm: executed outside the runner")
             st.go("verifying", "session arm: the branch is the reply")
             st.go("staging", "staging VM started")
@@ -770,6 +813,7 @@ class Runner:
         self.ledger.emit("run.start", shift=shift, task=task.id, run=res.run, cls="review",
                          tier=tier, envelope=envelope, arm=st.arm,
                          **({"frozen": self.frozen} if self.frozen else {}))
+        self._update_board(full, shift, res.run, res.issue)
 
         agent_task = {
             "gitea": self.host.gitea_lan_url, "git_url": self._git_url(), "repo": full,
@@ -961,6 +1005,7 @@ class Runner:
         self.ledger.emit("run.start", shift=shift, task=task.id, run=res.run, cls=task.cls,
                          tier=tier, envelope=envelope, arm=st.arm,
                          **({"frozen": self.frozen} if self.frozen else {}))
+        self._update_board(full, shift, res.run, res.issue)
 
         agent_task, spawn_kw = self.user_task(task, tier, env, res.issue, res.run, full, think)
         files = {"/opt/task.json": (json.dumps(agent_task, indent=1), "0600"),

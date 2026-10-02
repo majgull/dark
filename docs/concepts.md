@@ -172,6 +172,14 @@ task id, and gets `outcome/<result>` (with `kind/<kind>` after a failure)
 before it closes, so the issue list can be filtered and grouped. The labels
 live on the org that owns the repository.
 
+**Now**: the pinned issue titled exactly `Now`, one per repository that
+carries run issues, that holds the same running-and-last-finished table as
+`dark status`. It carries the org label `board`, so a caller that lists open
+issues to find runs (`open_issues`) must leave it out. `dark/gitea.py`'s
+`ensure_board` finds or creates and pins it; `dark/run.py` rewrites its body
+after a run's issue is created and after it is closed, best effort like the
+labels.
+
 **park, block, escalate**: the three non-terminal endings for a task in a
 shift. Park means a limit was reached and the task waits for the next shift;
 block means a structural failure stopped it; escalate means one retry on the

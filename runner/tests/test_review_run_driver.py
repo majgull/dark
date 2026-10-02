@@ -177,6 +177,12 @@ class ScriptedGitea:
     def issue_close(self, full, n, comment=None):
         self.closed.append(comment)
 
+    def ensure_board(self, full):
+        return 1
+
+    def issue_edit(self, full, n, title=None, body=None):
+        pass
+
 
 def _alive(*tags):
     return {"id": 1, "body": "AGENT-ALIVE run r\n" + "\n".join("DARK:" + json.dumps(t) for t in tags),

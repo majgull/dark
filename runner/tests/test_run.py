@@ -132,7 +132,7 @@ class Base(unittest.TestCase):
             self.llm.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def runner(self, replies, tier="local-a", acceptance=None, task_kw=None):
+    def runner(self, replies, tier="local-a", acceptance=None, task_kw=None, arm="factory"):
         self.llm = fakes.FakeLLM(replies)
         # point the tier's provider at the scripted server
         prov = self.cat.providers[self.cat.model(tier).provider]
@@ -141,7 +141,8 @@ class Base(unittest.TestCase):
         kw.update(task_kw or {})
         from dark import tasks
         self.task = tasks.load_task(make_task(os.path.join(self.tmp, "bench"), "hello", **kw))
-        return LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None, log=lambda *a: None, shift="s1")
+        return LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None, log=lambda *a: None,
+                           shift="s1", arm=arm)
 
     def env(self, **over):
         e = budget.envelope(self.bud, self.led, "additive")
@@ -343,6 +344,54 @@ class Outcomes(Base):
         rec = self.led.last("run.end")
         self.assertEqual(rec["outcome"], "fail:structural")
         self.assertEqual(rec["reason"], spec.STRUCTURAL_REASONS["gitea"])
+
+
+class Board(Base):
+    """The pinned Now issue: one board per repository, rewritten after a
+    run's issue is created and after it is closed (dark/run.py's
+    _update_board, dark/gitea.py's ensure_board)."""
+
+    def boards(self):
+        return [n for n, i in self.gitea_fake.issues[self.full].items() if i["title"] == "Now"]
+
+    def test_a_passing_long_arm_run_updates_the_pinned_now_issue(self):
+        r = self.runner([{"content": FILE_HELLO}], arm="long")
+        res = r.run(self.task, "local-a", self.env())
+        self.assertEqual(res.outcome, "pass", res.detail)
+        boards = self.boards()
+        self.assertEqual(len(boards), 1)
+        issue = self.gitea_fake.issues[self.full][boards[0]]
+        self.assertTrue(issue.get("pinned"))
+        self.assertIn(f"#{res.issue}", issue["body"])
+        self.assertIn("pass", issue["body"])
+
+    def test_a_second_run_reuses_the_same_board_issue(self):
+        r = self.runner([{"content": FILE_HELLO}], arm="long")
+        r.run(self.task, "local-a", self.env())
+        first = self.boards()
+        shutil.rmtree(os.path.join(self.tmp, "bench"), ignore_errors=True)
+        r2 = self.runner([{"content": FILE_HELLO}], arm="long")
+        r2.gitea = r.gitea  # the same client: its board number is remembered
+        r2.run(self.task, "local-a", self.env())
+        self.assertEqual(self.boards(), first)
+
+    def test_a_board_failure_leaves_the_run_end_row_alone(self):
+        # a GiteaError from ensure_board or issue_edit is best effort: the
+        # run.end row must not move, and the run must not fail
+        drop = ("run", "ts", "iso", "seconds", "wall_seconds", "issue", "branch")
+
+        def row(break_board):
+            shutil.rmtree(os.path.join(self.tmp, "bench"), ignore_errors=True)
+            r = self.runner([{"content": FILE_HELLO}], arm="long")
+            if break_board:
+                def boom(*a, **kw):
+                    raise G.GiteaError(500, "board down")
+                r.gitea.ensure_board = boom
+            res = r.run(self.task, "local-a", self.env())
+            self.assertEqual(res.outcome, "pass", res.detail)
+            return {k: v for k, v in self.led.last("run.end").items() if k not in drop}
+
+        self.assertEqual(row(False), row(True))
 
 
 class SessionArm(Base):

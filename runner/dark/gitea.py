@@ -44,6 +44,7 @@ class Gitea:
         # labels or asks for one milestone again makes no second list call
         self._labels = {}
         self._milestones = {}
+        self._boards = {}  # full -> the Now board issue's number, one lookup per repository
 
     def api(self, path, method="GET", data=None):
         req = urllib.request.Request(
@@ -222,6 +223,37 @@ class Gitea:
         if comment:
             self.comment(full, n, comment)
         self.api(f"/repos/{full}/issues/{n}", "PATCH", {"state": "closed"})
+
+    def issue_edit(self, full, n, title=None, body=None):
+        data = {}
+        if title is not None:
+            data["title"] = title
+        if body is not None:
+            data["body"] = body
+        self.api(f"/repos/{full}/issues/{n}", "PATCH", data)
+
+    def issue_pin(self, full, n):
+        self.api(f"/repos/{full}/issues/{n}/pin", "POST")
+
+    def ensure_board(self, full):
+        """The number of the open issue titled exactly `Now` carrying the
+        org label `board` in `full`, creating the issue (and the label,
+        colour #1f6feb) and pinning it when it is missing. Remembered on
+        this client per repository, so a second run of the same shift makes
+        no lookup call."""
+        n = self._boards.get(full)
+        if n is not None:
+            return n
+        for i in self.open_issues(full, labels=["board"]):
+            if i.get("title") == "Now":
+                self._boards[full] = i["number"]
+                return i["number"]
+        org = full.split("/", 1)[0]
+        label = self.ensure_label(org, "board", "#1f6feb")
+        n = self.issue_create(full, "Now", "", labels=[label])
+        self.issue_pin(full, n)
+        self._boards[full] = n
+        return n
 
     def comments(self, full, n):
         out = []

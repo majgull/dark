@@ -8,6 +8,7 @@ import re
 import subprocess
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
@@ -167,14 +168,33 @@ class FakeGitea:
                     full = m.group(1)
                     q = dict(x.split("=") for x in query.split("&") if "=" in x)
                     page = int(q.get("page", 1))
-                    items = [{"number": n, "title": i["title"], "state": i["state"]}
-                             for n, i in sorted(fake.issues.get(full, {}).items())
-                             if i.get("state", "open") == q.get("state", "open")]
+                    want = set(urllib.parse.unquote(q["labels"]).split(",")) if q.get("labels") else None
+                    label_names = {lab["id"]: lab["name"] for labs in fake.labels.values() for lab in labs}
+                    items = []
+                    for n, i in sorted(fake.issues.get(full, {}).items()):
+                        if i.get("state", "open") != q.get("state", "open"):
+                            continue
+                        if want is not None and not ({label_names.get(lid, str(lid))
+                                                      for lid in (i.get("labels") or [])} & want):
+                            continue
+                        items.append({"number": n, "title": i["title"], "state": i["state"]})
                     return self._send(200, items[(page - 1) * 50: page * 50])
+                m = re.match(r"^/repos/([^/]+/[^/]+)/issues/(\d+)/pin$", p)
+                if m and method == "POST":
+                    full, n = m.group(1), int(m.group(2))
+                    fake.issues[full][n]["pinned"] = True
+                    return self._send(201, {})
                 m = re.match(r"^/repos/([^/]+/[^/]+)/issues/(\d+)$", p)
                 if m and method == "PATCH":
                     full, n = m.group(1), int(m.group(2))
-                    fake.issues[full][n]["state"] = self._body().get("state", "open")
+                    d = self._body()
+                    iss = fake.issues[full][n]
+                    if "state" in d:
+                        iss["state"] = d["state"]
+                    if "title" in d:
+                        iss["title"] = d["title"]
+                    if "body" in d:
+                        iss["body"] = d["body"]
                     return self._send(200, {"number": n})
                 m = re.match(r"^/repos/([^/]+/[^/]+)/branches/(.+)$", p)
                 if m:
