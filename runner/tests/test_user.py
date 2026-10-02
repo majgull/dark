@@ -1079,6 +1079,11 @@ class Recording(unittest.TestCase):
         self.assertEqual(self.pw.names()[-4:], ["tracing.stop", "context.close", "browser.close", "stop"])
         self.assertFalse(os.path.exists(video_dir))
 
+    def test_the_browser_gets_no_sandbox_and_no_shared_memory_file(self):
+        # the sandbox's /dev/shm is 64 MB: a page of a few MB crashes without the flag
+        self.page()
+        self.assertEqual(self.pw.kwargs("launch")[0]["args"], ["--no-sandbox", "--disable-dev-shm-usage"])
+
     def test_a_browser_that_will_not_start_is_still_the_environment(self):
         FakePlaywright().install(self)
         with mock.patch.object(FakePlaywright, "launch", side_effect=RuntimeError("no display")):

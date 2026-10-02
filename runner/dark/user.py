@@ -526,7 +526,7 @@ class PlaywrightPage:
             self._pw = sync_playwright().start()
             exe = os.environ.get("DARK_CHROMIUM", "/usr/bin/chromium")
             self._browser = self._pw.chromium.launch(
-                executable_path=exe if os.path.exists(exe) else None, args=["--no-sandbox"])
+                executable_path=exe if os.path.exists(exe) else None, args=["--no-sandbox", "--disable-dev-shm-usage"])
             try:
                 self._open(video=bool(records_dir))
             except Exception as e:  # noqa: BLE001
