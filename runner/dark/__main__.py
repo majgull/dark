@@ -504,8 +504,10 @@ def cmd_long(args):
     if not branches:
         print("judge: none (no branch pushed)")
         return 1  # nothing was pushed: there is nothing to judge
+    # the judge's issue joins the milestone of the task it judges and names
+    # the run's issue, so the two read as one piece of work
     judge = runner.review(_long_brief(task), {}, judge_tier, args.arm, slot=args.slot,
-                          review_branches=branches)
+                          review_branches=branches, milestone_title=task.id, judges=res.issue)
     print(f"judge: {judge.outcome}")
     return 0 if judge.outcome == "pass" else 1
 
