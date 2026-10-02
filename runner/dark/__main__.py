@@ -175,7 +175,22 @@ def cmd_admission(args):
 
 
 def cmd_status(args):
-    """python3 -m dark status [--last N] [--json]: the running runs, oldest
+    catalog, budgets, host, ledger, gitea, px = _ctx(args)
+    day = budget.today(ledger)
+    for name, w in budget.windows(budgets, catalog, ledger, day).items():
+        print(f"window {name}: {json.dumps(w.as_dict())}")
+    print(f"watts: {json.dumps(budget.watts(budgets, catalog, ledger, day).as_dict())}")
+    for cls in budgets.classes:
+        env = budget.envelope(budgets, ledger, cls)
+        print(f"envelope {cls}: {json.dumps(env.as_dict())}")
+    last = ledger.last("shift.end")
+    if last:
+        print(f"last shift: {last['shift']} runs={last['runs']} passes={last['passes']}")
+    return 0
+
+
+def cmd_now(args):
+    """python3 -m dark now [--last N] [--json]: the running runs, oldest
     first, then the last N finished runs, newest first (dark/status.py).
     Reads the ledger only; no network call."""
     host = config.load_host(os.path.join(_conf(args), "host.toml"))
@@ -704,7 +719,8 @@ def main(argv=None):
     p.add_argument("--no-model", action="store_true",
                    help="skip the model catalog checks and the wake (no endpoint configured)")
     sub.add_parser("admission", help="the admission table derived from the ledger")
-    p = sub.add_parser("status", help="the running runs, then the last N finished, from the ledger alone")
+    sub.add_parser("status", help="windows, watts and envelopes today")
+    p = sub.add_parser("now", help="the running runs, then the last N finished, from the ledger alone")
     p.add_argument("--last", type=int, default=10, help="how many finished runs to show (default 10)")
     p.add_argument("--json", action="store_true", help="print the rows as a JSON array instead of the table")
     p = sub.add_parser("shift", help="preflight, run every task, digest")
@@ -848,7 +864,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     try:
         return {"check-config": cmd_check_config, "preflight": cmd_preflight, "admission": cmd_admission,
-                "status": cmd_status, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
+                "status": cmd_status, "now": cmd_now, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
                 "user": cmd_user, "long": cmd_long, "demo": cmd_demo,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,

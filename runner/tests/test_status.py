@@ -1,4 +1,4 @@
-"""python3 -m dark status: the running runs, oldest first, then the last N
+"""python3 -m dark now: the running runs, oldest first, then the last N
 finished runs, newest first, read from the ledger alone (dark/status.py)."""
 
 import io
@@ -14,6 +14,7 @@ from unittest import mock
 from dark import __main__ as M
 from dark import ledger as L
 from dark import status as S
+from tests.test_config import BUDGETS, MODELS, write_conf
 
 FX = os.path.join(tempfile.gettempdir(), "fx")
 
@@ -86,7 +87,7 @@ class Cli(unittest.TestCase):
         env = {k: v for k, v in os.environ.items() if not k.startswith("DARK_")}
         out = io.StringIO()
         with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(out):
-            rc = M.main(["--conf", self.conf, "status", *argv])
+            rc = M.main(["--conf", self.conf, "now", *argv])
         return rc, out.getvalue()
 
     def test_json_output_parses_and_has_the_keys(self):
@@ -111,3 +112,27 @@ class Cli(unittest.TestCase):
         self.assertTrue(lines[0].startswith("running 1, last 0 finished"))
         for line in lines:
             self.assertLessEqual(len(line), 110)
+
+
+class CliStatus(unittest.TestCase):
+    """python3 -m dark status: windows, watts and envelopes today
+    (unrelated to dark/status.py; the name predates it)."""
+
+    def setUp(self):
+        os.makedirs(FX, exist_ok=True)
+        self.dir = tempfile.mkdtemp(prefix="status-", dir=FX)
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.conf = write_conf(self.dir, MODELS, BUDGETS)
+        self.state = os.path.join(self.dir, "state")
+        os.makedirs(self.state)
+        with open(os.path.join(self.conf, "host.toml"), "w") as f:
+            f.write(f'[host]\nstate_dir = "{self.state}"\n')
+
+    def test_prints_windows_watts_and_envelopes(self):
+        env = {k: v for k, v in os.environ.items() if not k.startswith("DARK_")}
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), redirect_stdout(out):
+            rc = M.main(["--conf", self.conf, "status"])
+        self.assertEqual(rc, 0)
+        lines = out.getvalue().splitlines()
+        self.assertTrue(any(line.startswith("window ") or line.startswith("envelope ") for line in lines), lines)
