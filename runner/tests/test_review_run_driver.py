@@ -156,10 +156,19 @@ class ScriptedGitea:
         self._comments = comments
         self.closed = []
 
-    def issue_create(self, full, title, body):
+    def issue_create(self, full, title, body, labels=None, milestone=None):
         return 7
 
     def delete_branch(self, full, branch):
+        pass
+
+    def ensure_label(self, org, name, color, description=""):
+        return 1
+
+    def ensure_milestone(self, full, title, description=""):
+        return 1
+
+    def issue_add_labels(self, full, n, ids):
         pass
 
     def comments(self, full, n):

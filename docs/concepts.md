@@ -155,7 +155,11 @@ step delivered, or that step's oracle when it failed.
 ids.
 
 **records repository**: a Git repository, one per shift, where a session arm
-pushes its kept transcript, brief and task record.
+pushes its kept transcript, brief and task record. Each run's issue in it
+carries `arm/<arm>` and `tier/<tier>` labels and a milestone titled with the
+task id, and gets `outcome/<result>` (with `kind/<kind>` after a failure)
+before it closes, so the issue list can be filtered and grouped. The labels
+live on the org that owns the repository.
 
 **park, block, escalate**: the three non-terminal endings for a task in a
 shift. Park means a limit was reached and the task waits for the next shift;

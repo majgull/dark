@@ -153,6 +153,12 @@ class Base(unittest.TestCase):
     def transitions(self, run_id):
         return [(e["frm"], e["to"]) for e in self.led.events("run.transition") if e["run"] == run_id]
 
+    def labels_of(self, full, n):
+        """The label names on issue `n` of `full`, resolved from the ids."""
+        ids = self.gitea_fake.issues.get(full, {}).get(n, {}).get("labels") or []
+        names = {lab["id"]: lab["name"] for labs in self.gitea_fake.labels.values() for lab in labs}
+        return sorted(names.get(i, f"?{i}") for i in ids)
+
 
 class Outcomes(Base):
     def test_pass_end_to_end(self):
@@ -306,6 +312,27 @@ class Outcomes(Base):
         r.run(self.task, "local-a", self.env())
         self.assertIsNone(self.led.last("run.end")["asserts"]["vms_destroyed"])
 
+    def test_a_label_failure_leaves_the_run_end_row_alone(self):
+        # a GiteaError from a label or milestone call is best effort: the
+        # run.end row must not move, and the run must not fail
+        self.maxDiff = None
+        drop = ("run", "ts", "iso", "seconds", "wall_seconds", "issue", "branch")
+
+        def row(break_labels):
+            shutil.rmtree(os.path.join(self.tmp, "bench"), ignore_errors=True)
+            r = self.runner([{"content": FILE_HELLO}])
+            if break_labels:
+                def boom(*a, **kw):
+                    raise G.GiteaError(500, "labels down")
+                r.gitea.ensure_label = boom
+                r.gitea.ensure_milestone = boom
+                r.gitea.issue_add_labels = boom
+            res = r.run(self.task, "local-a", self.env())
+            self.assertEqual(res.outcome, "pass", res.detail)
+            return {k: v for k, v in self.led.last("run.end").items() if k not in drop}
+
+        self.assertEqual(row(False), row(True))
+
     def test_gitea_down_is_a_structural_record_with_a_named_reason(self):
         # it happens before the model's first call and is not the tier's
         # doing; as a refusal it left no record at all
@@ -377,6 +404,17 @@ class SessionArm(Base):
         self.push_solution("run/session-2", {"hello.txt": "wrong\n"})
         res = r.stage_only(self.task, "run/session-2", "cloud-x", "session-x")
         self.assertEqual((res.outcome, res.checks_ok, res.checks_total), ("fail:capability", 0, 1))
+
+    def test_a_passing_long_arm_run_carries_labels_and_the_task_milestone(self):
+        r = self.runner([])
+        self.push_solution("run/long-1", {"hello.txt": "hello from a session\n"})
+        res = r.stage_only(self.task, "run/long-1", "local-a", "long")
+        self.assertEqual(res.outcome, "pass", res.detail)
+        self.assertEqual(self.labels_of(self.full, res.issue),
+                         ["arm/long", "outcome/pass", "tier/local-a"])
+        ms = self.gitea_fake.issues[self.full][res.issue]["milestone"]
+        titles = {m["id"]: m["title"] for m in self.gitea_fake.milestones[self.full]}
+        self.assertEqual(titles.get(ms), "hello")
 
 
 class ThinkingBudget(Base):
@@ -551,6 +589,26 @@ class UserArm(Base):
                              "error": "1 of 2 steps failed"},
                             "AGENT-DONE fail (steps): 1 of 2 steps failed")
         self.assertEqual((res.outcome, res.fail_kind), ("fail:capability", "steps"))
+
+    def test_a_user_run_at_the_envelope_wall_carries_fail_and_seconds(self):
+        from dark import tasks as T
+        body = ('url = "https://app.example.test/"\nsteps = ["Open the page"]\n'
+                'spec = "Check that a visitor can buy one item."\n')
+        task = T.load_task(make_user_task(os.path.join(self.tmp, "bench"), body=body))
+        now = [time.time()]
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1",
+                        clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + 1))
+
+        def launch(vmid, name, files, runcmd, **spawn_kw):
+            sent = json.loads(files["/opt/task.json"][0])
+            r.gitea.comment(sent["repo"], sent["issue"], "AGENT-ALIVE run")
+        r.launch = launch
+        res = r.user(task, "cloud-x", shift="s1", env=self.env(seconds=2))
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:budget", "seconds"))
+        full = f"{self.host.records_org}/s1"
+        self.assertEqual(self.labels_of(full, res.issue),
+                         ["arm/user", "kind/seconds", "outcome/fail", "tier/cloud-x"])
 
 
 class ReviewMode(Base):

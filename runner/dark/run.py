@@ -33,6 +33,19 @@ from . import version as dark_version
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKEW = 300  # seconds of Gitea-vs-runner clock skew tolerated on created_at checks
 
+# The colour each label the runner puts on a run's issue carries. arm is the
+# kind of run, tier the model, kind the failure, outcome the result; an
+# outcome the runner does not name falls back to the neutral grey.
+LABEL_COLORS = {
+    "arm": "#0969da", "tier": "#8250df", "kind": "#bc4c00",
+    "outcome/pass": "#2da44e", "outcome/fail": "#cf222e", "outcome/inconclusive": "#bf8700",
+}
+LABEL_COLOR_OTHER = "#6e7781"
+
+
+def label_color(name):
+    return LABEL_COLORS.get(name) or LABEL_COLORS.get(name.split("/", 1)[0]) or LABEL_COLOR_OTHER
+
 
 @dataclass
 class RunResult:
@@ -179,6 +192,8 @@ class _Run:
             tools=getattr(self, "tools", None),
             records=res.records, records_sha256=res.records_sha256,
             distinct_calls=res.distinct_calls, repeat_calls=res.repeat_calls, stall_max=res.stall_max)
+        if res.issue:
+            self._label_end(to, kind)
         try:
             if res.issue:
                 self.r.gitea.issue_close(self.full, res.issue, f"RUN-END {to}"
@@ -190,6 +205,20 @@ class _Run:
             otel.export_run(self.r.host.otlp_endpoint, row, otel.fetch_stream(self.r.gitea, res.records, log=self.r.log),
                             log=self.r.log)
         return res
+
+    def _label_end(self, outcome, kind):
+        """outcome/<x>, and kind/<kind> when the run has a failure kind, on
+        the issue before it is closed. Best effort: one GiteaError line and
+        the run's outcome and ledger rows do not move."""
+        names = [f"outcome/{outcome.split(':', 1)[0]}"]
+        if kind:
+            names.append(f"kind/{kind}")
+        try:
+            org = self.full.split("/", 1)[0]
+            ids = [self.r.gitea.ensure_label(org, n, label_color(n)) for n in names]
+            self.r.gitea.issue_add_labels(self.full, self.res.issue, ids)
+        except G.GiteaError as e:
+            self.r.log(f"issue labels {self.res.run}: {e}")
 
     def refuse(self, why):
         self.go("refused", why)
@@ -327,6 +356,26 @@ class Runner:
                     raise
         return full
 
+    def _issue_meta(self, st, full):
+        """(label ids, milestone id) for a new run issue, best effort.
+
+        `arm/<arm>` and `tier/<tier>` are made on the org that owns `full` (a
+        Gitea label belongs to the org of its repository), the tier taken as
+        the ledger records it with a trailing `:latest` dropped; the
+        milestone's title is the task id. A GiteaError from any of the three
+        is logged in one line and drops what is missing: a thinner record is
+        never a changed outcome, and no ledger row changes."""
+        labels, milestone = [], None
+        tier = st.tier[:-len(":latest")] if st.tier.endswith(":latest") else st.tier
+        try:
+            org = full.split("/", 1)[0]
+            labels.append(self.gitea.ensure_label(org, f"arm/{st.arm}", label_color(f"arm/{st.arm}")))
+            labels.append(self.gitea.ensure_label(org, f"tier/{tier}", label_color(f"tier/{tier}")))
+            milestone = self.gitea.ensure_milestone(full, st.task.id)
+        except G.GiteaError as e:
+            self.log(f"issue labels {st.res.run}: {e}")
+        return labels, milestone
+
     def _claude_spawn_kw(self, tier, session=True):
         """spawn() keywords a claude:<model-id> run needs beyond the
         protocol's: its sandbox also joins host.claude_network, the network
@@ -375,11 +424,13 @@ class Runner:
         st.go("preflight", "shift start")
         if task.cls in spec.USER_CLASSES:
             return st.refuse(f"{task.id} is a user task: it has no work repo (run it with `dark user`)")
+        labels, milestone = self._issue_meta(st, full)
         try:
             res.issue = self.gitea.issue_create(
                 full, f"run {res.run} [{tier}]",
                 f"class: {task.cls}\ntier: {tier}\nenvelope: {json.dumps(env.as_dict())}\n"
-                f"may edit: {', '.join(task.may_edit) or '-'}\n\n{task.spec}")
+                f"may edit: {', '.join(task.may_edit) or '-'}\n\n{task.spec}",
+                labels=labels, milestone=milestone)
             self.gitea.delete_branch(full, res.branch)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}", reserved=reserved)
@@ -574,10 +625,12 @@ class Runner:
             try:
                 if not self.gitea.branch_exists(st.full, branch):
                     return st.end("fail:structural", "push", f"branch {branch} not on {st.full}", usage=usage)
+                labels, milestone = self._issue_meta(st, st.full)
                 st.res.issue = self.gitea.issue_create(
                     st.full, f"stage {run_id} [{arm}: {tier}]",
                     f"class: {task.cls}\narm: {arm}\ntier: {tier}\nbranch: {branch}\n"
-                    f"usage: {json.dumps(usage)}\n\n{task.spec}")
+                    f"usage: {json.dumps(usage)}\n\n{task.spec}",
+                    labels=labels, milestone=milestone)
             except G.GiteaError as e:
                 return st.end("fail:structural", "gitea", f"gitea: {e}", usage=usage)
             st.go("ready", "session arm: branch present")
@@ -644,10 +697,12 @@ class Runner:
         res, model, tier, full = st.res, st.model, st.tier, st.full
         wd = self.budgets.watchdog
         st.go("preflight", "shift start")
+        labels, milestone = self._issue_meta(st, full)
         try:
             res.issue = self.gitea.issue_create(
                 full, f"review {res.run} [{tier}]",
-                f"class: review\narm: {st.arm}\ntier: {tier}\n\n{task.spec}")
+                f"class: review\narm: {st.arm}\ntier: {tier}\n\n{task.spec}",
+                labels=labels, milestone=milestone)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}")
         st.go("ready", "issue ready")
@@ -837,10 +892,12 @@ class Runner:
         if task.cls not in spec.USER_CLASSES:
             return st.refuse(f"{task.id} is class {task.cls}, not a user task")
         steps = "\n".join(f"{n}. {text}" for n, text in enumerate(task.steps, 1))
+        labels, milestone = self._issue_meta(st, full)
         try:
             res.issue = self.gitea.issue_create(
                 full, f"user {res.run} [{tier}]",
-                f"class: {task.cls}\narm: {st.arm}\ntier: {tier}\nurl: {task.url}\n\n{task.spec}\n\n{steps}")
+                f"class: {task.cls}\narm: {st.arm}\ntier: {tier}\nurl: {task.url}\n\n{task.spec}\n\n{steps}",
+                labels=labels, milestone=milestone)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}")
         st.go("ready", "issue ready")

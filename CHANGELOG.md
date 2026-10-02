@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Every run's issue carries `arm/<arm>` and `tier/<tier>` labels and a milestone titled with the task id while it is open, and gets `outcome/<result>` (with `kind/<kind>` after a failure) before it closes, so the issue list can be filtered by kind of run, model and result; labelling is best effort and never changes a run's outcome or ledger rows.
+
 ### Fixed
 
 - The records push fetches only the newest commit and its directory listings (`--depth 1 --filter=blob:none --no-checkout`) and stages only the run's own directory, so it no longer downloads every earlier run's files and does not get slower with every run.
