@@ -116,6 +116,54 @@ def _created(c):
         return 0.0
 
 
+def _wall_line(res):
+    """`wall <n> s, <calls> calls, tokens <in> in / <out> out` for an issue's
+    closing comment: one line a person reads, and a number the ledger row has
+    as None is left out."""
+    parts = [f"wall {res.wall_seconds} s"]
+    if res.calls is not None:
+        parts.append(f"{res.calls} calls")
+    if res.tokens_in is not None and res.tokens_out is not None:
+        parts.append(f"tokens {res.tokens_in} in / {res.tokens_out} out")
+    elif res.tokens_in is not None:
+        parts.append(f"tokens {res.tokens_in} in")
+    elif res.tokens_out is not None:
+        parts.append(f"tokens {res.tokens_out} out")
+    return ", ".join(parts)
+
+
+def issue_page(st, env=None, judges=None, may_edit=None, branch=None, usage=None, url=None):
+    """(title, body) of a run's issue, the one shape all four create calls use.
+
+    Title: `<arm>: <task id> (<tier>)`, the tier without a trailing
+    `:latest`. Body, in order: `run:`; `task:` with the class, arm and tier;
+    `envelope:` when the envelope is known at that point; `judges:` for a
+    review that names the run it judges; the run's own lines (`may edit:`,
+    `branch:`, `usage:`, `url:`); then the task text, and a user run's
+    numbered steps, folded into a `<details>` block."""
+    tier = st.tier[:-len(":latest")] if st.tier.endswith(":latest") else st.tier
+    lines = [f"run: {st.res.run}",
+             f"task: {st.task.id}, class {st.task.cls}, arm {st.arm}, tier {st.tier}"]
+    if env is not None:
+        lines.append(f"envelope: {env.calls} calls, {env.seconds} s")
+    if judges is not None:
+        lines.append(f"judges: #{judges}")
+    if may_edit is not None:
+        lines.append(f"may edit: {', '.join(may_edit) or '-'}")
+    if branch is not None:
+        lines.append(f"branch: {branch}")
+    if usage is not None:
+        lines.append(f"usage: {json.dumps(usage)}")
+    if url is not None:
+        lines.append(f"url: {url}")
+    lines += ["", "<details><summary>task</summary>", "", st.task.spec]
+    if st.task.steps:
+        numbered = "\n".join(f"{n}. {text}" for n, text in enumerate(st.task.steps, 1))
+        lines += ["", numbered]
+    lines += ["", "</details>"]
+    return f"{st.arm}: {st.task.id} ({tier})", "\n".join(lines)
+
+
 class _Run:
     """The per-run state, transitions and the one run.end."""
 
@@ -196,8 +244,11 @@ class _Run:
             self._label_end(to, kind)
         try:
             if res.issue:
-                self.r.gitea.issue_close(self.full, res.issue, f"RUN-END {to}"
-                                         + (f" ({kind})" if kind else "") + f"\n{res.detail}")
+                comment = (f"RUN-END {to}" + (f" ({kind})" if kind else "") + f"\n{res.detail}"
+                           + "\n" + _wall_line(res))
+                if res.records and not str(res.records).startswith("PUSH FAILED"):
+                    comment += f"\nrecords: [{res.run}](/{self.full}/src/branch/main/{res.run})"
+                self.r.gitea.issue_close(self.full, res.issue, comment)
         except G.GiteaError as e:
             self.r.log(f"issue close failed: {e}")
         if self.r.host.otlp_endpoint:
@@ -428,11 +479,8 @@ class Runner:
             return st.refuse(f"{task.id} is a user task: it has no work repo (run it with `dark user`)")
         labels, milestone = self._issue_meta(st, full)
         try:
-            res.issue = self.gitea.issue_create(
-                full, f"run {res.run} [{tier}]",
-                f"class: {task.cls}\ntier: {tier}\nenvelope: {json.dumps(env.as_dict())}\n"
-                f"may edit: {', '.join(task.may_edit) or '-'}\n\n{task.spec}",
-                labels=labels, milestone=milestone)
+            title, body = issue_page(st, env=env, may_edit=task.may_edit)
+            res.issue = self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
             self.gitea.delete_branch(full, res.branch)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}", reserved=reserved)
@@ -628,11 +676,9 @@ class Runner:
                 if not self.gitea.branch_exists(st.full, branch):
                     return st.end("fail:structural", "push", f"branch {branch} not on {st.full}", usage=usage)
                 labels, milestone = self._issue_meta(st, st.full)
+                title, body = issue_page(st, env=env, branch=branch, usage=usage)
                 st.res.issue = self.gitea.issue_create(
-                    st.full, f"stage {run_id} [{arm}: {tier}]",
-                    f"class: {task.cls}\narm: {arm}\ntier: {tier}\nbranch: {branch}\n"
-                    f"usage: {json.dumps(usage)}\n\n{task.spec}",
-                    labels=labels, milestone=milestone)
+                    st.full, title, body, labels=labels, milestone=milestone)
             except G.GiteaError as e:
                 return st.end("fail:structural", "gitea", f"gitea: {e}", usage=usage)
             st.go("ready", "session arm: branch present")
@@ -706,10 +752,8 @@ class Runner:
         st.go("preflight", "shift start")
         labels, milestone = self._issue_meta(st, full, milestone_title)
         try:
-            res.issue = self.gitea.issue_create(
-                full, f"review {res.run} [{tier}]",
-                f"class: review\narm: {st.arm}\ntier: {tier}\n\n{task.spec}",
-                labels=labels, milestone=milestone)
+            title, body = issue_page(st, env=env, judges=judges)
+            res.issue = self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}")
         st.go("ready", "issue ready")
@@ -898,13 +942,10 @@ class Runner:
         st.go("preflight", "shift start")
         if task.cls not in spec.USER_CLASSES:
             return st.refuse(f"{task.id} is class {task.cls}, not a user task")
-        steps = "\n".join(f"{n}. {text}" for n, text in enumerate(task.steps, 1))
         labels, milestone = self._issue_meta(st, full)
         try:
-            res.issue = self.gitea.issue_create(
-                full, f"user {res.run} [{tier}]",
-                f"class: {task.cls}\narm: {st.arm}\ntier: {tier}\nurl: {task.url}\n\n{task.spec}\n\n{steps}",
-                labels=labels, milestone=milestone)
+            title, body = issue_page(st, env=env, url=task.url)
+            res.issue = self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}")
         st.go("ready", "issue ready")

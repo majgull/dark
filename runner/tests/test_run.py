@@ -416,6 +416,27 @@ class SessionArm(Base):
         titles = {m["id"]: m["title"] for m in self.gitea_fake.milestones[self.full]}
         self.assertEqual(titles.get(ms), "hello")
 
+    def test_a_long_run_issue_is_written_for_a_person(self):
+        r = self.runner([])
+        self.push_solution("run/long-1", {"hello.txt": "hello from a session\n"})
+        res = r.stage_only(self.task, "run/long-1", "local-a", "long")
+        self.assertEqual(res.outcome, "pass", res.detail)
+        issue = self.gitea_fake.issues[self.full][res.issue]
+        self.assertEqual(issue["title"], "long: hello (local-a)")
+        self.assertEqual(issue["body"].splitlines()[0], f"run: {res.run}")
+        self.assertIn("<details><summary>task</summary>", issue["body"])
+        self.assertIn("task: hello, class additive, arm long, tier local-a", issue["body"])
+
+    def test_the_closing_comment_leaves_out_numbers_the_ledger_has_as_none(self):
+        r = self.runner([])
+        self.push_solution("run/session-1", {"hello.txt": "hello\n"})
+        res = r.stage_only(self.task, "run/session-1", "cloud-x", "session-x")
+        comment = self.gitea_fake.bodies(self.full, res.issue)[-1]
+        self.assertTrue(comment.startswith("RUN-END pass"))
+        self.assertIn(f"wall {res.wall_seconds} s", comment)
+        self.assertNotIn("calls", comment)
+        self.assertNotIn("tokens", comment)
+
     def test_a_judging_review_joins_the_long_tasks_milestone(self):
         # a review that judges a long run is given the judged task's id, so
         # both issues land in the one milestone; without it the review would
@@ -608,6 +629,26 @@ class UserArm(Base):
                 'spec = "Check that a visitor can buy one item."\n')
         self.task = tasks.load_task(make_user_task(os.path.join(self.tmp, "bench"), body=body))
         return self.user_runner(done_fields, head).user(self.task, "cloud-x")
+
+    def test_a_user_run_that_pushed_records_ends_with_a_link_to_them(self):
+        res = self.run_user({"outcome": "ok", "steps_ok": 2, "steps_total": 2,
+                             "records": "dark-records/s1/whatever", "records_sha256": "abc"},
+                            "AGENT-DONE ok: 2/2 steps pass")
+        self.assertEqual(res.outcome, "pass", res.detail)
+        full = f"{self.host.records_org}/s1"
+        comment = self.gitea_fake.bodies(full, res.issue)[-1]
+        self.assertIn(f"records: [{res.run}]", comment)
+        self.assertIn(res.run, comment)
+        self.assertIn(f"/{full}/src/branch/main/{res.run}", comment)
+
+    def test_a_user_run_issue_folds_the_steps_and_names_the_url(self):
+        res = self.run_user({"outcome": "ok", "steps_ok": 2, "steps_total": 2},
+                            "AGENT-DONE ok: 2/2 steps pass")
+        full = f"{self.host.records_org}/s1"
+        body = self.gitea_fake.issues[full][res.issue]["body"]
+        self.assertIn("url: https://app.example.test/", body)
+        self.assertIn("<details><summary>task</summary>", body)
+        self.assertIn("1. Open the page", body)
 
     def test_an_inconclusive_verdict_is_the_runs_outcome(self):
         res = self.run_user({"outcome": "inconclusive", "steps_ok": 1, "steps_total": 2},

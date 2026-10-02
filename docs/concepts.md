@@ -155,8 +155,14 @@ step delivered, or that step's oracle when it failed.
 ids.
 
 **records repository**: a Git repository, one per shift, where a session arm
-pushes its kept transcript, brief and task record. Each run's issue in it
-carries `arm/<arm>` and `tier/<tier>` labels and a milestone titled with the
+pushes its kept transcript, brief and task record. Each run's issue in it is
+titled `<arm>: <task id> (<tier>)`, with the tier's trailing `:latest`
+dropped; its body opens with `run:`, `task:`, the envelope when one is known,
+`judges:` for a review that names the run it judges, and the run's own lines,
+then folds the task text (and a user run's numbered steps) into a
+`<details>` block; closing it adds a `wall`/`calls`/`tokens` line and, when it
+pushed some, a link to its records. Every run's issue carries `arm/<arm>` and
+`tier/<tier>` labels and a milestone titled with the
 task id, and gets `outcome/<result>` (with `kind/<kind>` after a failure)
 before it closes, so the issue list can be filtered and grouped. The labels
 live on the org that owns the repository.

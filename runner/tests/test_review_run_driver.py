@@ -283,6 +283,20 @@ class ReviewAsJudgeRun(Base):
         self.assertEqual(res.outcome, "delivered")
         self.assertEqual(self.sent["review_branches"], [])
 
+    def test_a_judge_review_names_the_run_it_judges(self):
+        r = self.judge_runner({"outcome": "ok", "verdict": "pass", "verdict_reason": "fine"})
+        res = r.review("judge these", {}, "local-a", "review-x", shift="s1",
+                       review_branches=self.BRANCHES, judges=1061)
+        body = self.gitea_fake.issues["dark-records/s1"][res.issue]["body"]
+        self.assertIn("judges: #1061", body)
+
+    def test_a_review_with_no_judged_run_names_none(self):
+        r = self.judge_runner({"outcome": "ok", "verdict": "pass", "verdict_reason": "fine"})
+        res = r.review("judge these", {}, "local-a", "review-x", shift="s1",
+                       review_branches=self.BRANCHES)
+        body = self.gitea_fake.issues["dark-records/s1"][res.issue]["body"]
+        self.assertNotIn("judges:", body)
+
 
 class ReviewBranchesFile(unittest.TestCase):
     """`dark review --review-branches FILE`: a JSON list of {name, url, branch}."""

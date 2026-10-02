@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Every run's issue carries `arm/<arm>` and `tier/<tier>` labels and a milestone titled with the task id while it is open, and gets `outcome/<result>` (with `kind/<kind>` after a failure) before it closes, so the issue list can be filtered by kind of run, model and result; labelling is best effort and never changes a run's outcome or ledger rows.
 
+### Changed
+
+- A run's issue is written for a person: the title is `<arm>: <task id> (<tier>)`; the body names the run, task, envelope and, for a review, the run it judges on their own lines, then folds the task text into a `<details>` block; the closing comment adds a `wall`/`calls`/`tokens` line and a link to the run's records when it pushed some.
+
 ### Fixed
 
 - A run's milestone join takes only the milestone whose title is the task id exactly (Gitea's `name=` filter also returns near matches, another task's milestone), and org labels are read page by page, so an org with more than 50 labels finds each one instead of trying to create a duplicate.
