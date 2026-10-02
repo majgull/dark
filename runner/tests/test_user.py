@@ -1300,6 +1300,21 @@ class Executor(unittest.TestCase):
         self.assertEqual(U.main(ScriptedModel([]), FakePage()), 1)
         self.assertEqual(self.done_tag()[1]["kind"], "env")
 
+    def test_a_run_that_ends_on_seconds_gives_the_push_the_records_timeout(self):
+        seen = []
+
+        def records_kw(*a, **kw):
+            seen.append(kw)
+            return {"records": "dark-records/s1/shop-user-1"}
+
+        S.T0 = time.time() - 10000  # the wall envelope is long spent
+        with mock.patch.object(S, "records_kw", records_kw):
+            self.assertEqual(U.main(ScriptedModel([]), FakePage()), 1)
+        self.assertTrue(seen)
+        for kw in seen:
+            self.assertEqual(kw.get("timeout"), U.RECORDS_PUSH_SECONDS)
+        self.assertEqual(self.done_tag()[1]["kind"], "seconds")
+
 
 class ReportingRunner(R.Runner):
     """launch() does what the sandbox would: it answers on the issue with

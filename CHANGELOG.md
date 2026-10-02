@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - The records push fetches only the newest commit and its directory listings (`--depth 1 --filter=blob:none --no-checkout`) and stages only the run's own directory, so it no longer downloads every earlier run's files and does not get slower with every run.
+- The user arm gives its records push 60 s, half of the time it keeps back for ending the run. Every git call of the push gets what is left of that, and a push that runs out is reported as `PUSH FAILED: timed out after 60 s` while the run still posts its result, instead of the runner killing the sandbox at the wall envelope with nothing kept.
 
 ## [0.7.0] - 2026-10-02
 

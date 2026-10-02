@@ -110,6 +110,8 @@ ACTION_TIMEOUT_MS = 10000
 # sandbox's boot, since the runner counts its envelope from the spawn and the
 # arm from its own start. No model call starts inside it, and none may run into it.
 RECORDS_RESERVE_SECONDS = 120
+# the part of the reserve the records push may use
+RECORDS_PUSH_SECONDS = 60
 VIEWPORT = {"width": 1280, "height": 720}  # Playwright's default, spelled out: the video is this size too
 TRACE_FILE, VIDEO_FILE = "trace.zip", "video.webm"  # beside steps.jsonl in the records
 TRAIL_SUFFIX = ".trail.jsonl"  # <records>/steps/<NN>.trail.jsonl, beside the step's <NN>.png
@@ -950,7 +952,8 @@ def records_paths(records_dir):
 def fail(kind, text, **kw):
     _readme("fail", f"({kind}) {text}")
     S.comment(f"AGENT-DONE fail ({kind}): {text}\n"
-              + S.done("fail", kind, **kw, **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR))))
+              + S.done("fail", kind, **kw, **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR),
+                                                          timeout=RECORDS_PUSH_SECONDS)))
     return 1
 
 
@@ -959,7 +962,9 @@ def inconclusive(text, **kw):
     told apart from a fail in the comment and the tag."""
     _readme("inconclusive", text)
     S.comment(f"AGENT-DONE inconclusive: {text}\n"
-              + S.done("inconclusive", **kw, **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR))))
+              + S.done("inconclusive", **kw,
+                       **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR),
+                                      timeout=RECORDS_PUSH_SECONDS)))
     return 1
 
 
@@ -1035,7 +1040,8 @@ def _main(model, page, judge):
         return inconclusive(f"{tally}; no step failed, but {len(unjudged)} could not be judged: {reasons}", **kw)
     _readme("pass", tally)
     S.comment(f"AGENT-DONE ok steps={ok}/{len(steps)} calls={S.STATS['calls']}\n"
-              + S.done("ok", **kw, **S.records_kw(extra_paths=records_paths(records))))
+              + S.done("ok", **kw, **S.records_kw(extra_paths=records_paths(records),
+                                                     timeout=RECORDS_PUSH_SECONDS)))
     return 0
 
 

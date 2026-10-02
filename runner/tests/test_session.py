@@ -478,6 +478,25 @@ class RecordsPushLive(unittest.TestCase):
         self.assertIn("run-9/stream.jsonl", files)
         self.assertIn("run-1/stream.jsonl", files)
 
+    def test_a_git_call_that_times_out_is_reported_not_raised(self):
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            # only a call given a time limit can time out; without the kwarg
+            # the real clone runs and the push succeeds, so this test fails
+            if isinstance(args, list) and "clone" in args and kw.get("timeout") is not None:
+                raise subprocess.TimeoutExpired(args, kw["timeout"])
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(session.subprocess, "run", fake_run):
+            ok, info = session.push_records({}, timeout=5)
+        self.assertFalse(ok)
+        self.assertIn("timed out", info)
+
+        with mock.patch.object(session.subprocess, "run", fake_run):
+            kw = session.records_kw(timeout=5)
+        self.assertTrue(kw["records"].startswith("PUSH FAILED: timed out"))
+
     def test_an_empty_records_repository_gets_its_first_run(self):
         bare = os.path.join(self.tmp, "empty.git")
         fakes.git("init", "-q", "--bare", "-b", "main", bare)

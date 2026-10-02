@@ -231,12 +231,14 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def push_records(extra_files=None, extra_paths=None):
+def push_records(extra_files=None, extra_paths=None, timeout=None):
     """Clone the records repo, add stream.jsonl / brief.md / task.json (and,
     in review mode, report.md) under RUN_ID/, commit and push. Never force:
     other runs of the same shift have their own RUN_ID directory in the same
     repo. `extra_paths` is {name: local file or directory} copied as it is
-    (the user arm's steps.jsonl and screenshots). (ok, path-or-error).
+    (the user arm's steps.jsonl and screenshots). `timeout` (seconds) caps
+    every git call at what is left of it; when it runs out the result is
+    (False, "timed out after <n> s"). (ok, path-or-error).
 
     Only the newest commit and its trees are fetched, never the blobs of the
     earlier runs, and nothing is checked out: the clone is shallow and
@@ -247,84 +249,104 @@ def push_records(extra_files=None, extra_paths=None):
     repo = TASK.get("records_repo")
     if not repo:
         return False, "no records_repo in task.json"
-    shutil.rmtree(RECORDS_WORK, ignore_errors=True)
-    r = subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none",
-                        "--no-checkout", clone_url(repo), RECORDS_WORK],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        return False, scrub(r.stderr[-300:])
+    deadline = None if timeout is None else time.monotonic() + timeout
 
-    def rsh(*cmd):
-        return subprocess.run(["git", *cmd], cwd=RECORDS_WORK, capture_output=True, text=True)
+    class _TimedOut(Exception):
+        pass
 
-    def commit(parent, message):
-        tree = rsh("write-tree", "--missing-ok")
-        if tree.returncode != 0:
-            return tree
-        cmd = ["commit-tree", tree.stdout.strip()]
-        if parent:
-            cmd += ["-p", parent]
-        c = rsh(*(cmd + ["-m", message]))
-        if c.returncode == 0:
-            rsh("update-ref", "HEAD", c.stdout.strip())
-        return c
+    def run_git(args, cwd=None):
+        kwargs = {"capture_output": True, "text": True}
+        if deadline is not None:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise _TimedOut
+            kwargs["timeout"] = left
+        try:
+            return subprocess.run(args, cwd=cwd, **kwargs)
+        except subprocess.TimeoutExpired:
+            raise _TimedOut from None
 
-    rsh("config", "user.name", "dark-session")
-    rsh("config", "user.email", "dark-session@localhost")
-    head = rsh("rev-parse", "--verify", "-q", "HEAD")
-    if head.returncode == 0:
-        rsh("read-tree", "HEAD")
-    else:
-        # a repository created empty has no commit: only point HEAD at main
-        rsh("symbolic-ref", "HEAD", "refs/heads/main")
-    run_dir = os.path.join(RECORDS_WORK, RUN_ID)
-    os.makedirs(run_dir, exist_ok=True)
-    if os.path.exists(STREAM_PATH):
-        shutil.copyfile(STREAM_PATH, os.path.join(run_dir, "stream.jsonl"))
-    else:
-        open(os.path.join(run_dir, "stream.jsonl"), "w").close()
-    with open(os.path.join(run_dir, "brief.md"), "w") as f:
-        f.write(SPEC_TEXT)
-    with open(os.path.join(run_dir, "task.json"), "w") as f:
-        f.write(scrub(json.dumps(TASK, indent=1, sort_keys=True)))
-    for name, content in (extra_files or {}).items():
-        with open(os.path.join(run_dir, name), "w") as f:
-            f.write(content)
-    for name, src in (extra_paths or {}).items():
-        if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(run_dir, name), dirs_exist_ok=True)
-        elif os.path.exists(src):
-            shutil.copyfile(src, os.path.join(run_dir, name))
-    rsh("add", "--", RUN_ID)
-    c = commit("HEAD" if head.returncode == 0 else None, f"records: {RUN_ID}")
-    if c.returncode != 0:
-        return False, scrub((c.stdout + c.stderr)[-300:])
-    push = rsh("push", "-q", "origin", "HEAD:main")
-    if push.returncode != 0:
-        # another run pushed first: fetch the new tip the same way, move the
-        # branch to it without touching files, and push again. No pull
-        # --rebase: there is no checked-out tree to rebase.
-        f = rsh("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", "main")
-        if f.returncode != 0:
-            return False, scrub(f.stderr[-300:])
-        rsh("reset", "-q", "--soft", "FETCH_HEAD")
-        rsh("read-tree", "FETCH_HEAD")
+    try:
+        shutil.rmtree(RECORDS_WORK, ignore_errors=True)
+        r = run_git(["git", "clone", "-q", "--depth", "1", "--filter=blob:none",
+                     "--no-checkout", clone_url(repo), RECORDS_WORK])
+        if r.returncode != 0:
+            return False, scrub(r.stderr[-300:])
+
+        def rsh(*cmd):
+            return run_git(["git", *cmd], cwd=RECORDS_WORK)
+
+        def commit(parent, message):
+            tree = rsh("write-tree", "--missing-ok")
+            if tree.returncode != 0:
+                return tree
+            cmd = ["commit-tree", tree.stdout.strip()]
+            if parent:
+                cmd += ["-p", parent]
+            c = rsh(*(cmd + ["-m", message]))
+            if c.returncode == 0:
+                rsh("update-ref", "HEAD", c.stdout.strip())
+            return c
+
+        rsh("config", "user.name", "dark-session")
+        rsh("config", "user.email", "dark-session@localhost")
+        head = rsh("rev-parse", "--verify", "-q", "HEAD")
+        if head.returncode == 0:
+            rsh("read-tree", "HEAD")
+        else:
+            # a repository created empty has no commit: only point HEAD at main
+            rsh("symbolic-ref", "HEAD", "refs/heads/main")
+        run_dir = os.path.join(RECORDS_WORK, RUN_ID)
+        os.makedirs(run_dir, exist_ok=True)
+        if os.path.exists(STREAM_PATH):
+            shutil.copyfile(STREAM_PATH, os.path.join(run_dir, "stream.jsonl"))
+        else:
+            open(os.path.join(run_dir, "stream.jsonl"), "w").close()
+        with open(os.path.join(run_dir, "brief.md"), "w") as f:
+            f.write(SPEC_TEXT)
+        with open(os.path.join(run_dir, "task.json"), "w") as f:
+            f.write(scrub(json.dumps(TASK, indent=1, sort_keys=True)))
+        for name, content in (extra_files or {}).items():
+            with open(os.path.join(run_dir, name), "w") as f:
+                f.write(content)
+        for name, src in (extra_paths or {}).items():
+            if os.path.isdir(src):
+                shutil.copytree(src, os.path.join(run_dir, name), dirs_exist_ok=True)
+            elif os.path.exists(src):
+                shutil.copyfile(src, os.path.join(run_dir, name))
         rsh("add", "--", RUN_ID)
-        c = commit("FETCH_HEAD", f"records: {RUN_ID}")
+        c = commit("HEAD" if head.returncode == 0 else None, f"records: {RUN_ID}")
         if c.returncode != 0:
             return False, scrub((c.stdout + c.stderr)[-300:])
         push = rsh("push", "-q", "origin", "HEAD:main")
-    if push.returncode != 0:
-        return False, scrub(push.stderr[-300:])
-    return True, f"{repo}/{RUN_ID}"
+        if push.returncode != 0:
+            # another run pushed first: fetch the new tip the same way, move the
+            # branch to it without touching files, and push again. No pull
+            # --rebase: there is no checked-out tree to rebase.
+            f = rsh("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", "main")
+            if f.returncode != 0:
+                return False, scrub(f.stderr[-300:])
+            rsh("reset", "-q", "--soft", "FETCH_HEAD")
+            rsh("read-tree", "FETCH_HEAD")
+            rsh("add", "--", RUN_ID)
+            c = commit("FETCH_HEAD", f"records: {RUN_ID}")
+            if c.returncode != 0:
+                return False, scrub((c.stdout + c.stderr)[-300:])
+            push = rsh("push", "-q", "origin", "HEAD:main")
+        if push.returncode != 0:
+            return False, scrub(push.stderr[-300:])
+        return True, f"{repo}/{RUN_ID}"
+    except _TimedOut:
+        return False, f"timed out after {timeout} s"
 
 
-def records_kw(extra_files=None, extra_paths=None):
-    """{"records": ..., "records_sha256": ...} for a done/fail tag. A push
+def records_kw(extra_files=None, extra_paths=None, timeout=None):
+    """{"records": ..., "records_sha256": ...} for a done/fail tag. `timeout`
+    caps the push and is reported like any other push failure. A push
     failure never raises and never changes the run's outcome; it only says
     so in the field the runner reads."""
     try:
-        ok, info = push_records(extra_files, extra_paths)
+        ok, info = push_records(extra_files, extra_paths, timeout)
     except Exception as e:  # noqa: BLE001 — records must never crash the run
         ok, info = False, f"{type(e).__name__}: {e}"
     if ok:
