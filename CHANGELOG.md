@@ -25,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - An unexpected exception in a user-arm run closes the browser and pushes the run's records before the crash comment, so a crash carries `records` (or `PUSH FAILED: ...`) and not nothing.
 - The user arm starts Chromium with `--disable-dev-shm-usage`, so it writes to a temp directory instead of the sandbox's 64 MB `/dev/shm`: a page of several MB used to kill the renderer as `Target crashed`.
 - The user arm's done tag gets a `recording` field, `incomplete: <what is missing>`, when a step's screenshot failed, closing the page raised, or no trace.zip was saved, so a run that still passed or failed on its steps no longer looks like it has a complete recording when it does not.
+- The user arm's browser page closes what it already started, the browser and Playwright, when opening the page itself then fails, instead of leaving them running; and an exception raised before the browser's own step loop begins still closes the page the run opened.
 
 ## [0.7.0] - 2026-10-02
 

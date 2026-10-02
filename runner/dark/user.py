@@ -524,6 +524,7 @@ class PlaywrightPage:
         self._pending = {}   # requests since the last drain, {id: {method, url, status}}
         self._video_dir = tempfile.mkdtemp(prefix="dark-video-") if records_dir else None
         self._video = self._tracing = False
+        self._pw = self._browser = None
         try:
             self._pw = sync_playwright().start()
             exe = os.environ.get("DARK_CHROMIUM", "/usr/bin/chromium")
@@ -538,6 +539,18 @@ class PlaywrightPage:
                 print(f"video recording unavailable, opening the page without it: {e}", file=sys.stderr)
                 self._open(video=False)
         except Exception as e:  # noqa: BLE001 — any launch failure is the environment's
+            # close what did start, so a browser or Playwright process that
+            # launched before a later step failed is not left running unclosed
+            if self._browser is not None:
+                try:
+                    self._browser.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            if self._pw is not None:
+                try:
+                    self._pw.stop()
+                except Exception:  # noqa: BLE001
+                    pass
             raise BrowserError(f"chromium did not start: {e}") from None
 
     def _open(self, video):

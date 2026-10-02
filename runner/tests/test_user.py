@@ -161,10 +161,13 @@ class FakePlaywright:
     `calls` as (name, kwargs). no_video: a context that records a video
     refuses its page, as Playwright does without its ffmpeg. no_trace:
     tracing.start refuses. dies: tracing.stop, closing the context, the
-    browser and Playwright all raise, as they do once the browser crashed."""
+    browser and Playwright all raise, as they do once the browser crashed.
+    no_new_page: the context's new_page refuses outright, as a browser that
+    launched but then could not open any page."""
 
-    def __init__(self, no_video=False, no_trace=False, dies=False):
+    def __init__(self, no_video=False, no_trace=False, dies=False, no_new_page=False):
         self.no_video, self.no_trace, self.dies = no_video, no_trace, dies
+        self.no_new_page = no_new_page
         self.calls = []
         self.chromium = self  # sync_playwright().start().chromium.launch(...) -> a browser, also this object
         self.contexts = []
@@ -244,6 +247,8 @@ class FakeContext:
 
     def new_page(self):
         self.pw._call("new_page")
+        if self.pw.no_new_page:
+            raise RuntimeError("no page available")
         page = FakeEventPage(self.pw, self.kw)
         self.page = page
         if self.kw.get("record_video_dir"):
@@ -1090,6 +1095,14 @@ class Recording(unittest.TestCase):
             with self.assertRaises(U.BrowserError):
                 U.PlaywrightPage(self.records)
 
+    def test_a_constructor_failure_after_launch_closes_what_it_started(self):
+        pw = FakePlaywright(no_new_page=True).install(self)
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(U.BrowserError):
+                U.PlaywrightPage(self.records)
+        self.assertIn("browser.close", pw.names())
+        self.assertIn("stop", pw.names())
+
     def test_a_page_that_cannot_be_read_is_a_browser_error(self):
         class Crashed:
             def locator(self, selector):
@@ -1321,6 +1334,7 @@ class Executor(unittest.TestCase):
         self.assertNotIn("shop-user-1/steps/02.png", files)
         self.assertIn("shop-user-1/steps/03.png", files)
         self.assertIn("shop-user-1/trace.zip", files)  # what the browser managed to save before it died
+        self.assertNotIn("shop-user-1/video.webm", files)
 
     def test_a_page_that_cannot_be_read_ends_env_and_pushes_the_records(self):
         seen = []
@@ -1360,6 +1374,13 @@ class Executor(unittest.TestCase):
         self.assertEqual(tag["records"], "dark-records/s1/shop-user-1")
         self.assertEqual([kw.get("timeout") for kw in seen], [U.RECORDS_PUSH_SECONDS])
         self.assertIn("boom", body)
+
+    def test_an_exception_before_run_steps_also_closes_the_page(self):
+        page = FakePage()
+        with mock.patch.object(U, "ChatModel", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                U.main(None, page)
+        self.assertTrue(page.closed)
 
     def test_no_token_appears_in_the_records(self):
         page = FakePage(snapshot=f"- heading \"Shop\"\n- text \"session {TOKEN}\"")
