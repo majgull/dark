@@ -86,6 +86,12 @@ class BackendRefusal(unittest.TestCase):
             with self.subTest(where=where):
                 self.assertEqual(loader().backend, "lxc")
 
+    def test_factory_builds_a_vm_for_a_desktop_vm_target_on_a_docker_host(self):
+        host = config.Host()
+        host.backend = "docker"
+        self.assertIsInstance(sandbox.make(host, 9101, backend="proxmox"), vm.Proxmox)
+        self.assertNotIsInstance(sandbox.make(host, 9101), vm.Proxmox)
+
     def test_factory_refuses_an_unknown_backend(self):
         host = config.Host()
         host.backend = "nomad"

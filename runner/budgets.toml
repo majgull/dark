@@ -101,6 +101,17 @@ headroom = 0.3
 admit_at = 0.7
 provisional = ["example-large"]
 
+# the desktop arm (dark/desktop.py): one desktop action per call, a few per
+# step, then the hidden checks. OCR and application launches are slower than a
+# page, so the wall cap is larger. Not benched: placeholders until the ledger
+# sizes them.
+[class.desktop]
+think = "low"
+hard = { runs = 1, calls = 40, seconds = 1800, max_reasoning_chars = 40000 }
+headroom = 0.3
+admit_at = 0.7
+provisional = ["example-large"]
+
 [admission]
 min_runs = 10      # below this a (class, tier) pair is admitted only provisionally
 last_runs = 20     # the pass rate is over the last N runs of the pair

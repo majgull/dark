@@ -117,6 +117,46 @@ one line of note, recorded with a screenshot as `steps/<NN>.png` and a line
 of `steps.jsonl` in the records repository. A user-arm run passes when every
 step's verdict is pass; a failed step is `fail:capability`.
 
+**desktop task**: a `task.toml` of class `desktop`: an image, a start script
+beside the task file, a spec, numbered steps, and optional hidden checks and
+live target. It runs with `dark desktop --task <task.toml> --tier <id>
+[--target lab|vm|live]`.
+
+**desktop image**: an OCI image of a whole desktop system (for example a
+bootc image of a TV box: compositor, shell, apps, units). The same image, by
+digest, is what the real machine runs.
+
+**start script**: the shell script beside a desktop task that the runner runs
+as root before anything else. It brings up a graphical session for one user
+and writes the session's environment (`WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`,
+the user, and any compositor socket) to `/run/dark-desktop-session`, one
+`NAME=value` per line; the file is not a dot-env name, which the agent guards
+on the first user's host.
+
+**desktop driver**: the object that does to a desktop what `PlaywrightPage`
+does to a page: launch, look, act, screenshot. It runs on the machine under
+test, as the session's user, with the session's environment;
+`dark/desktop.py`'s `DesktopPage` is it.
+
+**desktop snapshot**: what the model sees instead of an accessibility tree:
+the list of windows (application id, title, workspace, which one has focus),
+then the text read off the screen by OCR, one line each, cut like a page
+snapshot.
+
+**check**: a command in a desktop task, run by the executor as root after the
+steps and never shown to the model; its exit status is its verdict. Checks
+are the hidden tests of a desktop task.
+
+**lab sandbox**: the desktop image run as a container with a render device and
+a headless compositor output; the `lab` target, on the docker backend.
+
+**VM sandbox**: the same image booted as a virtual machine (systemd, login,
+timers, reboot); the `vm` target, a Proxmox VM cloned from a template.
+
+**live target**: a real machine running the image, named in the desktop task's
+`live` table (`host` and `user`) and used only after a deploy; the `live`
+target, reached over ssh with no sandbox.
+
 **long arm**: an arm that runs one session for hours over several
 repositories and has a reviewer session judge it. A long task (class `long`)
 is a spec and `repos`, each naming a repository (`name`, `url` and `base`);

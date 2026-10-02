@@ -386,14 +386,16 @@ class ChatModel:
             body["temperature"] = t["temperature"]
         return body
 
-    def next_action(self, n, text, url, snapshot, history, earlier=None, timeout=None):
+    def next_action(self, n, text, url, snapshot, history, earlier=None, timeout=None, system=SYSTEM):
         """`timeout` is the time the run has left for this call; the call
-        waits no longer than that, nor than the task's llm_timeout."""
+        waits no longer than that, nor than the task's llm_timeout.
+        `system` is the system prompt: the browser's by default, overridden by
+        a driver that brings its own (the desktop arm's action set)."""
         prompt = PROMPT.format(spec=self.t.get("spec", ""), n=n, total=len(self.t.get("steps") or []),
                                text=text, url=url, snapshot=shown_snapshot(snapshot),
                                earlier=earlier_steps(earlier),
                                history="\n".join(json.dumps(h, sort_keys=True) for h in history) or "(none)")
-        content, finish, thought = self._complete(SYSTEM, prompt, timeout)
+        content, finish, thought = self._complete(system, prompt, timeout)
         action = parse_action(content)
         if action.get("do") == "invalid" and finish == "length":
             # the thinking used the whole token budget and no answer was written:
@@ -767,6 +769,10 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
     os.makedirs(steps_dir, exist_ok=True)
     jsonl = os.path.join(records_dir, "steps.jsonl")
     stream = os.path.join(records_dir, "stream.jsonl")
+    # the page that offers its own prompt and target names is the one whose
+    # actions differ (the desktop driver); otherwise the browser's are used
+    system = getattr(page, "SYSTEM", None)
+    target_of = getattr(page, "action_target", action_target)
     page.goto(url)
     results, stop = [], None
     for n, text in enumerate(steps, 1):
@@ -801,7 +807,10 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
             S.STATS["requests"] += 1
             left = max(0.001, deadline - reserve - clock())  # the snapshot took some of it
             try:
-                action = model.next_action(n, text, page.url(), snap, history, earlier=results, timeout=left)
+                opts = {"earlier": results, "timeout": left}
+                if system is not None:
+                    opts["system"] = system
+                action = model.next_action(n, text, page.url(), snap, history, **opts)
             except ModelError:
                 if deadline - reserve - clock() >= 1:
                     raise
@@ -867,14 +876,14 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
                 except Exception as e:  # noqa: BLE001 — a failed action is evidence, not a crash
                     history.append({"action": action, "error": f"{type(e).__name__}: {e}"[:300]})
                 trail.append({"t": round(clock() - step_start, 3), "action": action,
-                              "target": action_target(action), "requests": []})
+                              "target": target_of(action), "requests": []})
                 if refused:
                     trail[-1]["refused"] = True
                 pending = trail[-1]
             if verdict is None and not is_wait and repeats >= 3:
                 # the same browser action on an unchanged page three times: no
                 # new information can reach the model, so the step stays unjudged
-                verdict, note = "inconclusive", f"stuck: {action_target(action)}"
+                verdict, note = "inconclusive", f"stuck: {target_of(action)}"
             elif verdict is None and refusals >= 3:
                 # the same refused pass verdict three times: end the step and
                 # say what the model quoted, rather than call the verdict stuck

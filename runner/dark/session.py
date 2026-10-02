@@ -748,9 +748,23 @@ def main():
 def _main():
     if shutil.which("git") is None:
         return fail("env", "no `git` in this VM image (wrong template?)")
-    if TASK.get("mode", "task") == "review":
+    mode = TASK.get("mode", "task")
+    if mode == "review":
         return _main_review()
+    if mode == "desktop":
+        return _main_desktop()
     return _main_task()
+
+
+def _main_desktop():
+    """The desktop arm (dark/desktop.py): the task's own image in a sandbox,
+    its start script up first, a verdict per step, then the hidden checks.
+    Imported here so this module stays stdlib-only for every other mode."""
+    try:
+        from . import desktop
+    except ImportError:  # injected as /opt/session.py beside /opt/desktop.py
+        import desktop  # noqa: PLC0415
+    return desktop.main()
 
 
 def _main_task():

@@ -2,6 +2,7 @@
 subprocesses (the 'VM'), against the in-memory Gitea, a scripted model
 server and a bare origin over file://. Real time, short watchdog numbers."""
 
+import io
 import json
 import os
 import shutil
@@ -11,7 +12,10 @@ import tempfile
 import time
 import tomllib
 import unittest
+from contextlib import redirect_stdout
+from unittest import mock
 
+from dark import __main__ as M
 from dark import budget, config, gate, spec
 from dark import ledger as L
 from dark import run as R
@@ -19,7 +23,7 @@ from dark import vm
 from dark import gitea as G
 from tests import fakes
 from tests.test_config import BUDGETS, MODELS, write_conf
-from tests.test_tasks import VERIFY, make_task, make_templates, make_user_task
+from tests.test_tasks import VERIFY, make_desktop_task, make_task, make_templates, make_user_task
 
 FAST_BUDGETS = BUDGETS.replace("heartbeat_seconds = 10", "heartbeat_seconds = 1") \
     .replace("silent_kill_seconds = 30", "silent_kill_seconds = 4") \
@@ -34,6 +38,14 @@ def pyproject_version():
     """The repository's declared version, read independently of dark itself."""
     with open(os.path.join(os.path.dirname(RUNNER), "pyproject.toml"), "rb") as f:
         return tomllib.load(f)["project"]["version"]
+
+
+class _Reachable:
+    """A backend stub for the command tests: sandbox.make is patched to return
+    one, and `dark desktop` only asks the plane whether it is up."""
+
+    def reachable(self):
+        return True
 
 
 class FakeMeter:
@@ -832,6 +844,286 @@ class UserArm(Base):
         full = f"{self.host.records_org}/s1"
         self.assertEqual(self.labels_of(full, res.issue),
                          ["arm/user", "kind/seconds", "outcome/fail", "tier/cloud-x"])
+
+
+class DesktopArm(Base):
+    """The desktop arm's task.json and spawn keywords (the task's own image and
+    the host's render device), and its done tag's steps and hidden checks driving
+    the run's outcome. The sandbox is stood in for: launch() posts the
+    AGENT-DONE comment a real desktop executor would have posted on the issue."""
+
+    def desktop_task(self, checks=2):
+        from dark import tasks
+        body = ('image = "example.test/tvbox:next"\nstart = "start.sh"\n'
+                'steps = ["Open a terminal", "Read the top bar"]\n'
+                'spec = "Check the desktop."\n'
+                + "".join(f'[[checks]]\nid = "c{i}"\ncommand = "c{i}"\n' for i in range(checks)))
+        return tasks.load_task(make_desktop_task(os.path.join(self.tmp, "bench"), body=body))
+
+    def desktop_runner(self, done_fields, head):
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+
+        def launch(vmid, name, files, runcmd, **spawn_kw):
+            sent = json.loads(files["/opt/task.json"][0])
+            r.launched.append((vmid, name, spawn_kw, sent))
+            r.gitea.comment(sent["repo"], sent["issue"], head + "\n" + spec.TAG_PREFIX + json.dumps(
+                {"v": 2, "ev": "done", "calls": 1, "tokens_in": 10, "tokens_out": 5,
+                 "reasoning_chars": 0, "seconds": 3, **done_fields}))
+        r.launch = launch
+        r.net_ip = lambda vmid: "10.0.0.1"
+        return r
+
+    def run_desktop(self, done_fields, head, task=None):
+        task = task or self.desktop_task()
+        return self.desktop_runner(done_fields, head).desktop(task, "cloud-x", shift="s1")
+
+    def test_desktop_task_json_carries_the_image_start_steps_and_checks(self):
+        task = self.desktop_task()
+        at, _ = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                            log=lambda *a: None, shift="s1").desktop_task(
+            task, "cloud-x", self.env(), 7, "box-1", "dark-records/s1")
+        self.assertEqual((at["class"], at["mode"]), ("desktop", "desktop"))
+        self.assertEqual(at["image"], "example.test/tvbox:next")
+        self.assertEqual(at["target"], "lab")
+        self.assertEqual(at["start"], "#!/bin/sh\necho lab-start\n")
+        self.assertEqual(at["steps"], ["Open a terminal", "Read the top bar"])
+        self.assertEqual([c["id"] for c in at["checks"]], ["c0", "c1"])
+        self.assertEqual(at["repo"], "dark-records/s1")
+        for key in ("branch", "may_edit", "lang", "url", "acceptance_tar_b64"):
+            self.assertNotIn(key, at)
+
+    def test_desktop_sandbox_gets_the_image_and_the_render_device(self):
+        task = self.desktop_task()
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        _, kw = r.desktop_task(task, "cloud-x", self.env(), 7, "box-1", "dark-records/s1")
+        self.assertEqual(kw, {"cls": "desktop"})  # proxmox: the class names the firewall rule
+        self.host.backend = "docker"
+        _, kw = r.desktop_task(task, "cloud-x", self.env(), 7, "box-1", "dark-records/s1")
+        self.assertEqual(kw, {"cls": "desktop", "image": "example.test/tvbox:next",
+                               "devices": ["/dev/dri"]})
+
+    def test_desktop_done_tag_says_ok_and_the_run_passes(self):
+        res = self.run_desktop({"outcome": "ok", "steps_ok": 2, "steps_total": 2,
+                                "checks_ok": 2, "checks_total": 2},
+                               "AGENT-DONE ok 2/2 steps pass, 2/2 checks pass")
+        self.assertEqual(res.outcome, "pass", res.detail)
+        self.assertEqual((res.steps_ok, res.steps_total, res.checks_ok, res.checks_total), (2, 2, 2, 2))
+        end = self.led.last("run.end")
+        self.assertEqual((end["outcome"], end["checks_ok"], end["checks_total"]), ("pass", 2, 2))
+        self.assertEqual(res.transitions[-1], ("executing", "pass"))
+
+    def test_desktop_a_failing_check_ends_checks(self):
+        res = self.run_desktop({"outcome": "fail", "kind": "checks", "steps_ok": 2, "steps_total": 2,
+                                "checks_ok": 1, "checks_total": 2,
+                                "error": "1 of 2 checks failed"},
+                               "AGENT-DONE fail (checks): 1 of 2 checks failed")
+        self.assertEqual((res.outcome, res.fail_kind), ("fail:capability", "checks"))
+        self.assertEqual((res.checks_ok, res.checks_total), (1, 2))
+
+    def test_desktop_an_inconclusive_verdict_is_the_runs_outcome(self):
+        res = self.run_desktop({"outcome": "inconclusive", "steps_ok": 1, "steps_total": 2,
+                                "checks_ok": 2, "checks_total": 2},
+                               "AGENT-DONE inconclusive: 1/2 steps pass")
+        self.assertEqual((res.outcome, res.fail_kind), ("inconclusive", None))
+        self.assertNotIn(res.outcome, spec.FAIL_OUTCOMES)
+
+    def test_desktop_vm_target_sets_the_target_and_uses_the_proxmox_spawn(self):
+        # --target vm is a Proxmox clone from the host's template: the class
+        # names the firewall rule, the image is not a container image, and the
+        # task.json tells the executor it is in a VM (the start script runs
+        # either way; a VM's start script only waits for the image's session).
+        self.host.backend = "proxmox"
+        r = self.desktop_runner({"outcome": "ok", "steps_ok": 2, "steps_total": 2,
+                                 "checks_ok": 2, "checks_total": 2},
+                                "AGENT-DONE ok 2/2 steps pass, 2/2 checks pass")
+        res = r.desktop(self.desktop_task(), "cloud-x", shift="s1", target="vm")
+        self.assertEqual(res.outcome, "pass", res.detail)
+        vmid, name, spawn_kw, sent = r.launched[0]
+        self.assertEqual(spawn_kw, {"cls": "desktop"})
+        self.assertEqual(sent["target"], "vm")
+        self.assertEqual(sent["start"], "#!/bin/sh\necho lab-start\n")
+        self.assertEqual(sent["image"], "example.test/tvbox:next")
+        self.assertEqual(sent["steps"], ["Open a terminal", "Read the top bar"])
+
+    def test_desktop_a_shift_refuses_a_desktop_task(self):
+        class NoGitea:
+            def __getattr__(self, name):
+                raise AssertionError(f"gitea.{name} called for a desktop task")
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        r.gitea = NoGitea()
+        res = r.run(self.desktop_task(), "cloud-x", self.env())
+        self.assertEqual(res.outcome, "refused")
+        self.assertIn("dark desktop", res.detail)
+
+
+class DesktopLive(Base):
+    """--target live: the machine the task's `live` table names, over ssh,
+    with no sandbox. The ssh and scp calls are replaced by fakes that record
+    every command and post the done tag a real executor would have posted, so
+    no test opens a network connection."""
+
+    # built rather than written out: verify.sh refuses a test that names the
+    # machine's scratch directory by its literal path
+    REMOTE = os.path.join(os.sep, "tmp", "dark-desktop.abc")
+
+    @staticmethod
+    def run_command(remote):
+        """The exact detached command the runner sends the live machine."""
+        return (f"nohup sudo -n env DARK_TASK={remote}/task.json DARK_RECORDS={remote}/records "
+                f"DARK_RECORDS_WORK={remote}/records-work python3 {remote}/session.py "
+                f"> {remote}/desktop.log 2>&1 &")
+
+    def live_task(self, live=True):
+        from dark import tasks
+        body = ('image = "example.test/tvbox:next"\nstart = "start.sh"\n'
+                'steps = ["Open a terminal", "Read the top bar"]\n'
+                'spec = "Check the desktop."\n')
+        if live:
+            body += '[live]\nhost = "tvbox.example.test"\nuser = "dark"\n'
+        return tasks.load_task(make_desktop_task(os.path.join(self.tmp, "bench"), body=body))
+
+    def live_runner(self, done_fields, ssh_rc=0):
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        r.scp, r.ssh = [], []
+
+        def fake_ssh(user, host, command, timeout=None):
+            r.ssh.append((user, host, command))
+            if command.startswith("mktemp"):
+                return 0, self.REMOTE + "\n"
+            return ssh_rc, "no route to host\n" if ssh_rc else ""
+
+        def fake_scp(user, host, paths, remote, timeout=None):
+            r.scp.append((user, host, [str(p) for p in paths], remote))
+            with open(next(p for p in paths if str(p).endswith("task.json"))) as f:
+                r.sent = json.loads(f.read())
+            r.gitea.comment(r.sent["repo"], r.sent["issue"],
+                            "AGENT-DONE ok 2/2 steps pass, 2/2 checks pass\n"
+                            + spec.TAG_PREFIX + json.dumps(
+                                {"v": 2, "ev": "done", "calls": 1, "tokens_in": 10, "tokens_out": 5,
+                                 "reasoning_chars": 0, "seconds": 3, **done_fields}))
+            return 0, ""
+
+        r.live_ssh = fake_ssh
+        r.live_scp = fake_scp
+        return r
+
+    def test_live_without_a_table_is_refused(self):
+        r = self.live_runner({"outcome": "ok"})
+        res = r.desktop(self.live_task(live=False), "cloud-x", shift="s1", target="live")
+        self.assertEqual(res.outcome, "refused")
+        self.assertIn("no live target", res.detail)
+        self.assertEqual(r.scp, [])  # nothing was copied
+
+    def test_live_ssh_unanswered_is_refused_before_any_copy(self):
+        r = self.live_runner({"outcome": "ok"}, ssh_rc=255)
+        res = r.desktop(self.live_task(), "cloud-x", shift="s1", target="live")
+        self.assertEqual(res.outcome, "refused")
+        self.assertIn("did not answer ssh", res.detail)
+        self.assertEqual(r.scp, [])
+        self.assertEqual([c[2] for c in r.ssh], ["true"])  # only the probe ran
+
+    def test_live_copies_runs_and_removes_the_directory(self):
+        r = self.live_runner({"outcome": "ok", "steps_ok": 2, "steps_total": 2,
+                              "checks_ok": 2, "checks_total": 2})
+        res = r.desktop(self.live_task(), "cloud-x", shift="s1", target="live")
+        self.assertEqual(res.outcome, "pass", res.detail)
+        self.assertEqual(r.launched, [])  # no sandbox was spawned
+        user, host, paths, remote = r.scp[0]
+        self.assertEqual((user, host, remote), ("dark", "tvbox.example.test", self.REMOTE + "/"))
+        self.assertEqual([os.path.basename(p) for p in paths],
+                         ["session.py", "desktop.py", "user.py", "task.json", "start.sh"])
+        self.assertEqual(r.sent["target"], "live")
+        self.assertEqual(r.sent["start"], "#!/bin/sh\necho lab-start\n")
+        self.assertEqual(r.sent["steps"], ["Open a terminal", "Read the top bar"])
+        cmds = [c[2] for c in r.ssh]
+        self.assertEqual(cmds[0], "true")
+        self.assertEqual(cmds[1], f"mktemp -d {R.LIVE_TMP}")
+        self.assertEqual(cmds[2], self.run_command(self.REMOTE))
+        self.assertIn(f"rm -rf {self.REMOTE}", cmds)
+        self.assertFalse(os.path.exists(os.path.dirname(paths[0])))  # the local stage is gone
+
+    def test_live_task_json_asks_for_no_sandbox(self):
+        r = LocalRunner(self.cat, self.bud, self.host, self.led, self.gitea, None,
+                        log=lambda *a: None, shift="s1")
+        self.host.backend = "docker"
+        _, kw = r.desktop_task(self.live_task(), "cloud-x", self.env(), 7, "box-1",
+                               "dark-records/s1", target="live")
+        self.assertEqual(kw, {"cls": "desktop"})  # live spawns nothing: no image, no devices
+
+
+class DesktopVmCommand(unittest.TestCase):
+    """`dark desktop --target vm`: the Proxmox template is the entry
+    host.desktop_vm_templates holds for the task's image, a missing entry is
+    refused with one line before anything is spawned, and the backend the
+    command builds is the one the run uses."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conf = write_conf(self.tmp, MODELS, BUDGETS)
+        self.tok = os.path.join(self.tmp, "tok")
+        with open(self.tok, "w") as f:
+            f.write("t\n")
+        self.host_toml = os.path.join(self.conf, "host.toml")
+        self.bench = os.path.join(self.tmp, "bench")
+        self.task_dir = make_desktop_task(self.bench, "box", body=(
+            'image = "example.test/tvbox:next"\nstart = "start.sh"\n'
+            'steps = ["Open a terminal"]\nspec = "Check the desktop."\n'))
+        self.made = []      # templates sandbox.make was called with, in order
+        self.targets = []   # targets Runner.desktop was handed
+        patches = [
+            mock.patch("dark.sandbox.make", self.fake_make),
+            mock.patch.object(R.Runner, "desktop", lambda runner, *a, **kw: self.fake_desktop(runner, *a, **kw)),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def fake_make(self, host, template, backend=None):
+        self.made.append(template)
+        return _Reachable()
+
+    def fake_desktop(self, runner, task, tier, arm="desktop", shift=None, think=None, env=None,
+                     slot=0, target="lab"):
+        self.targets.append(target)
+        return R.RunResult(run="box-desktop-1", task=task.id, cls=task.cls, tier=tier, outcome="pass",
+                           issue=3, records="dark-records/adhoc/box-desktop-1")
+
+    def write_host(self, table=""):
+        with open(self.host_toml, "w") as f:
+            f.write(f'[host]\nstate_dir = "{self.tmp}/state"\n'
+                    f'admin_token_file = "{self.tok}"\nagent_token_file = "{self.tok}"\n' + table)
+
+    def cli(self, *argv):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = M.main(["--conf", self.conf, "desktop", *argv])
+        return rc, buf.getvalue().strip().splitlines()
+
+    def test_the_template_comes_from_the_table(self):
+        self.write_host('\n[host.desktop_vm_templates]\n"example.test/tvbox:next" = 9101\n')
+        rc, out = self.cli("--task", self.task_dir, "--tier", "cloud-x", "--target", "vm")
+        self.assertEqual(rc, 0, out)
+        self.assertIn(9101, self.made)
+        self.assertEqual(self.targets, ["vm"])
+
+    def test_a_missing_entry_is_refused_before_anything_is_spawned(self):
+        self.write_host()
+        rc, out = self.cli("--task", self.task_dir, "--tier", "cloud-x", "--target", "vm")
+        self.assertEqual(rc, 2)
+        self.assertIn("no VM template", out[-1])
+        self.assertIn("example.test/tvbox:next", out[-1])
+        self.assertEqual(self.targets, [])
+
+    def test_a_live_run_without_a_live_table_is_refused(self):
+        self.write_host()
+        rc, out = self.cli("--task", self.task_dir, "--tier", "cloud-x", "--target", "live")
+        self.assertEqual(rc, 2)
+        self.assertIn("no live target", out[-1])
+        self.assertEqual(self.targets, [])
 
 
 class ReviewMode(Base):

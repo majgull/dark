@@ -110,6 +110,16 @@ TOOLS = (
           Arg("task_toml", "string", _TASK_TOML, option="--task", task_text=True),
           Arg("tier", "string", _TIER, True, "--tier"),
           _TIMEOUT), ("task", "task_toml")),
+    Tool("dark_desktop", "desktop", (),
+         "Run one desktop-arm task: a sandbox made from the task's own image checks a desktop step by step, then "
+         "runs the task's hidden checks. Prints one JSON line: run, outcome, fail_kind, detail, issue, records, "
+         "steps_ok, steps_total, checks_ok, checks_total. Give the task as `task` (a directory on the server's "
+         "machine; a desktop task's start script sits beside its task.toml) or as `task_toml` (the file's text, "
+         "which needs that start script beside it, so `task` is usually the one to use), exactly one of the two.",
+         (Arg("task", "string", "Path of the desktop task's task.toml or its directory.", option="--task"),
+          Arg("task_toml", "string", _TASK_TOML, option="--task", task_text=True),
+          Arg("tier", "string", _TIER, True, "--tier"),
+          _TIMEOUT), ("task", "task_toml")),
     Tool("dark_long", "long", (),
          "Run one long-arm task over several repositories, then judge the pushed branches with a reviewer "
          "session. Prints `long: <outcome>` and `judge: <outcome>`. Give the task as `task` (a path on the "

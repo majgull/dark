@@ -1,0 +1,66 @@
+# The TV box as a dark desktop task (rave 1112; dark specs/desktop-arm).
+# The same file runs in the lab (the image as a container), in a VM (the
+# image booted) and live (the NUC, after a deploy). Steps are done by a model
+# like a person at the TV with a keyboard; checks are the hidden tests,
+# run as root, each its own verdict. specs/tvbox/spec.md names what each
+# check proves.
+class = "desktop"
+id = "tvbox"
+image = "gitea.hacim.org/blt/tvbox:next"
+start = "lab-start.sh"
+spec = """
+The TV box is a living-room computer on the TV: a top bar with workspaces,
+what is playing, buttons for night light, sleep timer, volume, network and
+power; applications open full screen; a terminal is called foot. Nobody logs
+in: the box starts into the desktop for its user, tv.
+"""
+steps = [
+  "Open a terminal.",
+  "In the terminal, type: echo tvbox-dark-ok  and press Enter, then read the line it printed.",
+  "Read what the top bar says is playing right now.",
+]
+
+[[checks]]
+id = "never-suspends"
+command = "grep -qx AllowSuspend=no /usr/lib/systemd/sleep.conf.d/50-tvbox-no-sleep.conf && grep -qx HandleSuspendKey=ignore /usr/lib/systemd/logind.conf.d/50-tvbox-keys.conf"
+
+[[checks]]
+id = "never-locks"
+command = "python3 -c \"import tomllib,sys; l=tomllib.load(open('/usr/share/tvbox/noctalia/config.toml','rb'))['lockscreen']; sys.exit(0 if l['enabled'] is False and l['lock_before_suspend'] is False else 1)\""
+
+[[checks]]
+id = "key-wake-enabled"
+command = "test -L /etc/systemd/system/multi-user.target.wants/tvbox-key-wake.service && test -x /usr/libexec/tvbox/key-wake"
+
+[[checks]]
+id = "update-guard"
+command = "grep -qx 'ExecCondition=/usr/libexec/tvbox/unbaked guard' /usr/lib/systemd/system/bootc-fetch-apply-updates.service.d/50-tvbox-unbaked.conf"
+
+[[checks]]
+id = "bed-button-on-ha-sleep-timer"
+command = "python3 -c \"import tomllib,sys; a=tomllib.load(open('/usr/share/tvbox/noctalia/config.toml','rb'))['widget']['sleep-timer']['actions']; sys.exit(0 if 'living_room_sleep_start' in a['left'] and 'home-lab/sleep' in a['middle'] else 1)\""
+
+[[checks]]
+id = "aftertaste-can-run"
+command = "python3 -c 'import numpy, gi' && tesseract --list-langs 2>/dev/null | grep -qx eng && test -f /usr/lib/systemd/user/aftertaste-listen.service"
+
+[[checks]]
+id = "play-monster-on-path"
+command = "test \"$(readlink -f \"$(command -v play-monster)\")\" = /usr/libexec/tvbox/play-monster"
+
+[[checks]]
+id = "tv-agent-sleep-key-path"
+timeout = 30
+command = """sh -c '
+. /run/dark-desktop-session 2>/dev/null; export XDG_RUNTIME_DIR WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS MANGO_INSTANCE_SIGNATURE
+install -d -o tv -g tv /var/lib/tv/.config/tv-agent && printf '$LAB_AUTH' > /var/lib/tv/.config/tv-agent/token && chown tv:tv /var/lib/tv/.config/tv-agent/token
+setpriv --reuid tv --regid tv --init-groups env HOME=/var/lib/tv XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR WAYLAND_DISPLAY=$WAYLAND_DISPLAY MANGO_INSTANCE_SIGNATURE=$MANGO_INSTANCE_SIGNATURE /usr/libexec/tvbox/tv-agent >/tmp/tv-agent.log 2>&1 &
+sleep 2
+c=$(curl -s -o /dev/null -w "%{http_code}" -X POST -H "Authorization: Bearer $LAB_AUTH" http://127.0.0.1:8765/tv/off)
+sleep 1.5; w=$(pgrep -f -c "mmsg watch all-devices")
+curl -s -o /dev/null -X POST -H "Authorization: Bearer $LAB_AUTH" http://127.0.0.1:8765/screen/on
+echo "tv/off http=$c watchers=$w"; [ "$c" = 200 ] && [ "$w" -ge 1 ]'"""
+
+[live]
+host = "tvbox.example"
+user = "admin"

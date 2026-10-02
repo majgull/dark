@@ -5,11 +5,13 @@ from dark import spec
 
 class Classes(unittest.TestCase):
     def test_partition(self):
-        groups = (spec.EXEC_CLASSES, spec.CALL_CLASSES, spec.SESSION_CLASSES, spec.USER_CLASSES)
+        groups = (spec.EXEC_CLASSES, spec.CALL_CLASSES, spec.SESSION_CLASSES, spec.USER_CLASSES,
+                  spec.DESKTOP_CLASSES)
         self.assertEqual(set().union(*groups), set(spec.CLASSES))
         self.assertEqual(sum(len(g) for g in groups), len(set(spec.CLASSES)))
-        self.assertEqual(len(spec.CLASSES), 7)
+        self.assertEqual(len(spec.CLASSES), 8)
         self.assertEqual(spec.USER_CLASSES, ("user",))
+        self.assertEqual(spec.DESKTOP_CLASSES, ("desktop",))
 
     def test_long_is_a_session_class_not_a_task_class(self):
         # long runs as one session judged by a reviewer: task.toml intake

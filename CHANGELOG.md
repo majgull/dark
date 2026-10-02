@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The desktop arm: `dark desktop --task <task.toml> --tier <id> [--target lab|vm|live]` checks a desktop image the way the user arm checks a web application. A model takes the task's numbered steps against a desktop driver, quoting the desktop snapshot; hidden `checks` run after them as root; every step, screenshot, check and its verdict lands in the run's records, and a failing check fails the run. The `lab` target runs the image as a container, the `vm` target boots it as a Proxmox VM, and the `live` target reaches the real machine the task's `live` table names over ssh, with no sandbox. A check may name the targets it runs on (`targets`), so a check that changes the machine never runs on a live one.
+
 ## [0.7.1] - 2026-10-03
 
 ### Added

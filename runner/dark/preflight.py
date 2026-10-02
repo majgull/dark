@@ -31,7 +31,7 @@ class Check:
 
 class Preflight:
     def __init__(self, catalog, budgets, host, ledger, gitea, px, clock=time.time, log=print,
-                 chat=llm.chat, served=llm.served_models, shift="adhoc", sleep=time.sleep):
+                 chat=llm.chat, served=llm.served_models, shift="adhoc", sleep=time.sleep, template=None):
         self.catalog = catalog
         self.budgets = budgets
         self.host = host
@@ -44,6 +44,10 @@ class Preflight:
         self.served = served
         self.shift = shift
         self.sleep = sleep
+        # the Proxmox template this run clones, when it is not the shift's
+        # user-arm one: a desktop --target vm run passes the template it built
+        # its backend from, so the check below names that VM, not [shift].vm_template
+        self.template = template
 
     def run(self, need_vm=True, need_model=True):
         """[Check], in order. Stops at the first miss of a dependency
@@ -146,7 +150,11 @@ class Preflight:
                 add("container snapshot", ok, why or f"container {self.host.sandbox_container} "
                     f"has snapshot {self.host.sandbox_snapshot}")
             else:
-                add("vm template", ok, why or f"VM {self.budgets.shift['vm_template']} is a template")
+                # a desktop --target vm run built its backend from the template
+                # the host names for the task's image; name that one, not the
+                # user arm's [shift].vm_template
+                tpl = self.template if self.template is not None else self.budgets.shift["vm_template"]
+                add("vm template", ok, why or f"VM {tpl} is a template")
         return out
 
     def wake(self):

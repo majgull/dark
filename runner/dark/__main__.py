@@ -464,6 +464,70 @@ def cmd_user(args):
     return 0 if res.outcome == "pass" else 1
 
 
+def cmd_desktop(args):
+    """Launch one desktop-arm run: a sandbox made from the task's own image
+    brings up the session with the task's start script, dark/desktop.py reports
+    a verdict per step and then runs the task's hidden checks, and the outcome
+    is pass iff every step and every check passed. --task names the task's
+    task.toml or its directory; --target is lab (the image as a container), vm
+    (the image booted, from the Proxmox template the host names for its image),
+    or live (the machine the task's `live` table names, over ssh)."""
+    path = os.path.abspath(args.task)
+    if os.path.isfile(path):
+        if os.path.basename(path) != "task.toml":
+            print(f"desktop: {args.task}: --task names a task.toml or the directory holding one")
+            return 2
+        path = os.path.dirname(path)
+    try:
+        task = tasks.load_task(path)
+    except tasks.TaskError as e:
+        print(f"desktop: {e}")
+        return 2
+    if task.cls not in spec.DESKTOP_CLASSES:
+        print(f"desktop: {task.id} is class {task.cls}, not a desktop task")
+        return 2
+    if args.target == "live" and task.live is None:
+        # a live run needs the machine's host and user in the task; without
+        # them there is nothing to reach, refused before anything starts
+        print(f"desktop: {task.id} names no live target; add a [live] table with host and user")
+        return 2
+    catalog, budgets, host, ledger, gitea, px = _ctx(args)
+    # an unknown tier is one config line, before anything starts; the resolved
+    # id (llama3.2 -> llama3.2:latest) is what the run records and every later lookup use
+    args.tier = catalog.resolve(args.tier)
+    if config.is_claude_tier(args.tier):
+        print(f"desktop: {args.tier} runs Claude Code, which the desktop arm does not use; name a chat tier")
+        return 2
+    template = None
+    if args.target == "vm":
+        # a VM desktop clones the Proxmox template the host names for this
+        # task's image; no entry is a config miss, refused before any VM
+        template = host.desktop_vm_templates.get(task.image)
+        if template is None:
+            print(f"desktop: no VM template for image {task.image!r}; name one under "
+                  f"[host.desktop_vm_templates] or DARK_DESKTOP_VM_TEMPLATES")
+            return 2
+        px = sandbox.make(host, template, backend="proxmox")  # a VM even on a docker host
+    if args.target != "live":
+        # a live run spawns nothing: the compute plane is neither woken nor
+        # asked, only the machine the task names is reached, over ssh
+        pre = preflight.Preflight(catalog, budgets, host, ledger, gitea, px, shift=args.shift or "adhoc",
+                                  template=template)
+        if not px.reachable() and not pre.wake():
+            print(json.dumps({"run": None, "outcome": "refused",
+                              "detail": f"{host.proxmox}: unreachable and the wake failed"}))
+            return 2
+    from .run import Runner
+    runner = Runner(catalog, budgets, host, ledger, gitea, px, shift=args.shift or "adhoc", arm=args.arm)
+    res = runner.desktop(task, args.tier, arm=args.arm, shift=args.shift, think=args.think,
+                         slot=args.slot, target=args.target)
+    print(json.dumps({"run": res.run, "outcome": res.outcome, "fail_kind": res.fail_kind,
+                      "detail": res.detail, "issue": res.issue, "records": res.records,
+                      "steps_ok": res.steps_ok, "steps_total": res.steps_total,
+                      "checks_ok": res.checks_ok, "checks_total": res.checks_total}))
+    return 0 if res.outcome == "pass" else 1
+
+
 def cmd_demo(args):
     """Cut a user-arm run's records into <records>/demo.mp4: a title card, the
     run with each step, action and click captioned and each verdict's frame
@@ -816,6 +880,17 @@ def main(argv=None):
     p.add_argument("--shift", help="ledger shift id (default: adhoc); also names the dark-records repo")
     p.add_argument("--think", choices=["none", "low", "medium", "high"])
     p.add_argument("--slot", type=int, default=1, help="VM slot (sandbox = vmid_base + slot); a shift uses slot 0")
+    p = sub.add_parser("desktop", help="launch one desktop-arm run: the task's image in a sandbox, a verdict per step and hidden checks")
+    p.add_argument("--task", required=True, help="the desktop task's task.toml (or its directory)")
+    p.add_argument("--tier", required=True, help="the model id to use (must be in models.toml)")
+    p.add_argument("--target", choices=["lab", "vm", "live"], default="lab",
+                   help="where the desktop runs: lab (a container on the docker backend, the default); "
+                        "vm (a Proxmox VM cloned from the template host.desktop_vm_templates names "
+                        "for the task's image); live (the machine the task's live table names, over ssh)")
+    p.add_argument("--arm", default="desktop", help="arm name on the run's records (default desktop)")
+    p.add_argument("--shift", help="ledger shift id (default: adhoc); also names the dark-records repo")
+    p.add_argument("--think", choices=["none", "low", "medium", "high"])
+    p.add_argument("--slot", type=int, default=0, help="VM slot (sandbox = vmid_base + slot); a shift uses slot 0")
     p = sub.add_parser("done", help="the verdict a shift already holds for a task (session-side resume); exit 0 on a valid pass")
     p.add_argument("--shift", required=True)
     p.add_argument("--task", required=True)
@@ -846,7 +921,7 @@ def main(argv=None):
     p = sub.add_parser("export-harbor", help="write one dark task as a Terminal-Bench task directory")
     p.add_argument("task_dir", help="the dark task directory (task.toml, start/ and acceptance/)")
     p.add_argument("out_dir", help="the directory to write the Terminal-Bench layout into")
-    sub.add_parser("mcp", help="serve preflight, run, user, long, review and ledger-tail as MCP tools over stdin and stdout")
+    sub.add_parser("mcp", help="serve preflight, run, user, desktop, long, review and ledger-tail as MCP tools over stdin and stdout")
     p = sub.add_parser("demo", help="cut a user-arm run's records into a captioned demo video, <records>/demo.mp4")
     p.add_argument("records", help="the run's records directory (video.webm, trace.zip, steps.jsonl, stream.jsonl, task.json)")
     p.add_argument("--out", help="where the video goes (default <records>/demo.mp4)")
@@ -868,7 +943,7 @@ def main(argv=None):
         return {"check-config": cmd_check_config, "preflight": cmd_preflight, "admission": cmd_admission,
                 "status": cmd_status, "now": cmd_now, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
-                "user": cmd_user, "long": cmd_long, "demo": cmd_demo,
+                "user": cmd_user, "desktop": cmd_desktop, "long": cmd_long, "demo": cmd_demo,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
                 "export-harbor": cmd_export_harbor, "mcp": cmd_mcp, "ledger-tail": cmd_ledger_tail,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)

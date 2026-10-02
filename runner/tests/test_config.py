@@ -84,6 +84,10 @@ provisional = ["cloud-x"]
 hard = { runs = 1, calls = 20, seconds = 600, max_reasoning_chars = 40000 }
 admit_at = 0.7
 provisional = ["cloud-x"]
+[class.desktop]
+hard = { runs = 1, calls = 20, seconds = 1800, max_reasoning_chars = 40000 }
+admit_at = 0.7
+provisional = ["cloud-x"]
 [admission]
 min_runs = 3
 last_runs = 5

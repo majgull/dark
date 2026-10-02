@@ -73,14 +73,16 @@ class Docker:
         out += [" ".join(shlex.quote(a) for a in cmd) for cmd in runcmd]
         return "\n".join(out) + "\n"
 
-    def spawn(self, vmid, name, files, runcmd, cls=None, image=None, claude=False):
+    def spawn(self, vmid, name, files, runcmd, cls=None, image=None, claude=False, devices=()):
         """Create the container, write `files` in (modes honoured), copy in a
         start script built from `runcmd` and start it. A container of the same
         name left over from an earlier run is removed first. `image` is the
-        image for this one sandbox (a user-arm run's browser image); None is
-        the backend's own, host.sandbox_image. A "user" sandbox joins
-        target_network as well, and a sandbox that runs Claude Code
-        (`claude`) joins claude_network as well, both before it starts."""
+        image for this one sandbox (a user-arm run's browser image, a
+        desktop-arm run's task image); None is the backend's own,
+        host.sandbox_image. A "user" sandbox joins target_network as well, and
+        a sandbox that runs Claude Code (`claude`) joins claude_network as
+        well, both before it starts. `devices` is a host device or two handed
+        to `--device`, which a desktop sandbox needs for a render node."""
         if self._exists(name):
             self.reap(vmid, name)
         self._names[vmid] = name
@@ -105,6 +107,8 @@ class Docker:
                 args += ["--memory", str(self.memory)]
             if self.pids:
                 args += ["--pids-limit", str(self.pids)]
+            for dev in devices or ():
+                args += ["--device", str(dev)]
             args += [image or self.image, "/bin/sh", START_SCRIPT]
             self.run(args, timeout=300)
             self.run(["cp", tmp + "/.", f"{name}:/"], timeout=120)

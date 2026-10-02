@@ -76,6 +76,20 @@ class Preflight(unittest.TestCase):
                   "catalog gate", "catalog cloud", "window cloud", "watts", "admission additive", "proxmox", "vm template"):
             self.assertIn(n, names)
 
+    def test_a_desktop_run_names_the_desktop_template(self):
+        # a --target vm desktop run's backend is built from the template the
+        # host names for the task's image, so preflight must name that VM, not
+        # the user arm's [shift].vm_template
+        checks = self.pre(FakePx(), template=9101).run()
+        t = [c for c in checks if c.name == "vm template"][0]
+        self.assertTrue(t.ok, t.line())
+        self.assertIn("VM 9101 is a template", t.detail)
+
+    def test_without_a_desktop_template_the_shift_template_is_named(self):
+        checks = self.pre().run()
+        t = [c for c in checks if c.name == "vm template"][0]
+        self.assertIn(f"VM {self.bud.shift['vm_template']} is a template", t.detail)
+
     def test_missing_token_and_org(self):
         self.host.admin_token = ""
         self.gfake.orgs.discard("dark")

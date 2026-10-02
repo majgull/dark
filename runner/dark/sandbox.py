@@ -63,19 +63,21 @@ class Sandbox(Protocol):
         ...
 
 
-def make(host, template):
+def make(host, template, backend=None):
     """The one place the runner builds a backend object, chosen by
-    host.backend. A name this build does not implement is refused by
+    host.backend, or by `backend` when a run needs another one (a desktop
+    task's VM target is always a Proxmox VM, also on a docker host). A name this build does not implement is refused by
     config.check_backend, never guessed. `template` names the VM a Proxmox
     sandbox is cloned from; docker sandboxes come from host.sandbox_image and
     lxc sandboxes from host.sandbox_container at host.sandbox_snapshot."""
-    config.check_backend(host.backend)
-    if host.backend == "docker":
+    backend = backend or host.backend
+    config.check_backend(backend)
+    if backend == "docker":
         return docker.Docker(host.sandbox_image, network=host.sandbox_network,
                              cpus=host.sandbox_cpus, memory=host.sandbox_memory,
                              pids=host.sandbox_pids, target_network=host.target_network,
                              claude_network=host.claude_network)
-    if host.backend == "lxc":
+    if backend == "lxc":
         return lxc.Lxc(host.proxmox, host.sandbox_container, host.sandbox_snapshot,
                        bridge=host.sandbox_bridge, pool=host.sandbox_pool,
                        allow_in=host.sandbox_allow_in)

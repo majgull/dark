@@ -508,6 +508,105 @@ class UserTasks(unittest.TestCase):
                     self.assertIn(key, str(cm.exception))
 
 
+def make_desktop_task(bench, tid="box", body=None, start="start.sh"):
+    """A desktop task: task.toml plus the start script beside it (no
+    acceptance/, no work repo)."""
+    d = os.path.join(bench, "tasks", tid)
+    os.makedirs(d)
+    with open(os.path.join(d, start), "w") as f:
+        f.write("#!/bin/sh\necho lab-start\n")
+    if body is None:
+        body = ('image = "example.test/desktop:latest"\nstart = "start.sh"\n'
+                'steps = ["Open a terminal", "Read the top bar"]\n'
+                'spec = "Check the desktop."\n')
+    with open(os.path.join(d, "task.toml"), "w") as f:
+        f.write(f'id = "{tid}"\nclass = "desktop"\n{body}')
+    return d
+
+
+class DesktopTasks(unittest.TestCase):
+    """class = "desktop": an image, a start script read from beside the task,
+    numbered steps, and optional hidden checks and live target. Nothing of a
+    work-repo task."""
+
+    def setUp(self):
+        self.bench = os.path.join(tempfile.mkdtemp(), "bench")
+
+    def refuse(self, needle, tid, body, start="start.sh"):
+        d = make_desktop_task(self.bench, tid, body, start=start)
+        with self.assertRaises(tasks.TaskError) as cm:
+            tasks.load_task(d)
+        self.assertIn(needle, str(cm.exception))
+
+    def test_the_tvbox_fixture_loads(self):
+        # fixtures/desktop/tvbox: the owner's real TV box task, one check with
+        # its own timeout, the rest the default; sanitised so the gate's
+        # gitleaks and no-private checks pass (see report)
+        here = os.path.dirname(os.path.abspath(__file__))
+        t = tasks.load_task(os.path.join(here, "fixtures", "desktop", "tvbox"))
+        self.assertEqual((t.id, t.cls, t.image, t.lang, t.may_edit),
+                         ("tvbox", "desktop", "gitea.hacim.org/blt/tvbox:next", "", ()))
+        self.assertEqual(len(t.steps), 3)
+        self.assertEqual(len(t.checks), 8)
+        self.assertIn("lab-start", t.start)
+        self.assertEqual(t.live, {"host": "tvbox.example", "user": "admin"})
+        self.assertEqual(t.checks[-1]["timeout"], 30)                 # the task's own
+        self.assertEqual(t.checks[0]["timeout"], tasks.CHECK_TIMEOUT)  # the default
+
+    def test_a_desktop_task_loads_with_its_start_script_and_checks(self):
+        d = make_desktop_task(self.bench, body=(
+            'image = "example.test/desktop:latest"\nstart = "start.sh"\n'
+            'steps = ["Open a terminal", "Read the top bar"]\nspec = "Check the desktop."\n'
+            '[[checks]]\nid = "never-sleeps"\ncommand = "grep -q x /etc/x"\ntimeout = 5\n'))
+        t = tasks.load_task(d)
+        self.assertEqual(t.start, "#!/bin/sh\necho lab-start\n")
+        self.assertEqual(t.checks, ({"id": "never-sleeps", "command": "grep -q x /etc/x",
+                                      "timeout": 5, "targets": ("lab", "vm", "live")},))
+
+    def test_a_check_may_name_its_targets(self):
+        d = make_desktop_task(self.bench, "t", body=(
+            'image = "i"\nstart = "start.sh"\nsteps = ["x"]\nspec = "s"\n'
+            '[[checks]]\nid = "screen-off"\ncommand = "c"\ntargets = ["lab", "vm"]\n'))
+        self.assertEqual(tasks.load_task(d).checks[0]["targets"], ("lab", "vm"))
+        base = 'image = "i"\nstart = "start.sh"\nsteps = ["x"]\nspec = "s"\n[[checks]]\nid = "a"\ncommand = "c"\n'
+        self.refuse("targets", "u", base + 'targets = []\n')
+        self.refuse("targets", "v", base + 'targets = ["prod"]\n')
+
+    def test_the_image_and_the_start_script_are_required(self):
+        self.refuse("image", "a", 'start = "start.sh"\nsteps = ["x"]\nspec = "s"\n')
+        self.refuse("start", "b", 'image = "i"\nsteps = ["x"]\nspec = "s"\n')
+        self.refuse("beside", "c", 'image = "i"\nstart = "../x"\nsteps = ["x"]\nspec = "s"\n')
+        self.refuse("missing.sh", "d", 'image = "i"\nstart = "missing.sh"\nsteps = ["x"]\nspec = "s"\n')
+        self.refuse("steps", "e", 'image = "i"\nstart = "start.sh"\nspec = "s"\n')
+
+    def test_a_bad_check_is_refused(self):
+        base = 'image = "i"\nstart = "start.sh"\nsteps = ["x"]\nspec = "s"\n'
+        for i, (needle, check) in enumerate((
+                ("id", '[[checks]]\ncommand = "c"\n'),
+                ("command", '[[checks]]\nid = "a"\n'),
+                ("timeout", '[[checks]]\nid = "a"\ncommand = "c"\ntimeout = 0\n'),
+                ("timeout", '[[checks]]\nid = "a"\ncommand = "c"\ntimeout = "5"\n'),
+                ("no field", '[[checks]]\nid = "a"\ncommand = "c"\nverdict = "pass"\n'),
+                ("repeated", '[[checks]]\nid = "a"\ncommand = "c"\n'
+                             '[[checks]]\nid = "a"\ncommand = "d"\n'),
+                ("list of tables", 'checks = "x"\n'))):
+            with self.subTest(i=i):
+                self.refuse(needle, f"bad{i}", base + check)
+
+    def test_a_desktop_task_has_no_work_repo_fields(self):
+        base = 'image = "i"\nstart = "start.sh"\nsteps = ["x"]\nspec = "s"\n'
+        for key, value in (("may_edit", '["a.py"]'), ("lang", '"python"'), ("after", '"a"'),
+                            ("stage_timeout", "10"), ("tools", '"full"'), ("repos", "[]")):
+            with self.subTest(key=key):
+                self.refuse(key, f"w-{key}", base + f"{key} = {value}\n")
+
+    def test_live_needs_a_host_and_a_user(self):
+        base = 'image = "i"\nstart = "start.sh"\nsteps = ["x"]\nspec = "s"\n'
+        self.refuse("live", "l1", base + '[live]\nhost = "h"\n')
+        self.refuse("user", "l2", base + '[live]\nhost = "h"\nuser = ""\n')
+        self.refuse("live", "l3", base + '[live]\nhost = "h"\nuser = "u"\nextra = 1\n')
+
+
 class _NoMeter:
     def start(self):
         return self

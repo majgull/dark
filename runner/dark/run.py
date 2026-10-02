@@ -20,7 +20,11 @@ has no row for is ignored, never a crash.
 
 import json
 import os
+import re
 import secrets
+import shutil
+import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 
@@ -78,6 +82,10 @@ class RunResult:
     tool_calls: int | None = None
     checks_ok: int = 0
     checks_total: int = 0
+    # the desktop arm's numbered steps, beside its hidden checks; 0 for every
+    # other class (the user arm's steps fill the checks columns instead)
+    steps_ok: int = 0
+    steps_total: int = 0
     issue: int | None = None
     branch: str = ""
     # branches: the pushed branches of a long run, one {repo, branch} per
@@ -162,6 +170,38 @@ def issue_page(st, env=None, judges=None, may_edit=None, branch=None, usage=None
         lines += ["", numbered]
     lines += ["", "</details>"]
     return f"{st.arm}: {st.task.id} ({tier})", "\n".join(lines)
+
+
+# --- the live target: a real machine named in the task, reached over ssh ---
+# ssh and scp never prompt (a password prompt would hang a run), and a host
+# that does not answer in this long is a target miss, not a wait
+LIVE_OPTIONS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
+LIVE_PROBE_SECONDS = 30
+LIVE_COPY_SECONDS = 600
+LIVE_CLEAN_SECONDS = 60
+# the fresh remote directory each live run copies into, made by mktemp
+LIVE_TMP = "/tmp/dark-desktop.XXXXXX"
+LIVE_TMP_RE = re.compile(r"/tmp/dark-desktop\.[A-Za-z0-9]+")
+
+
+def _live_ssh(user, host, command, timeout=LIVE_COPY_SECONDS):
+    """One command on the live target, as (returncode, stdout+stderr)."""
+    try:
+        r = subprocess.run(["ssh", *LIVE_OPTIONS, f"{user}@{host}", command],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 255, f"ssh {user}@{host}: no answer in {timeout}s"
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+def _live_scp(user, host, paths, remote, timeout=LIVE_COPY_SECONDS):
+    """Copy local files to the live target, as (returncode, output)."""
+    try:
+        r = subprocess.run(["scp", *LIVE_OPTIONS, *[str(p) for p in paths], f"{user}@{host}:{remote}"],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return 255, f"scp {user}@{host}:{remote}: no answer in {timeout}s"
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
 
 
 def _board_body(rows, now, stale=0):
@@ -369,6 +409,17 @@ class Runner:
     def launch(self, vmid, name, files, runcmd, **spawn_kw):
         self.px.spawn(vmid, name, files, runcmd, **spawn_kw)
 
+    def live_ssh(self, user, host, command, timeout=LIVE_COPY_SECONDS):
+        """One command on the run's live target over ssh, as
+        (returncode, stdout+stderr). A test replaces this: no test opens a
+        real ssh connection."""
+        return _live_ssh(user, host, command, timeout)
+
+    def live_scp(self, user, host, paths, remote, timeout=LIVE_COPY_SECONDS):
+        """Copy local files to the run's live target over scp, as
+        (returncode, output). A test replaces this."""
+        return _live_scp(user, host, paths, remote, timeout)
+
     def reap(self, vmid, name):
         try:
             return self.px.reap(vmid, name)
@@ -546,6 +597,8 @@ class Runner:
         st.go("preflight", "shift start")
         if task.cls in spec.USER_CLASSES:
             return st.refuse(f"{task.id} is a user task: it has no work repo (run it with `dark user`)")
+        if task.cls in spec.DESKTOP_CLASSES:
+            return st.refuse(f"{task.id} is a desktop task: it has no work repo (run it with `dark desktop`)")
         labels, milestone = self._issue_meta(st, full)
         try:
             title, body = issue_page(st, env=env, may_edit=task.may_edit)
@@ -1087,6 +1140,226 @@ class Runner:
         if body:
             detail = f"{detail}: …{body[-360:]}" if len(body) > 360 else f"{detail}: {body}"
         return st.end(outcome, kind, detail, usage=usage)
+
+    # --- the desktop arm: an image and numbered steps in, verdicts and checks out ---
+    def desktop_task(self, task, tier, env, issue, run_id, records_repo, think=None, target="lab"):
+        """(task.json, spawn keywords) for a desktop-arm sandbox: the task's own
+        image (with the host's render device on the docker backend), its start
+        script and its hidden checks, and the numbered steps. Like a user-arm
+        sandbox it is told of no work repository; the records repo is where its
+        verdicts and screenshots are pushed. `target` is lab (the image as a
+        container), vm (the image booted) or live (the machine the task's `live`
+        table names, over ssh); the executor reads it from task.json and runs
+        the start script either way."""
+        model = self.catalog.model(tier)
+        prov = self.catalog.provider_of(tier)
+        think_chars = self.budgets.think["levels"][think] if think else 0
+        agent_task = {
+            "gitea": self.host.gitea_lan_url, "git_url": self._git_url(),
+            "repo": records_repo, "records_repo": records_repo, "issue": issue,
+            "token": self.host.agent_token,
+            "mode": "desktop", "image": task.image, "target": target,
+            "start": task.start, "checks": [dict(c) for c in task.checks],
+            "steps": list(task.steps), "spec": task.spec,
+            "llm_url": prov.url, "llm_model": tier, "max_calls": env.calls,
+            "max_tokens": model.max_tokens, "think": think, "think_chars": think_chars,
+            "think_api": prov.think_api, "llm_timeout": model.timeout,
+            "chars_per_token": self.budgets.think["chars_per_token"],
+            "temperature": self.catalog.defaults.get("temperature"),
+            "heartbeat_seconds": self.budgets.watchdog["heartbeat_seconds"],
+            "run": run_id, "task": task.id, "class": task.cls, "max_seconds": env.seconds}
+        spawn_kw = {"cls": task.cls}
+        if target == "lab" and self.host.backend == "docker":
+            # the image is the task's own, and it needs a render node to draw
+            spawn_kw["image"] = task.image
+            spawn_kw["devices"] = list(self.host.desktop_devices)
+        return agent_task, spawn_kw
+
+    def desktop(self, task, tier, arm="desktop", shift=None, think=None, env=None, slot=0, target="lab"):
+        """One desktop-arm run: a sandbox made from the task's own image brings
+        up the session with the task's start script, dark/desktop.py takes the
+        steps and reports a verdict per step, then runs the task's hidden
+        checks, and a failing check fails the run. No branch and no staging; the
+        records repo of the shift is the run's issue tracker and its push target.
+        `target` is where the desktop runs: lab (the docker backend), vm (the
+        Proxmox backend the host built from this task's image template), or live
+        (the real machine the task's `live` table names, over ssh, with no
+        sandbox)."""
+        if config.is_claude_tier(tier):
+            raise config.ConfigError("desktop: claude tiers run Claude Code, which the desktop arm does not use")
+        t_queued = self.clock()
+        shift = shift or self.shift
+        run_id = f"{task.id}-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
+        st = _Run(self, task, tier, arm, run_id, branch="", t_queued=t_queued)
+        st.think = think
+        st.meter = self.meter().start()
+        try:
+            st.full = self._ensure_records_repo(shift)
+            return self._desktop(st, task, slot, shift, env, target)
+        except L.LedgerError:
+            raise  # never a result without its record (as in run())
+        except Exception as e:  # noqa: BLE001
+            self.log(f"ERROR {run_id}: runner exception {e!r}")
+            st.reap_all()
+            if not st.ended:
+                return st.end("fail:structural", "runner", f"runner: {e!r}")
+            return st.res
+        finally:
+            st.reap_all()
+
+    def _desktop(self, st, task, slot, shift, env, target="lab"):
+        res, model, tier, full = st.res, st.model, st.tier, st.full
+        st.go("preflight", "shift start")
+        if task.cls not in spec.DESKTOP_CLASSES:
+            return st.refuse(f"{task.id} is class {task.cls}, not a desktop task")
+        if target == "live":
+            # the live target is refused from preflight, before the issue and
+            # before anything is copied: no live table, or a host that does
+            # not answer ssh, is a miss of the run's own inputs
+            if not task.live:
+                return st.refuse(f"{task.id} names no live target: its task.toml has no live table "
+                                 f"(host and user)")
+            lrc, lout = self.live_ssh(task.live["user"], task.live["host"], "true",
+                                      timeout=LIVE_PROBE_SECONDS)
+            if lrc != 0:
+                return st.refuse(f"live: {task.live['user']}@{task.live['host']} did not answer ssh: "
+                                 f"{(lout or '').strip()[-200:]}")
+        labels, milestone = self._issue_meta(st, full)
+        try:
+            title, body = issue_page(st, env=env, url=task.url)
+            res.issue = self._create_issue(full, title, body, labels, milestone, res.run)
+        except G.GiteaError as e:
+            return st.end("fail:structural", "gitea", f"gitea: {e}")
+        st.go("ready", "issue ready")
+
+        think = getattr(st, "think", None) or self.budgets.cls(task.cls).think or model.think
+        st.think = think
+        think_chars = self.budgets.think["levels"][think] if think else 0
+        if env is None:
+            legacy = "none" if model.thinking_tokens == 0 else None
+            env = budget.envelope(self.budgets, self.ledger, task.cls, tier, think=think, legacy=legacy)
+        self.hold(env.seconds + gate.MARGIN_SECONDS)
+        envelope = dict(env.as_dict(), **({"think": think, "think_chars": think_chars} if think else {}))
+        self.ledger.emit("run.start", shift=shift, task=task.id, run=res.run, cls=task.cls,
+                         tier=tier, envelope=envelope, arm=st.arm,
+                         **({"frozen": self.frozen} if self.frozen else {}))
+        self._update_board(full, shift, res.run, res.issue)
+
+        agent_task, spawn_kw = self.desktop_task(task, tier, env, res.issue, res.run, full, think, target)
+        if target == "live":
+            started = self._desktop_live(st, task, env, agent_task)
+            if started is None:
+                return st.res
+            t_spawn, done_tag, verdict, calls_seen = started
+        else:
+            files = {"/opt/task.json": (json.dumps(agent_task, indent=1), "0600"),
+                     "/opt/session.py": (self.session_src, "0644"),
+                     "/opt/desktop.py": (_script("desktop.py"), "0755"),
+                     "/opt/user.py": (_script("user.py"), "0755")}
+            xvmid = self.budgets.shift["vmid_base"] + slot
+            xname = f"dark-x{slot}"
+            t_spawn = self.clock()
+            try:
+                ip = self._launch_networked(
+                    st, xvmid, xname, files,
+                    [["bash", "-lc", "export HOME=/root; python3 /opt/session.py >/var/log/desktop.log 2>&1"]],
+                    spawn_kw=spawn_kw)
+            except vm.VMError as e:
+                return st.end("fail:structural", "env", f"desktop sandbox: {e}")
+            if not ip:
+                return st.end("fail:structural", "env", "desktop sandbox: no address after two boots")
+            st.go("executing", f"desktop sandbox started, {ip}")
+
+            done_tag, verdict, calls_seen = self._watch_executor(st, env, t_spawn)
+        seconds = int(self.clock() - t_spawn)
+        st.reap_all()
+        if verdict is not None:  # deadline / silent / abort / bad tag: the runner decided
+            outcome, kind, detail = verdict
+            return st.end(outcome, kind, detail,
+                          usage={"seconds": seconds, "calls": calls_seen, "tokens_in": None,
+                                 "tokens_out": None, "reasoning_chars": None, "truncated": None,
+                                 "cuts": None, "requests": None, "tool_calls": None})
+        usage = {"seconds": seconds, "calls": int(done_tag.get("calls") or 0),
+                 "tokens_in": int(done_tag.get("tokens_in") or 0),
+                 "tokens_out": int(done_tag.get("tokens_out") or 0),
+                 "reasoning_chars": int(done_tag.get("reasoning_chars") or 0),
+                 "truncated": None, "cuts": None,
+                 "requests": int(done_tag.get("requests") or 0),
+                 "tool_calls": (int(done_tag["tool_calls"]) if done_tag.get("tool_calls") is not None
+                                else None),
+                 "records": done_tag.get("records"), "records_sha256": done_tag.get("records_sha256")}
+        # the steps and the hidden checks are both on the tag; the checks are
+        # this arm's verdict, so they fill the record's checks columns
+        res.checks_ok = int(done_tag.get("checks_ok") or 0)
+        res.checks_total = int(done_tag.get("checks_total") or len(task.checks))
+        steps_ok = int(done_tag.get("steps_ok") or 0)
+        steps_total = int(done_tag.get("steps_total") or len(task.steps))
+        res.steps_ok, res.steps_total = steps_ok, steps_total
+        body = getattr(st, "done_body", "")
+        tally = f"{steps_ok}/{steps_total} steps pass, {res.checks_ok}/{res.checks_total} checks pass"
+        if done_tag.get("outcome") == "ok":
+            return st.end("pass", None, tally, usage=usage)
+        kind = done_tag.get("kind") or ("inconclusive" if done_tag.get("outcome") == "inconclusive" else "crash")
+        outcome = spec.FAIL_KIND_OUTCOME.get(kind, "fail:structural")
+        if outcome == "inconclusive":
+            return st.end(outcome, None, f"{tally}, no step failed", usage=usage)
+        detail = str(done_tag.get("error") or kind)
+        if body:
+            detail = f"{detail}: …{body[-360:]}" if len(body) > 360 else f"{detail}: {body}"
+        return st.end(outcome, kind, detail, usage=usage)
+
+    def _desktop_live(self, st, task, env, agent_task):
+        """The live target: a desktop run on the machine the task's `live`
+        table names, over ssh, with no sandbox. The executor and its task.json
+        go to a fresh directory under /tmp on that machine, the executor runs
+        there as root with `sudo -n`, and the records come back the way every
+        other target pushes them (the executor posts them to the records repo
+        and its done tag to the issue). The directory is removed when the watch
+        ends. Nothing is built, rebooted or installed on that machine. Returns
+        (t_spawn, done_tag, verdict, calls_seen), or None when the run has
+        already ended."""
+        user, host = task.live["user"], task.live["host"]
+        stage = tempfile.mkdtemp(prefix="dark-desktop-live-")
+        remote = ""
+        t_spawn = self.clock()
+        try:
+            # the fresh directory is the machine's own mktemp, so two runs
+            # never share one and a run leaves nothing when it names nothing
+            rc, out = self.live_ssh(user, host, f"mktemp -d {LIVE_TMP}", timeout=LIVE_PROBE_SECONDS)
+            remote = (out or "").strip().splitlines()[-1] if rc == 0 and (out or "").strip() else ""
+            if not LIVE_TMP_RE.fullmatch(remote):
+                return st.end("fail:structural", "env",
+                              f"live: {user}@{host} made no temp directory: {(out or '').strip()[-200:]}")
+            files = {"session.py": self.session_src, "desktop.py": _script("desktop.py"),
+                     "user.py": _script("user.py"),
+                     "task.json": json.dumps(agent_task, indent=1),
+                     "start.sh": task.start or ""}
+            local = []
+            for name, content in files.items():
+                path = os.path.join(stage, name)
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                local.append(path)
+            rc, out = self.live_scp(user, host, local, remote + "/", timeout=LIVE_COPY_SECONDS)
+            if rc != 0:
+                return st.end("fail:structural", "env",
+                              f"live: copying to {user}@{host}:{remote} failed: {(out or '').strip()[-300:]}")
+            # detached: the executor outlives the ssh call, and the runner
+            # watches the issue for its done tag exactly as it does elsewhere
+            cmd = (f"nohup sudo -n env DARK_TASK={remote}/task.json DARK_RECORDS={remote}/records "
+                   f"DARK_RECORDS_WORK={remote}/records-work python3 {remote}/session.py "
+                   f"> {remote}/desktop.log 2>&1 &")
+            rc, out = self.live_ssh(user, host, cmd, timeout=LIVE_PROBE_SECONDS)
+            if rc != 0:
+                return st.end("fail:structural", "env",
+                              f"live: the executor did not start on {user}@{host}: {(out or '').strip()[-300:]}")
+            st.go("executing", f"live target {user}@{host}:{remote}")
+            done_tag, verdict, calls_seen = self._watch_executor(st, env, t_spawn)
+            return t_spawn, done_tag, verdict, calls_seen
+        finally:
+            if remote:
+                self.live_ssh(user, host, f"rm -rf {remote}", timeout=LIVE_CLEAN_SECONDS)
+            shutil.rmtree(stage, ignore_errors=True)
 
     # --- watching --------------------------------------------------------------
     def _abort_requested(self, run_id):

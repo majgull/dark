@@ -24,9 +24,11 @@ FX = os.path.join(tempfile.gettempdir(), "fx")
 RUNNER = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROOT = os.path.dirname(RUNNER)
 
-TOOL_NAMES = ["dark_preflight", "dark_run", "dark_user", "dark_long", "dark_review", "dark_ledger_tail"]
+TOOL_NAMES = ["dark_preflight", "dark_run", "dark_user", "dark_desktop", "dark_long", "dark_review",
+              "dark_ledger_tail"]
 REQUIRED = {"dark_preflight": [], "dark_run": ["task", "tier"], "dark_user": ["tier"],
-            "dark_long": ["tier"], "dark_review": ["task", "tier"], "dark_ledger_tail": []}
+            "dark_desktop": ["tier"], "dark_long": ["tier"], "dark_review": ["task", "tier"],
+            "dark_ledger_tail": []}
 
 FAKE_MAIN = '''import json, os, sys, time
 stdin = sys.stdin.read()
@@ -247,6 +249,7 @@ class ToolList(ServerCase):
         self.assertEqual(props["dark_preflight"], {"timeout_seconds"})
         self.assertEqual(props["dark_run"], {"task", "tier", "arm", "slot", "timeout_seconds"})
         self.assertEqual(props["dark_user"], {"task", "task_toml", "tier", "timeout_seconds"})
+        self.assertEqual(props["dark_desktop"], {"task", "task_toml", "tier", "timeout_seconds"})
         self.assertEqual(props["dark_long"], {"task", "task_toml", "tier", "judge_tier", "timeout_seconds"})
         self.assertEqual(props["dark_review"], {"task", "tier", "review_branches", "timeout_seconds"})
         self.assertEqual(props["dark_ledger_tail"], {"n"})

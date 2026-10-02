@@ -83,6 +83,29 @@ class FakePage:
         self.closed = True
 
 
+class PromptPage(FakePage):
+    """A driver that brings its own system prompt and names an action's target
+    its own way, as the desktop driver does: run_steps must use these, not the
+    browser's SYSTEM and action_target."""
+
+    SYSTEM = "You drive a desktop, not a browser."
+
+    def action_target(self, action):
+        return f"desktop {action.get('do')}"
+
+
+class PromptModel(ScriptedModel):
+    """ScriptedModel that keeps the system prompt each call was given."""
+
+    def __init__(self, actions):
+        super().__init__(actions)
+        self.systems = []
+
+    def next_action(self, n, text, url, snapshot, history, earlier=None, timeout=None, system=None):
+        self.systems.append(system)
+        return super().next_action(n, text, url, snapshot, history, earlier=earlier, timeout=timeout)
+
+
 class ChangingPage(FakePage):
     """A page whose snapshot changes after an action, as a real one does:
     the first is shown, then the rest in order, the last kept."""
@@ -716,6 +739,20 @@ class Steps(unittest.TestCase):
         self.assertEqual(U.parse_action('Sure.\n{"do": "press", "key": "Enter"}'), {"do": "press", "key": "Enter"})
         self.assertEqual(U.parse_action("click it")["do"], "invalid")
         self.assertEqual(U.parse_action('{"verdict": "pass"}')["do"], "invalid")
+
+    def test_a_page_that_brings_its_own_prompt_and_target_names_uses_them(self):
+        model = PromptModel([{"do": "click", "role": "button", "name": "Like"},
+                             verdict(note="done")])
+        page = PromptPage()
+        results, stop = U.run_steps(model, page, "https://app.example.test/", ["Press the button"],
+                                    self.records, 20, 1e12)
+        self.assertIsNone(stop)
+        self.assertEqual([r["verdict"] for r in results], ["pass"])
+        self.assertEqual(model.systems, [PromptPage.SYSTEM, PromptPage.SYSTEM])
+        with open(os.path.join(self.records, "steps", "01.trail.jsonl")) as f:
+            line = json.loads(f.read())
+        self.assertEqual(line["action"], {"do": "click", "role": "button", "name": "Like"})
+        self.assertEqual(line["target"], "desktop click")
 
 
 class ScriptedJudge:

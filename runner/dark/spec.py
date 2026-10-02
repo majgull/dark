@@ -19,7 +19,10 @@ SESSION_CLASSES = ("long",)
 # the user arm: a fresh browser sandbox given only a URL and numbered steps,
 # judged by its own verdict per step; no work repo, no hidden tests
 USER_CLASSES = ("user",)
-CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES + USER_CLASSES
+# the desktop arm: a fresh sandbox made from the task's own image, given
+# numbered steps on a desktop and optional hidden checks; no work repo
+DESKTOP_CLASSES = ("desktop",)
+CLASSES = EXEC_CLASSES + CALL_CLASSES + SESSION_CLASSES + USER_CLASSES + DESKTOP_CLASSES
 
 # --- outcomes: the only terminal states of a run, decided by the runner ----
 # delivered: the review class's pass - no hidden acceptance,
@@ -227,8 +230,9 @@ AGENT_TAGS = {
               # verdict: pass | fail from a judging review's report.md last line
               "verdict", "verdict_reason",
               "distinct_calls", "repeat_calls", "stall_max",
-              # the user arm: steps whose verdict was pass, of how many
-              "steps_ok", "steps_total")),
+              # the user arm: steps whose verdict was pass, of how many;
+              # the desktop arm adds its hidden checks the same way
+              "steps_ok", "steps_total", "checks_ok", "checks_total")),
     # env: the staging environment failed (never the work); nonce: the
     # runner's secret for this staging VM, echoed so the executor cannot forge it
     "stage": (("ok", "checks_ok", "checks_total"), ("detail", "seconds", "env", "nonce")),
@@ -267,6 +271,7 @@ FAIL_KIND_OUTCOME = {
     "verdict": "fail:capability",     # review mode as a judge: report.md ends VERDICT: fail
     "no-verdict": "fail:structural",  # review mode as a judge: no well-formed VERDICT last line
     "steps": "fail:capability",       # user arm: a step's verdict was fail
+    "checks": "fail:capability",      # desktop arm: a hidden check exited non-zero
     "inconclusive": "inconclusive",  # user arm: no step failed, at least one could not be judged
     "abort": "abort",
 }

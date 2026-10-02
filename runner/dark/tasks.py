@@ -36,6 +36,9 @@ from . import spec
 
 LANGS = ("go", "python")
 TOOLS = ("reduced", "full")
+# a desktop check runs for this many seconds when the task names no timeout
+CHECK_TIMEOUT = 60
+DESKTOP_TARGETS = ("lab", "vm", "live")   # where a desktop task can run
 # the work repo of task <id> is <REPO_PREFIX><id>. Two arms on the same
 # task at once force-push each other's starting tree (the bench's session
 # arms and a shift share dark/t-<id>), so an arm that runs beside a shift
@@ -66,6 +69,11 @@ class Task:
     tools: str = "reduced"
     url: str | None = None  # the user arm only: the deployed application to open
     steps: tuple = ()       # the user arm only: step texts, numbered from 1 in order
+    # --- the desktop arm only: an image, a start script and hidden checks ---
+    image: str | None = None       # the OCI image the sandbox is made from
+    start: str | None = None       # the start script's text (read from beside the task)
+    checks: tuple = ()             # ({id, command, timeout}, ...): the hidden tests
+    live: dict | None = None       # {host, user}: the real machine, after a deploy
 
     @property
     def repo_name(self):
@@ -100,10 +108,13 @@ def load_task(path):
     if not all(c.isalnum() or c in "-." for c in tid) or tid.startswith("-"):
         raise TaskError(f"{tpath}: id must be [A-Za-z0-9.-]+")
     cls = d.get("class")
-    if cls not in spec.EXEC_CLASSES + spec.USER_CLASSES + spec.SESSION_CLASSES:
-        raise TaskError(f"{tpath}: class must be one of {spec.EXEC_CLASSES + spec.USER_CLASSES + spec.SESSION_CLASSES}")
+    if cls not in spec.EXEC_CLASSES + spec.USER_CLASSES + spec.SESSION_CLASSES + spec.DESKTOP_CLASSES:
+        raise TaskError(f"{tpath}: class must be one of "
+                        f"{spec.EXEC_CLASSES + spec.USER_CLASSES + spec.SESSION_CLASSES + spec.DESKTOP_CLASSES}")
     if cls in spec.USER_CLASSES:
         return _load_user_task(path, tpath, tid, cls, d)
+    if cls in spec.DESKTOP_CLASSES:
+        return _load_desktop_task(path, tpath, tid, cls, d)
     if cls in spec.SESSION_CLASSES:
         return _load_long_task(path, tpath, tid, cls, d)
     for key in ("url", "steps"):
@@ -210,6 +221,78 @@ def _load_user_task(path, tpath, tid, cls, d):
     return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang="", spec=text,
                 may_edit=(), dir=path, stage_timeout=0,  # nothing is staged
                 url=url, steps=tuple(x.strip() for x in steps))
+
+
+def _load_desktop_task(path, tpath, tid, cls, d):
+    """A desktop task: an image, a start script beside the task, a spec and
+    numbered steps, optional hidden checks and an optional live target. The
+    fields of a work-repo task are refused rather than ignored."""
+    image = d.get("image")
+    if not isinstance(image, str) or not image.strip():
+        raise TaskError(f"{tpath}: a desktop task needs image, a non-empty string")
+    start = d.get("start")
+    if not isinstance(start, str) or not start.strip():
+        raise TaskError(f"{tpath}: a desktop task needs start, naming the script beside it")
+    if os.path.basename(start) != start or start in (".", ".."):
+        raise TaskError(f"{tpath}: start {start!r} must name a file beside the task, not a path")
+    spath = os.path.join(path, start)
+    try:
+        with open(spath, encoding="utf-8") as f:
+            start_text = f.read()
+    except OSError as e:
+        raise TaskError(f"{spath}: {e.strerror}") from None
+    if not start_text.strip():
+        raise TaskError(f"{spath}: the start script is empty")
+    text = d.get("spec")
+    if not isinstance(text, str) or not text.strip():
+        raise TaskError(f"{tpath}: spec must be a non-empty string")
+    steps = d.get("steps")
+    if (not isinstance(steps, list) or not steps
+            or not all(isinstance(x, str) and x.strip() for x in steps)):
+        raise TaskError(f"{tpath}: a desktop task needs steps, a non-empty list of step texts")
+    checks, seen = [], set()
+    raw_checks = d.get("checks", [])
+    if not isinstance(raw_checks, list) or not all(isinstance(c, dict) for c in raw_checks):
+        raise TaskError(f"{tpath}: checks must be a list of tables")
+    for i, c in enumerate(raw_checks):
+        extra = sorted(set(c) - {"id", "command", "timeout", "targets"})
+        if extra:
+            raise TaskError(f"{tpath}: checks entry {i} has no field {extra[0]!r}")
+        cid, command = c.get("id"), c.get("command")
+        if not isinstance(cid, str) or not cid.strip():
+            raise TaskError(f"{tpath}: checks entry {i} needs id, a non-empty string")
+        if cid in seen:
+            raise TaskError(f"{tpath}: checks entry {i}: id {cid!r} is repeated")
+        seen.add(cid)
+        if not isinstance(command, str) or not command.strip():
+            raise TaskError(f"{tpath}: checks entry {i} needs command, a non-empty string")
+        timeout = c.get("timeout", CHECK_TIMEOUT)
+        # bool is an int in Python: refused with the other non-numbers
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise TaskError(f"{tpath}: checks entry {i}: timeout must be a positive number")
+        # where a check may run: a check that changes the machine (turns a
+        # screen off, posts to a service) belongs in the lab and the VM, never
+        # on a live target someone is using
+        targets = c.get("targets", list(DESKTOP_TARGETS))
+        if (not isinstance(targets, list) or not targets
+                or not all(t in DESKTOP_TARGETS for t in targets)):
+            raise TaskError(f"{tpath}: checks entry {i}: targets must be a non-empty list of "
+                            f"{', '.join(DESKTOP_TARGETS)}")
+        checks.append({"id": cid.strip(), "command": command, "timeout": timeout,
+                       "targets": tuple(targets)})
+    live = d.get("live")
+    if live is not None:
+        if (not isinstance(live, dict) or set(live) != {"host", "user"}
+                or not all(isinstance(v, str) and v.strip() for v in live.values())):
+            raise TaskError(f"{tpath}: live must have exactly host and user, as non-empty strings")
+        live = {"host": live["host"].strip(), "user": live["user"].strip()}
+    allowed = {"id", "title", "class", "image", "start", "spec", "steps", "checks", "live"}
+    for key in sorted(set(d) - allowed):
+        raise TaskError(f"{tpath}: a desktop task has no {key!r}")
+    return Task(id=tid, title=str(d.get("title") or tid), cls=cls, lang="", spec=text,
+                may_edit=(), dir=path, stage_timeout=0,  # nothing is staged
+                image=image.strip(), start=start_text, checks=tuple(checks), live=live,
+                steps=tuple(x.strip() for x in steps))
 
 
 def predecessors(task):

@@ -9,7 +9,7 @@ module's; this module never touches the network.
 
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import spec
 
@@ -422,6 +422,8 @@ HOST_ENV = {
     "sandbox_bridge": "DARK_SANDBOX_BRIDGE", "sandbox_pool": "DARK_SANDBOX_POOL",
     "sandbox_allow_in": "DARK_SANDBOX_ALLOW_IN",
     "browser_image": "DARK_BROWSER_IMAGE",
+    "desktop_devices": "DARK_DESKTOP_DEVICES",
+    "desktop_vm_templates": "DARK_DESKTOP_VM_TEMPLATES",
     "target_network": "DARK_TARGET_NETWORK", "target_host": "DARK_TARGET_HOST",
     "templates_dir": "DARK_TEMPLATES", "bench_dir": "DARK_BENCH", "task_dirs": "DARK_TASKS",
     "wake_timeout": "DARK_WAKE_TIMEOUT", "otlp_endpoint": "DARK_OTLP_ENDPOINT",
@@ -473,6 +475,18 @@ class Host:
     # the image a user-arm sandbox is created from (runner/sandbox/Dockerfile.browser):
     # the sandbox image plus Chromium and Playwright
     browser_image: str = "dark-sandbox-browser"
+    # the render devices a desktop sandbox is given (docker backend): one
+    # `--device` each. The task's image needs a render node to draw the frame
+    # the desktop snapshot reads; /dev/dri is the host's. A comma-separated
+    # string from DARK_DESKTOP_DEVICES is split in __post_init__.
+    desktop_devices: tuple = ("/dev/dri",)
+    # the Proxmox template a desktop task's image boots in, keyed by the
+    # task's own image string (config key desktop_vm_templates). A
+    # `dark desktop --target vm` run clones the entry for its task's image and
+    # is refused, before any VM exists, when the image has none. A
+    # DARK_DESKTOP_VM_TEMPLATES value is `<image>=<vmid>` pairs joined with
+    # commas, as the other host lists; empty = no image has a template.
+    desktop_vm_templates: dict = field(default_factory=dict)
     # where a user-arm sandbox may reach the application it checks, besides
     # the service host: a second, non-internal docker network it joins
     # (docker backend), or one address its firewall lets out to (Proxmox).
@@ -507,6 +521,20 @@ class Host:
         self.sandbox_container = "" if self.sandbox_container in (None, "") else str(self.sandbox_container)
         self.sandbox_pool = "" if self.sandbox_pool in (None, "") else str(self.sandbox_pool)
         self.sandbox_allow_in = "" if self.sandbox_allow_in in (None, "") else str(self.sandbox_allow_in)
+        if isinstance(self.desktop_devices, str):
+            # one value or several joined with commas, as the other host lists
+            self.desktop_devices = tuple(d.strip() for d in self.desktop_devices.split(",") if d.strip())
+        self.desktop_devices = tuple(self.desktop_devices or ())
+        if isinstance(self.desktop_vm_templates, str):
+            # `<image>=<vmid>` pairs joined with commas, as the other host lists
+            pairs = {}
+            for entry in self.desktop_vm_templates.split(","):
+                image, _, vmid = entry.partition("=")
+                if image.strip() and vmid.strip():
+                    pairs[image.strip()] = vmid.strip()
+            self.desktop_vm_templates = pairs
+        else:
+            self.desktop_vm_templates = {str(k): v for k, v in (self.desktop_vm_templates or {}).items()}
         self.otlp_endpoint = "" if self.otlp_endpoint in (None, "") else str(self.otlp_endpoint).strip()
         try:
             self.sandbox_pids = int(self.sandbox_pids or 0)
