@@ -1313,6 +1313,25 @@ class Executor(unittest.TestCase):
         self.assertTrue(seen)
         self.assertEqual([kw.get("timeout") for kw in seen], [U.RECORDS_PUSH_SECONDS])
 
+    def test_an_unexpected_exception_still_pushes_the_records(self):
+        seen = []
+
+        def records_kw(*a, **kw):
+            seen.append(kw)
+            return {"records": "dark-records/s1/shop-user-1"}
+
+        page = FakePage()
+        with mock.patch.object(U, "run_steps", side_effect=RuntimeError("boom")), \
+                mock.patch.object(S, "records_kw", records_kw):
+            with self.assertRaises(RuntimeError):
+                U.main(ScriptedModel([]), page)
+        self.assertTrue(page.closed)
+        body, tag = self.done_tag()
+        self.assertEqual(tag["kind"], "crash")
+        self.assertEqual(tag["records"], "dark-records/s1/shop-user-1")
+        self.assertEqual([kw.get("timeout") for kw in seen], [U.RECORDS_PUSH_SECONDS])
+        self.assertIn("boom", body)
+
     def test_no_token_appears_in_the_records(self):
         page = FakePage(snapshot=f"- heading \"Shop\"\n- text \"session {TOKEN}\"")
         U.main(ScriptedModel([verdict(), verdict("fail", f"saw {TOKEN} on the page"), verdict()]), page)

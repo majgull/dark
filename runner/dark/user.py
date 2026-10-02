@@ -980,14 +980,40 @@ def _readme(outcome, detail):
         print(f"README.md not written: {e}", file=sys.stderr)
 
 
+_PAGE = None  # the page _main opened, so the crash path can close it
+
+
+def _close_page():
+    """Close the page this run opened, if any, and forget it. It is called
+    before a crash posts its comment: closing is what saves trace.zip and
+    video.webm, and a failure to close is ignored because nothing can be
+    saved then."""
+    global _PAGE
+    page, _PAGE = _PAGE, None
+    if page is not None:
+        try:
+            page.close()
+        except Exception:  # noqa: BLE001 — a browser that died cannot save its recording
+            pass
+
+
 def main(model=None, page=None, judge=None):
     try:
         return _main(model, page, judge)
+    except Exception as e:  # noqa: BLE001 — always leave a trace on the issue
+        _close_page()
+        S.comment(S.crash_text(e) + "\n"
+                  + S.done("fail", "crash", error=type(e).__name__,
+                           **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR),
+                                          timeout=RECORDS_PUSH_SECONDS)))
+        raise
     finally:
         S.PROGRESS.stop()
 
 
 def _main(model, page, judge):
+    global _PAGE
+    _PAGE = page
     t = S.TASK
     url, steps = t.get("url"), list(t.get("steps") or [])
     records = S.RECORDS_DIR
@@ -1004,6 +1030,7 @@ def _main(model, page, judge):
         return fail("env", "task.json carries no url or no steps")
     try:
         page = page or PlaywrightPage(records)
+        _PAGE = page
     except BrowserError as e:
         return fail("env", str(e))
     if model is None:
@@ -1016,7 +1043,7 @@ def _main(model, page, judge):
         try:
             results, stop = run_steps(model, page, url, steps, records, max_calls, deadline, judge=judge)
         finally:
-            page.close()  # before any fail() below pushes the records: this is what saves trace.zip and video.webm
+            _close_page()  # before any fail() below pushes the records: this is what saves trace.zip and video.webm
     except BrowserError as e:
         return fail("env", str(e))
     except ModelError as e:
@@ -1049,10 +1076,4 @@ def _main(model, page, judge):
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except SystemExit:
-        raise
-    except Exception as e:  # noqa: BLE001 — always leave a trace on the issue
-        S.comment(S.crash_text(e) + "\n" + S.done("fail", "crash", error=type(e).__name__))
-        raise
+    sys.exit(main())
