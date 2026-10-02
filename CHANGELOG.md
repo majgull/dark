@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-03
+
 ### Added
 
 - `templates/webapp/`: the web app template's frontend files (Vite, React, strict TypeScript, Tailwind from a tokens file, Biome, Vitest, Playwright, one `npm run check`, a typed contract generated from a JSON Schema), and four rules in its spec with tests for apps built by several agents at once: one shell file owns the layout, a role can be chosen for a browser test, the browser leg runs apart from the check on a chosen port, unit tests have a 30 s timeout. Tasks 1, 2 and 4 of `specs/webapp-template`; the Hono backend, the example spec, `dark new webapp` and the footprint measurement stay open.
