@@ -1203,7 +1203,8 @@ class Executor(unittest.TestCase):
         tag = [t for t in R.parse_tags(body) if t.get("ev") == "done"][-1]
         self.assertTrue(spec.tag_ok("done", tag))
         req, opt = spec.AGENT_TAGS["done"]
-        self.assertEqual(sorted(set(tag) - {"v", "ev"} - set(req) - set(opt)), [])
+        # "recording" is the user arm's own field, not in the shared schema
+        self.assertEqual(sorted(set(tag) - {"v", "ev", "recording"} - set(req) - set(opt)), [])
         return body, tag
 
     def records(self):
@@ -1279,6 +1280,29 @@ class Executor(unittest.TestCase):
         self.assertIn("shop-user-1/video.webm", files)
         self.assertNotIn("shop-user-1/trace.zip", files)
         self.assertIn("shop-user-1/steps.jsonl", files)
+
+    def test_a_complete_recording_has_no_recording_field(self):
+        rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), RecordedPage(S.RECORDS_DIR))
+        self.assertEqual(rc, 0)
+        body, tag = self.done_tag()
+        self.assertEqual(tag["outcome"], "ok")
+        self.assertNotIn("recording", tag)
+
+    def test_a_browser_that_dies_at_the_last_screenshot_and_at_close_is_incomplete(self):
+        class DiesAtClose(RecordedPage):
+            def screenshot(self, path):
+                if os.path.basename(path) == "03.png":
+                    raise U.BrowserError("Target page, context or browser has been closed")
+                super().screenshot(path)
+
+            def close(self):
+                raise RuntimeError("Target closed")
+
+        rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), DiesAtClose(S.RECORDS_DIR))
+        self.assertEqual(rc, 0)
+        body, tag = self.done_tag()
+        self.assertEqual(tag["outcome"], "ok")
+        self.assertTrue(tag["recording"].startswith("incomplete"))
 
     def test_a_browser_that_dies_at_a_screenshot_keeps_every_step(self):
         class Dies(RecordedPage):

@@ -48,7 +48,9 @@ before the run's folder link `<run>`.)
 The real browser also records the whole run: a Playwright trace as
 <records>/trace.zip and a video as <records>/video.webm, both written when
 the page is closed. A recording that cannot be made or saved is skipped and
-never changes a step, a verdict or a screenshot name.
+never changes a step, a verdict or a screenshot name; the done tag's
+`recording` field names what is missing instead, so an incomplete recording
+is never mistaken for a complete one.
 
 The model is reached through `ChatModel` and the browser through
 `PlaywrightPage`; both sit behind a small interface (`next_action`, and
@@ -981,20 +983,42 @@ def _readme(outcome, detail):
 
 
 _PAGE = None  # the page _main opened, so the crash path can close it
+_PAGE_OPENED = False  # a page was ready for the run, for the done tag's `recording` field
+_CLOSE_RAISED = False  # closing the page raised, for the done tag's `recording` field
 
 
 def _close_page():
     """Close the page this run opened, if any, and forget it. It is called
     before a crash posts its comment: closing is what saves trace.zip and
     video.webm, and a failure to close is ignored because nothing can be
-    saved then."""
-    global _PAGE
+    saved then, but kept for the done tag's `recording` field."""
+    global _PAGE, _CLOSE_RAISED
     page, _PAGE = _PAGE, None
     if page is not None:
         try:
             page.close()
         except Exception:  # noqa: BLE001 — a browser that died cannot save its recording
-            pass
+            _CLOSE_RAISED = True
+
+
+def recording_gap(records_dir, results=None):
+    """None, or "incomplete: <what is missing>" for the done tag's
+    `recording` field: a step whose screenshot could not be taken, a close
+    that raised, or a page that was ready for the run but left no trace.zip
+    behind. None of this changes the outcome or a step's verdict."""
+    missing = []
+    if any(str(r.get("screenshot", "")).startswith("failed:") for r in (results or [])):
+        missing.append("a step's screenshot failed")
+    if _CLOSE_RAISED:
+        missing.append("closing the page raised")
+    if _PAGE_OPENED and not os.path.exists(os.path.join(records_dir, TRACE_FILE)):
+        missing.append("trace.zip is missing")
+    return f"incomplete: {'; '.join(missing)}" if missing else None
+
+
+def _recording_kw(records_dir, results=None):
+    gap = recording_gap(records_dir, results)
+    return {"recording": gap} if gap else {}
 
 
 def main(model=None, page=None, judge=None):
@@ -1003,7 +1027,7 @@ def main(model=None, page=None, judge=None):
     except Exception as e:  # noqa: BLE001 — always leave a trace on the issue
         _close_page()
         S.comment(S.crash_text(e) + "\n"
-                  + S.done("fail", "crash", error=type(e).__name__,
+                  + S.done("fail", "crash", error=type(e).__name__, **_recording_kw(S.RECORDS_DIR),
                            **S.records_kw(extra_paths=records_paths(S.RECORDS_DIR),
                                           timeout=RECORDS_PUSH_SECONDS)))
         raise
@@ -1012,8 +1036,8 @@ def main(model=None, page=None, judge=None):
 
 
 def _main(model, page, judge):
-    global _PAGE
-    _PAGE = page
+    global _PAGE, _PAGE_OPENED, _CLOSE_RAISED
+    _PAGE, _PAGE_OPENED, _CLOSE_RAISED = page, False, False
     t = S.TASK
     url, steps = t.get("url"), list(t.get("steps") or [])
     records = S.RECORDS_DIR
@@ -1030,7 +1054,7 @@ def _main(model, page, judge):
         return fail("env", "task.json carries no url or no steps")
     try:
         page = page or PlaywrightPage(records)
-        _PAGE = page
+        _PAGE, _PAGE_OPENED = page, True
     except BrowserError as e:
         return fail("env", str(e))
     if model is None:
@@ -1045,9 +1069,9 @@ def _main(model, page, judge):
         finally:
             _close_page()  # before any fail() below pushes the records: this is what saves trace.zip and video.webm
     except BrowserError as e:
-        return fail("env", str(e))
+        return fail("env", str(e), **_recording_kw(records))
     except ModelError as e:
-        return fail("llm", str(e))
+        return fail("llm", str(e), **_recording_kw(records))
     ok = sum(1 for r in results if r["verdict"] == "pass")
     failed = [r for r in results if r["verdict"] == "fail"]
     unjudged = [r for r in results if r["verdict"] == "inconclusive"]
@@ -1057,7 +1081,7 @@ def _main(model, page, judge):
         tally += f", {len(unjudged)} inconclusive"
     if failed:
         tally += f", {len(failed)} failed"
-    kw = {"steps_ok": ok, "steps_total": len(steps)}
+    kw = {"steps_ok": ok, "steps_total": len(steps), **_recording_kw(records, results)}
     if stop == "seconds":
         return fail("seconds", f"wall envelope spent at {tally}", **kw)
     if stop == "calls" and not unjudged:  # a calls stop always leaves inconclusive steps
