@@ -33,7 +33,7 @@ class Rows(unittest.TestCase):
             {"kind": "run.end", "run": "c", "ts": base + 4, "iso": "c-end", "task": "t3", "tier": "x", "arm": "factory",
              "outcome": "fail:budget", "fail_kind": "seconds", "seconds": 9, "calls": 3, "issue": 3, "records": None},
         ]
-        rows = S.rows(events, last=10)
+        rows = S.rows(events, base + 10, last=10)
         self.assertEqual([(r["state"], r["task"]) for r in rows],
                          [("running", "t1"), ("fail:budget", "t3"), ("pass", "t2")])
         self.assertIsNone(rows[0]["seconds"])
@@ -48,7 +48,7 @@ class Rows(unittest.TestCase):
             events.append({"kind": "run.end", "run": f"r{i}", "ts": i + 0.5, "iso": f"e{i}", "task": "t", "tier": "x",
                            "arm": "a", "outcome": "pass", "fail_kind": None, "seconds": 1, "calls": 1,
                            "issue": i, "records": None})
-        rows = S.rows(events, last=2)
+        rows = S.rows(events, 100.0, last=2)
         self.assertEqual([r["issue"] for r in rows], [4, 3])
 
     def test_a_run_start_without_task_is_skipped_not_raised_on(self):
@@ -56,8 +56,32 @@ class Rows(unittest.TestCase):
             {"kind": "run.start", "run": "bad", "ts": 1000.0, "iso": "bad-start", "tier": "x", "arm": "factory"},
             {"kind": "run.start", "run": "good", "ts": 1001.0, "iso": "good-start", "task": "t2", "tier": "x", "arm": "factory"},
         ]
-        rows = S.rows(events, last=10)
+        rows = S.rows(events, 1002.0, last=10)
         self.assertEqual([r["task"] for r in rows], ["t2"])
+
+    def test_a_void_run_is_not_running(self):
+        # run.void: the run was declared dead by the deployment, not by a
+        # run.end; it must not sit in `running` forever
+        events = [
+            {"kind": "run.start", "run": "a", "ts": 1000.0, "iso": "a-start", "task": "t1", "tier": "x", "arm": "factory"},
+            {"kind": "run.void", "run": "a", "ts": 1001.0, "iso": "a-void", "task": "t1", "reason": "harness fault"},
+        ]
+        self.assertEqual(S.rows(events, 1002.0), [])
+
+    def test_a_run_start_older_than_a_day_with_no_end_or_void_is_not_running(self):
+        base = 1000.0
+        events = [
+            {"kind": "run.start", "run": "old", "ts": base, "iso": "old-start", "task": "t1", "tier": "x", "arm": "factory"},
+            {"kind": "run.start", "run": "fresh", "ts": base + 10, "iso": "fresh-start", "task": "t2", "tier": "x", "arm": "factory"},
+        ]
+        now = base + S.DAY_SECONDS + 1
+        rows = S.rows(events, now)
+        self.assertEqual([r["task"] for r in rows], ["t2"])
+        self.assertEqual(S.stale(events, now), 1)
+
+    def test_stale_is_zero_with_no_old_runs(self):
+        events = [{"kind": "run.start", "run": "a", "ts": 1000.0, "iso": "a-start", "task": "t1", "tier": "x", "arm": "factory"}]
+        self.assertEqual(S.stale(events, 1001.0), 0)
 
 
 class Table(unittest.TestCase):
@@ -76,6 +100,14 @@ class Table(unittest.TestCase):
                 "started": "2026-01-01T00:00:00+00:00", "seconds": 1, "calls": 1, "issue": 1, "records": None}]
         text = S.table(rows, time.time())
         self.assertEqual(text.splitlines()[0], "running 1, last 1 finished")
+
+    def test_a_stale_count_adds_a_second_line(self):
+        text = S.table([], time.time(), stale=3)
+        self.assertEqual(text.splitlines()[1], "3 runs without an end row, older than 24 h")
+
+    def test_no_stale_count_adds_no_line(self):
+        text = S.table([], time.time())
+        self.assertEqual(len(text.splitlines()), 1)
 
 
 class Cli(unittest.TestCase):

@@ -476,6 +476,17 @@ class Board(Base):
         self.assertEqual(self.led.last("run.end")["outcome"], "pass")
 
 
+class BoardBody(unittest.TestCase):
+    """dark/run.py's _board_body: the Now issue's markdown, built from
+    dark/status.py's rows and stale count."""
+
+    def test_a_stale_count_adds_a_line_only_when_over_zero(self):
+        body = R._board_body([], 1000.0, stale=0)
+        self.assertNotIn("older than 24 h", body)
+        body = R._board_body([], 1000.0, stale=2)
+        self.assertIn("2 runs without an end row, older than 24 h", body)
+
+
 class SessionArm(Base):
     def push_solution(self, branch, files):
         work = os.path.join(self.tmp, "session-work")

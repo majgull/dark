@@ -164,12 +164,16 @@ def issue_page(st, env=None, judges=None, may_edit=None, branch=None, usage=None
     return f"{st.arm}: {st.task.id} ({tier})", "\n".join(lines)
 
 
-def _board_body(rows, now):
-    """The Now board's body: a first line saying when it was written, then a
-    markdown table of `rows` (dark/status.py), the issue column linked and a
-    finished run that pushed records given a link to them."""
-    lines = [f"updated {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))} by the runner", "",
-             "| state | arm | task | tier | since | calls | issue | records |",
+def _board_body(rows, now, stale=0):
+    """The Now board's body: a first line saying when it was written, a
+    line naming `stale` (dark/status.py's count of runs the board can no
+    longer call running) when it is over 0, then a markdown table of `rows`
+    (dark/status.py), the issue column linked and a finished run that
+    pushed records given a link to them."""
+    lines = [f"updated {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(now))} by the runner", ""]
+    if stale:
+        lines += [f"{stale} runs without an end row, older than 24 h", ""]
+    lines += ["| state | arm | task | tier | since | calls | issue | records |",
              "|---|---|---|---|---|---|---|---|"]
     for r in rows:
         calls = r["calls"] if r["calls"] is not None else "-"
@@ -489,7 +493,8 @@ class Runner:
                     e = dict(e, issue=just_issue)
                 events.append(e)
             now = self.clock()
-            self.gitea.issue_edit(full, n, body=_board_body(status.rows(events), now))
+            body = _board_body(status.rows(events, now), now, status.stale(events, now))
+            self.gitea.issue_edit(full, n, body=body)
         except Exception as e:  # noqa: BLE001 — best effort: must never change a run's outcome
             self.log(f"board {full}: {type(e).__name__}: {e}")
 

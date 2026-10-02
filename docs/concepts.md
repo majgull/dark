@@ -148,7 +148,12 @@ window and watts used, the admission table, and what was parked or blocked.
 **now**: `python3 -m dark now`, the running runs (oldest first) and the
 last `--last` finished ones (newest first), read from the ledger alone with
 no network call. `dark/status.py`'s `rows` pairs each run's `run.start` with
-its `run.end`, if any; `table` renders them as plain text.
+its `run.end`, if any; `table` renders them as plain text. A run with a
+`run.void` row (a ledger record marking its outcome as the deployment's
+fault, not the tier's, written by `dark void`) is never shown as running,
+and neither is one whose `run.start` is over 24 hours old with no
+`run.end` and no `run.void`: `stale` counts those, and `table` and the
+`Now` issue's body add a line naming the count when it is over zero.
 
 **comparison set**: a group of rounds whose counts are meant to be read
 against each other, held to one frozen envelope.

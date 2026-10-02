@@ -195,8 +195,10 @@ def cmd_now(args):
     Reads the ledger only; no network call."""
     host = config.load_host(os.path.join(_conf(args), "host.toml"))
     ledger = L.Ledger(host.ledger_path)
-    rows = S.rows(ledger.events(), last=args.last)
-    print(json.dumps(rows) if args.json else S.table(rows, ledger.clock()))
+    events = ledger.events()
+    now = ledger.clock()
+    rows = S.rows(events, now, last=args.last)
+    print(json.dumps(rows) if args.json else S.table(rows, now, S.stale(events, now)))
     return 0
 
 
