@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "app.schema.json",
+  "title": "notes",
+  "description": "The example app's contract. A backend in any language serves these two routes; tools/gen_types.py turns this file into src/contract.gen.ts and src/contract.schema.gen.ts, so the page's types and its runtime guard move with the schema.",
+  "$defs": {
+    "Answer": {
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean" },
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/Note" } },
+        "message": { "type": "string" }
+      },
+      "required": ["ok", "notes", "message"],
+      "additionalProperties": false
+    },
+    "Note": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string" }
+      },
+      "required": ["id", "text"],
+      "additionalProperties": false
+    },
+    "NoteCommand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": { "enum": ["add"] },
+            "text": { "type": "string" }
+          },
+          "required": ["kind", "text"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": { "enum": ["remove"] },
+            "id": { "type": "string" }
+          },
+          "required": ["kind", "id"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NotesView": {
+      "type": "object",
+      "properties": {
+        "notes": { "type": "array", "items": { "$ref": "#/$defs/Note" } },
+        "role": { "enum": ["listener", "member", "admin"] }
+      },
+      "required": ["notes", "role"],
+      "additionalProperties": false
+    }
+  },
+  "routes": {
+    "GET /api/notes": {
+      "query": null,
+      "body": null,
+      "response": { "$ref": "#/$defs/NotesView" }
+    },
+    "POST /api/notes": {
+      "body": { "$ref": "#/$defs/NoteCommand" },
+      "response": { "$ref": "#/$defs/Answer" }
+    }
+  }
+}

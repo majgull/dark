@@ -1,0 +1,42 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": [
+      "src/**",
+      "e2e/**",
+      "tools/**",
+      "*.ts",
+      "*.json",
+      "!dist",
+      "!node_modules",
+      "!src/*.gen.ts"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "a11y": {
+        "useValidAriaRole": {
+          "level": "error",
+          "options": { "allowInvalidRoles": ["listener", "member", "admin"] }
+        }
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/ui/Field.tsx"],
+      "linter": { "rules": { "a11y": { "noLabelWithoutControl": "off" } } }
+    }
+  ],
+  "css": {
+    "parser": { "tailwindDirectives": true }
+  }
+}

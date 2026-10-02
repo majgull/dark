@@ -1,0 +1,29 @@
+/* The one stylesheet that defines the theme. Every colour, type size, spacing
+   step and radius in src/** and index.html lives here under the name Tailwind v4
+   reads: --color-* makes text/bg/border utilities, --text-* the type sizes,
+   --spacing* the paddings and gaps, --radius-* the corner utilities. Nothing
+   outside this file names a literal colour, font size or radius; the token gate
+   (`node tools/check-tokens.mjs`) fails a component that does. */
+@theme {
+  --color-ink: #eef0f4;
+  --color-muted: #aab2c0;
+  --color-line: rgba(255, 255, 255, 0.16);
+  --color-panel: rgba(22, 26, 34, 0.72);
+  --color-field: rgba(0, 0, 0, 0.55);
+  --color-wash: #0c0f14;
+  --color-accent: #1f6fc5;
+  --color-on-accent: #ffffff;
+  --color-warn: #ffb0a8;
+
+  --text-title: 1.2rem;
+  --text-body: 1rem;
+  --text-small: 0.95rem;
+
+  --spacing: 0.25rem;
+  --spacing-pad: 0.7rem;
+  --spacing-tap: 2.75rem;
+
+  --radius-panel: 0.5rem;
+  --radius-control: 0.4rem;
+  --radius-pill: 999px;
+}

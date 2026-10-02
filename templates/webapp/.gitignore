@@ -1,0 +1,13 @@
+# Build products and local installs, never committed.
+node_modules/
+dist/
+.vite/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# Editor and OS noise.
+.DS_Store
+*.log
