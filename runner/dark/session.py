@@ -35,6 +35,7 @@ fatal: it cannot change the run's outcome.
 import hashlib
 import json
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -231,14 +232,21 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def push_records(extra_files=None, extra_paths=None, timeout=None):
+PUSH_ATTEMPTS = 6
+RETRY_PAUSE = time.sleep  # module attribute so a test can set it to a no-op
+
+
+def push_records(extra_files=None, extra_paths=None, timeout=None, run_id=None, records_work=None):
     """Clone the records repo, add stream.jsonl / brief.md / task.json (and,
     in review mode, report.md) under RUN_ID/, commit and push. Never force:
     other runs of the same shift have their own RUN_ID directory in the same
     repo. `extra_paths` is {name: local file or directory} copied as it is
     (the user arm's steps.jsonl and screenshots). `timeout` (seconds) caps
     every git call at what is left of it; when it runs out the result is
-    (False, "timed out after <n> s"). (ok, path-or-error).
+    (False, "timed out after <n> s"). `run_id` and `records_work` default to
+    the module's RUN_ID and RECORDS_WORK; a test overrides them to push
+    several runs against the same repo at once without the calls stepping on
+    each other's clone. (ok, path-or-error).
 
     Only the newest commit and its trees are fetched, never the blobs of the
     earlier runs, and nothing is checked out: the clone is shallow and
@@ -250,10 +258,18 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
     Every git step that changes the index, the ref or the commit is checked:
     a non-zero exit returns False with the command's name in the reason,
     instead of risking a push that silently lands the wrong tree or a HEAD
-    that never moved."""
+    that never moved.
+
+    A rejected push means another run landed first: fetch the new tip the
+    same way, move the branch to it without touching files, and push again.
+    No pull --rebase: there is no checked-out tree to rebase. Up to
+    PUSH_ATTEMPTS pushes are tried in all, each but the first after a short
+    random pause, before giving up with the last rejection as the reason."""
     repo = TASK.get("records_repo")
     if not repo:
         return False, "no records_repo in task.json"
+    run_id = RUN_ID if run_id is None else run_id
+    records_work = RECORDS_WORK if records_work is None else records_work
     deadline = None if timeout is None else time.monotonic() + timeout
 
     class _TimedOut(Exception):
@@ -275,14 +291,14 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
         return False, f"{name} failed: " + scrub((result.stdout + result.stderr)[-300:])
 
     try:
-        shutil.rmtree(RECORDS_WORK, ignore_errors=True)
+        shutil.rmtree(records_work, ignore_errors=True)
         r = run_git(["git", "clone", "-q", "--depth", "1", "--filter=blob:none",
-                     "--no-checkout", clone_url(repo), RECORDS_WORK])
+                     "--no-checkout", clone_url(repo), records_work])
         if r.returncode != 0:
             return False, scrub(r.stderr[-300:])
 
         def rsh(*cmd):
-            return run_git(["git", *cmd], cwd=RECORDS_WORK)
+            return run_git(["git", *cmd], cwd=records_work)
 
         def commit(parent, message):
             """(ok, commit-sha-or-reason)."""
@@ -300,6 +316,12 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
                 return failed("update-ref", u)
             return True, c.stdout.strip()
 
+        def add_run():
+            ad = rsh("add", "--", run_id)
+            if ad.returncode != 0:
+                return failed("add", ad)
+            return True, None
+
         rsh("config", "user.name", "dark-session")
         rsh("config", "user.email", "dark-session@localhost")
         head = rsh("rev-parse", "--verify", "-q", "HEAD")
@@ -312,7 +334,7 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
             sr = rsh("symbolic-ref", "HEAD", "refs/heads/main")
             if sr.returncode != 0:
                 return failed("symbolic-ref", sr)
-        run_dir = os.path.join(RECORDS_WORK, RUN_ID)
+        run_dir = os.path.join(records_work, run_id)
         os.makedirs(run_dir, exist_ok=True)
         if os.path.exists(STREAM_PATH):
             shutil.copyfile(STREAM_PATH, os.path.join(run_dir, "stream.jsonl"))
@@ -330,36 +352,41 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
                 shutil.copytree(src, os.path.join(run_dir, name), dirs_exist_ok=True)
             elif os.path.exists(src):
                 shutil.copyfile(src, os.path.join(run_dir, name))
-        ad = rsh("add", "--", RUN_ID)
-        if ad.returncode != 0:
-            return failed("add", ad)
-        ok, result = commit("HEAD" if head.returncode == 0 else None, f"records: {RUN_ID}")
+        ok, reason = add_run()
+        if not ok:
+            return ok, reason
+        ok, result = commit("HEAD" if head.returncode == 0 else None, f"records: {run_id}")
         if not ok:
             return ok, result
-        push = rsh("push", "-q", "origin", "HEAD:main")
-        if push.returncode != 0:
+
+        reason = None
+        for attempt in range(PUSH_ATTEMPTS):
+            push = rsh("push", "-q", "origin", "HEAD:main")
+            if push.returncode == 0:
+                return True, f"{repo}/{run_id}"
+            reason = scrub((push.stdout + push.stderr)[-300:])
+            if attempt == PUSH_ATTEMPTS - 1:
+                break
+            RETRY_PAUSE(random.uniform(0.2, 1.0))
             # another run pushed first: fetch the new tip the same way, move the
             # branch to it without touching files, and push again. No pull
             # --rebase: there is no checked-out tree to rebase.
             f = rsh("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", "main")
             if f.returncode != 0:
-                return False, scrub(f.stderr[-300:])
+                return False, f"push rejected: {reason}; fetch failed: " + scrub(f.stderr[-300:])
             rs = rsh("reset", "-q", "--soft", "FETCH_HEAD")
             if rs.returncode != 0:
                 return failed("reset --soft", rs)
             rt = rsh("read-tree", "FETCH_HEAD")
             if rt.returncode != 0:
                 return failed("read-tree", rt)
-            ad = rsh("add", "--", RUN_ID)
-            if ad.returncode != 0:
-                return failed("add", ad)
-            ok, result = commit("FETCH_HEAD", f"records: {RUN_ID}")
+            ok, reason2 = add_run()
+            if not ok:
+                return ok, reason2
+            ok, result = commit("FETCH_HEAD", f"records: {run_id}")
             if not ok:
                 return ok, result
-            push = rsh("push", "-q", "origin", "HEAD:main")
-        if push.returncode != 0:
-            return False, scrub(push.stderr[-300:])
-        return True, f"{repo}/{RUN_ID}"
+        return False, f"push rejected: {reason}"
     except _TimedOut:
         return False, f"timed out after {timeout} s"
 

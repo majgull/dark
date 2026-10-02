@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -584,12 +585,68 @@ class RecordsPushLive(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 1, "", "fake reset failure\n")
             return real_run(args, *a, **kw)
 
-        with mock.patch.object(session.subprocess, "run", fake_run):
+        with mock.patch.object(session, "RETRY_PAUSE", lambda s: None), \
+             mock.patch.object(session.subprocess, "run", fake_run):
             ok, info = session.push_records({})
         self.assertFalse(ok)
         self.assertIn("reset", info)
         files = fakes.branch_files(self.tmp, "dark-records/s1", "main")
         self.assertNotIn("run-1/stream.jsonl", files)
+
+    def test_four_concurrent_runs_all_land_on_main(self):
+        results = {}
+
+        def worker(n):
+            results[n] = session.push_records(
+                {}, run_id=f"run-r{n}", records_work=os.path.join(self.tmp, f"work-{n}"))
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in range(4)]
+        with mock.patch.object(session, "RETRY_PAUSE", lambda s: None):
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        self.assertTrue(all(ok for ok, _ in results.values()), results)
+        files = fakes.branch_files(self.tmp, "dark-records/s1", "main")
+        for n in range(4):
+            self.assertIn(f"run-r{n}/stream.jsonl", files)
+
+    def test_a_push_rejected_every_time_gives_up_after_six_attempts(self):
+        attempts = []
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args[:2] == ["git", "push"]:
+                attempts.append(1)
+                return subprocess.CompletedProcess(args, 1, "", "! [rejected] fake race\n")
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(session, "RETRY_PAUSE", lambda s: None), \
+             mock.patch.object(session.subprocess, "run", fake_run):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertEqual(len(attempts), 6)
+        self.assertIn("rejected", info)
+
+    def test_a_failed_fetch_during_a_retry_names_both_errors(self):
+        real_run = subprocess.run
+        rejected_once = []
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args[:2] == ["git", "push"] and not rejected_once:
+                rejected_once.append(1)
+                return subprocess.CompletedProcess(args, 1, "", "! [rejected] fake race\n")
+            if isinstance(args, list) and args[1:2] == ["fetch"]:
+                return subprocess.CompletedProcess(args, 1, "", "fake fetch failure\n")
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(session, "RETRY_PAUSE", lambda s: None), \
+             mock.patch.object(session.subprocess, "run", fake_run):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertIn("rejected", info)
+        self.assertIn("fetch", info)
 
 
 class ReviewMode(unittest.TestCase):
