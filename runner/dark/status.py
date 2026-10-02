@@ -11,26 +11,40 @@ def rows(ledger_rows, last=10):
     then the last `last` finished runs, newest first. Each row is a dict
     with state (`running`, or the ledger's own outcome), kind (the failure
     kind or None), arm, task, tier, started (the run.start row's iso),
-    seconds (None while running), calls, issue and records."""
+    seconds (None while running), calls, issue and records. A row this
+    function cannot build, for want of a field a damaged or older record
+    left out, is skipped rather than raised on."""
     starts, ends = {}, {}
     for r in ledger_rows:
-        if r.get("kind") == "run.start":
-            starts[r["run"]] = r
-        elif r.get("kind") == "run.end":
-            ends[r["run"]] = r
+        run = r.get("run")
+        if run is None or "ts" not in r:
+            continue
+        kind = r.get("kind")
+        if kind == "run.start":
+            starts[run] = r
+        elif kind == "run.end":
+            ends[run] = r
 
     running = sorted((s for run, s in starts.items() if run not in ends), key=lambda r: r["ts"])
-    out = [{"state": "running", "kind": None, "arm": s.get("arm"), "task": s["task"], "tier": s["tier"],
-            "started": s["iso"], "seconds": None, "calls": None,
-            "issue": s.get("issue"), "records": s.get("records")} for s in running]
+    out = []
+    for s in running:
+        try:
+            out.append({"state": "running", "kind": None, "arm": s.get("arm"), "task": s["task"],
+                        "tier": s["tier"], "started": s["iso"], "seconds": None, "calls": None,
+                        "issue": s.get("issue"), "records": s.get("records")})
+        except KeyError:
+            continue
 
     finished = sorted(ends.values(), key=lambda r: r["ts"], reverse=True)[:last]
     for e in finished:
-        s = starts.get(e["run"])
-        out.append({"state": e["outcome"], "kind": e.get("fail_kind"), "arm": e.get("arm"),
-                    "task": e["task"], "tier": e["tier"], "started": s["iso"] if s else e["iso"],
-                    "seconds": e.get("seconds"), "calls": e.get("calls"),
-                    "issue": e.get("issue"), "records": e.get("records")})
+        try:
+            s = starts.get(e.get("run"))
+            out.append({"state": e["outcome"], "kind": e.get("fail_kind"), "arm": e.get("arm"),
+                        "task": e["task"], "tier": e["tier"], "started": s["iso"] if s else e["iso"],
+                        "seconds": e.get("seconds"), "calls": e.get("calls"),
+                        "issue": e.get("issue"), "records": e.get("records")})
+        except KeyError:
+            continue
     return out
 
 

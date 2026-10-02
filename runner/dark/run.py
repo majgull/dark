@@ -477,8 +477,8 @@ class Runner:
         (status.rows). `just_run`/`just_issue` name a run whose run.start was
         just emitted but carries no issue field yet, the runner's own
         knowledge filled in for this one render. Best effort, like the
-        labels: a GiteaError is one log line, and neither a run's outcome
-        nor a ledger row moves."""
+        labels: any exception is one log line naming its type, and neither
+        a run's outcome nor a ledger row ever moves because of it."""
         try:
             n = self.gitea.ensure_board(full)
             events = []
@@ -488,9 +488,10 @@ class Runner:
                 if just_run and e.get("kind") == "run.start" and e.get("run") == just_run:
                     e = dict(e, issue=just_issue)
                 events.append(e)
-            self.gitea.issue_edit(full, n, body=_board_body(status.rows(events), self.clock()))
-        except G.GiteaError as e:
-            self.log(f"board {full}: {e}")
+            now = self.clock()
+            self.gitea.issue_edit(full, n, body=_board_body(status.rows(events), now))
+        except Exception as e:  # noqa: BLE001 — best effort: must never change a run's outcome
+            self.log(f"board {full}: {type(e).__name__}: {e}")
 
     def _claude_spawn_kw(self, tier, session=True):
         """spawn() keywords a claude:<model-id> run needs beyond the

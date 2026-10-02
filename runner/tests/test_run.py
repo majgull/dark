@@ -460,6 +460,21 @@ class Board(Base):
 
         self.assertEqual(row(False), row(True))
 
+    def test_a_damaged_ledger_read_in_the_board_does_not_stop_the_run(self):
+        # self.ledger.events() (the board's own unfiltered read) raising is
+        # not a GiteaError, and must not leave the run without its run.end
+        r = self.runner([{"content": FILE_HELLO}])
+        real_events = r.ledger.events
+
+        def boom(kind=None, since=None, until=None):
+            if kind is None:
+                raise ValueError("damaged ledger row")
+            return real_events(kind, since=since, until=until)
+        r.ledger.events = boom
+        res = r.run(self.task, "local-a", self.env())
+        self.assertEqual(res.outcome, "pass", res.detail)
+        self.assertEqual(self.led.last("run.end")["outcome"], "pass")
+
 
 class SessionArm(Base):
     def push_solution(self, branch, files):

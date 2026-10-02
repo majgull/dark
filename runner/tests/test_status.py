@@ -51,6 +51,14 @@ class Rows(unittest.TestCase):
         rows = S.rows(events, last=2)
         self.assertEqual([r["issue"] for r in rows], [4, 3])
 
+    def test_a_run_start_without_task_is_skipped_not_raised_on(self):
+        events = [
+            {"kind": "run.start", "run": "bad", "ts": 1000.0, "iso": "bad-start", "tier": "x", "arm": "factory"},
+            {"kind": "run.start", "run": "good", "ts": 1001.0, "iso": "good-start", "task": "t2", "tier": "x", "arm": "factory"},
+        ]
+        rows = S.rows(events, last=10)
+        self.assertEqual([r["task"] for r in rows], ["t2"])
+
 
 class Table(unittest.TestCase):
     def test_a_line_never_exceeds_110_chars_with_a_long_task_id(self):
