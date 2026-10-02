@@ -437,19 +437,40 @@ class Runner:
         the ledger records it with a trailing `:latest` dropped; the
         milestone's title is `milestone_title` when one is given (a review
         that judges a long run belongs to the judged task's milestone), else
-        the run's own task id. A GiteaError from any of the three is logged in
-        one line and drops what is missing: a thinner record is never a
-        changed outcome, and no ledger row changes."""
+        the run's own task id. Each of the three has its own try: a
+        GiteaError from one is logged in one line and drops only what is
+        missing, never the other two; a thinner record is never a changed
+        outcome, and no ledger row changes."""
         labels, milestone = [], None
         tier = st.tier[:-len(":latest")] if st.tier.endswith(":latest") else st.tier
+        org = full.split("/", 1)[0]
+        for name in (f"arm/{st.arm}", f"tier/{tier}"):
+            try:
+                labels.append(self.gitea.ensure_label(org, name, label_color(name)))
+            except G.GiteaError as e:
+                self.log(f"issue labels {st.res.run}: {e}")
         try:
-            org = full.split("/", 1)[0]
-            labels.append(self.gitea.ensure_label(org, f"arm/{st.arm}", label_color(f"arm/{st.arm}")))
-            labels.append(self.gitea.ensure_label(org, f"tier/{tier}", label_color(f"tier/{tier}")))
             milestone = self.gitea.ensure_milestone(full, milestone_title or st.task.id)
         except G.GiteaError as e:
             self.log(f"issue labels {st.res.run}: {e}")
         return labels, milestone
+
+    def _create_issue(self, full, title, body, labels, milestone, run_id):
+        """issue_create, with the labels and the milestone best effort too:
+        this client may remember a label or milestone id the server has
+        since lost (deleted between runs), and Gitea then refuses the whole
+        create over that one bad id. On that first failure, forget `full`'s
+        remembered ids and create the issue once more with neither; a run
+        must never die of its own decoration. Only a failure of that second
+        create is raised, for the caller to end the run as it always did."""
+        try:
+            return self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
+        except G.GiteaError as e:
+            if not labels and milestone is None:
+                raise
+            self.log(f"issue create {run_id}: {e}; retrying with no labels or milestone")
+            self.gitea.forget_issue_meta(full)
+            return self.gitea.issue_create(full, title, body)
 
     def _update_board(self, full, shift, just_run=None, just_issue=None):
         """Rewrite the pinned Now issue of `full` from `shift`'s ledger rows
@@ -522,7 +543,7 @@ class Runner:
         labels, milestone = self._issue_meta(st, full)
         try:
             title, body = issue_page(st, env=env, may_edit=task.may_edit)
-            res.issue = self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
+            res.issue = self._create_issue(full, title, body, labels, milestone, res.run)
             self.gitea.delete_branch(full, res.branch)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}", reserved=reserved)
@@ -720,8 +741,7 @@ class Runner:
                     return st.end("fail:structural", "push", f"branch {branch} not on {st.full}", usage=usage)
                 labels, milestone = self._issue_meta(st, st.full)
                 title, body = issue_page(st, env=env, branch=branch, usage=usage)
-                st.res.issue = self.gitea.issue_create(
-                    st.full, title, body, labels=labels, milestone=milestone)
+                st.res.issue = self._create_issue(st.full, title, body, labels, milestone, st.res.run)
             except G.GiteaError as e:
                 return st.end("fail:structural", "gitea", f"gitea: {e}", usage=usage)
             st.go("ready", "session arm: branch present")
@@ -797,7 +817,7 @@ class Runner:
         labels, milestone = self._issue_meta(st, full, milestone_title)
         try:
             title, body = issue_page(st, env=env, judges=judges)
-            res.issue = self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
+            res.issue = self._create_issue(full, title, body, labels, milestone, res.run)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}")
         st.go("ready", "issue ready")
@@ -990,7 +1010,7 @@ class Runner:
         labels, milestone = self._issue_meta(st, full)
         try:
             title, body = issue_page(st, env=env, url=task.url)
-            res.issue = self.gitea.issue_create(full, title, body, labels=labels, milestone=milestone)
+            res.issue = self._create_issue(full, title, body, labels, milestone, res.run)
         except G.GiteaError as e:
             return st.end("fail:structural", "gitea", f"gitea: {e}")
         st.go("ready", "issue ready")

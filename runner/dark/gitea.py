@@ -219,6 +219,14 @@ class Gitea:
                                    {"title": title, "description": description})["id"])
         return ids[title]
 
+    def forget_issue_meta(self, full):
+        """Drop the remembered label ids of `full`'s org and the remembered
+        milestone ids of `full` itself, so the next `ensure_label` or
+        `ensure_milestone` call for either looks the server up again instead
+        of trusting an id it may have deleted since."""
+        self._labels.pop(full.split("/", 1)[0], None)
+        self._milestones.pop(full, None)
+
     def issue_add_labels(self, full, n, ids):
         self.api(f"/repos/{full}/issues/{n}/labels", "POST", {"labels": ids})
 

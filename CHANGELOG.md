@@ -29,6 +29,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The records push checks every git step (`read-tree`, `add`, `update-ref`, `symbolic-ref`, `reset --soft`) instead of ignoring a failed one, which could land a commit that deletes every earlier run from `main` or report records as pushed when they were not; a checksum failure after a successful push no longer raises, it just leaves `records_sha256` off the result.
 - A records push rejected by a race is retried up to six times, with a short random pause before each retry, instead of giving up after one retry and losing the records of half the runs that end together.
 - A milestone lookup is read page by page like the label listing, so a repository with more than 50 milestones whose titles contain the wanted text still finds the exact one instead of creating a duplicate; a run's closing comment links to its records repository from `records`, not from the issue's own repository, which can differ.
+- A run's labels and milestone can no longer fail the run: when Gitea refuses an issue over a label or milestone id it no longer has, the remembered ids are dropped and the issue is created once more without them, and a failed lookup of one label no longer drops the other label and the milestone.
 
 ## [0.7.0] - 2026-10-02
 

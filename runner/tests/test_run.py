@@ -334,6 +334,50 @@ class Outcomes(Base):
 
         self.assertEqual(row(False), row(True))
 
+    def test_an_issue_the_server_refuses_over_its_labels_is_made_without_them(self):
+        # the client remembers label and milestone ids; one the server has
+        # lost since makes Gitea refuse the create, and the run must not die
+        r = self.runner([{"content": FILE_HELLO}])
+        real, seen, forgot = r.gitea.issue_create, [], []
+
+        def create(full, title, body, labels=None, milestone=None):
+            if title == "Now":  # the board's own issue, not the run's
+                return real(full, title, body, labels=labels)
+            seen.append((labels, milestone))
+            if labels or milestone is not None:
+                raise G.GiteaError(422, "label does not exist")
+            return real(full, title, body)
+
+        real_forget = r.gitea.forget_issue_meta
+        r.gitea.issue_create = create
+        r.gitea.forget_issue_meta = lambda full: (forgot.append(full), real_forget(full))[1]
+        res = r.run(self.task, "local-a", self.env())
+        self.assertEqual(res.outcome, "pass", res.detail)
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(seen[0][0])
+        self.assertEqual(seen[1], (None, None))
+        self.assertEqual(len(forgot), 1)
+
+    def test_one_label_that_fails_costs_only_that_label(self):
+        r = self.runner([{"content": FILE_HELLO}])
+        real_label, real_create, seen = r.gitea.ensure_label, r.gitea.issue_create, []
+
+        def label(org, name, color):
+            if name.startswith("arm/"):
+                raise G.GiteaError(500, "labels down")
+            return real_label(org, name, color)
+
+        def create(full, title, body, labels=None, milestone=None):
+            seen.append((labels, milestone))
+            return real_create(full, title, body, labels=labels, milestone=milestone)
+
+        r.gitea.ensure_label, r.gitea.issue_create = label, create
+        res = r.run(self.task, "local-a", self.env())
+        self.assertEqual(res.outcome, "pass", res.detail)
+        labels, milestone = seen[0]
+        self.assertEqual(len(labels), 1)
+        self.assertIsNotNone(milestone)
+
     def test_gitea_down_is_a_structural_record_with_a_named_reason(self):
         # it happens before the model's first call and is not the tier's
         # doing; as a refusal it left no record at all
