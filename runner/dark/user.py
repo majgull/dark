@@ -602,8 +602,8 @@ class PlaywrightPage:
     def snapshot(self):
         try:
             return self.page.locator("body").aria_snapshot()
-        except Exception:  # noqa: BLE001 — an older Playwright: the accessibility tree as JSON
-            return json.dumps(self.page.accessibility.snapshot(), indent=1)
+        except Exception as e:  # noqa: BLE001 — a page that cannot be read is the environment's
+            raise BrowserError(f"the page could not be read: {str(e)[:200]}") from None
 
     def _target(self, a):
         return resolve_target(self.page, a.get("role") or "button", a.get("name") or None)
@@ -874,11 +874,14 @@ def run_steps(model, page, url, steps, records_dir, max_calls, deadline, clock=t
         with open(os.path.join(steps_dir, f"{n:02d}{TRAIL_SUFFIX}"), "w") as f:
             for line in trail:
                 f.write(S.scrub(json.dumps(line, sort_keys=True)) + "\n")
-        page.screenshot(os.path.join(steps_dir, f"{n:02d}.png"))
         rec = {"step": n, "verdict": verdict, "note": note}
         if verdict == "pass":
             rec["evidence"] = evidence
         rec.update(expected)
+        try:
+            page.screenshot(os.path.join(steps_dir, f"{n:02d}.png"))
+        except Exception as e:  # noqa: BLE001 — a picture that cannot be taken is no fault at all
+            rec["screenshot"] = f"failed: {str(e)[:200]}"
         results.append(rec)
         _append(jsonl, rec)
         S.PROGRESS.add(f"step {n}: {verdict}")

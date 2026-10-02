@@ -329,6 +329,20 @@ class Steps(unittest.TestCase):
         self.assertTrue(all(q["snapshot"] == page.snapshot() for q in model.asked))
         self.assertEqual((S.STATS["calls"], S.STATS["tool_calls"]), (6, 3))
 
+    def test_a_screenshot_that_cannot_be_taken_keeps_the_step_and_marks_it(self):
+        class NoShot(FakePage):
+            def screenshot(self, path):
+                raise RuntimeError("Target crashed")
+
+        results, stop = self.run_steps(ScriptedModel([verdict(), verdict(), verdict()]), NoShot())
+        self.assertIsNone(stop)
+        self.assertEqual([r["verdict"] for r in results], ["pass", "pass", "pass"])
+        self.assertEqual([r["note"] for r in results], ["as asked", "as asked", "as asked"])
+        rows = self.jsonl()
+        self.assertEqual(len(rows), 3)
+        for row in rows:
+            self.assertEqual(row["screenshot"], "failed: Target crashed")
+
     def test_the_prompt_carries_each_finished_steps_note_and_none_for_the_first(self):
         llm = fakes.FakeLLM([
             {"content": '{"do": "click", "role": "link", "name": "Sign in"}'},
@@ -1071,6 +1085,29 @@ class Recording(unittest.TestCase):
             with self.assertRaises(U.BrowserError):
                 U.PlaywrightPage(self.records)
 
+    def test_a_page_that_cannot_be_read_is_a_browser_error(self):
+        class Crashed:
+            def locator(self, selector):
+                raise RuntimeError("Target crashed")
+
+        page = U.PlaywrightPage.__new__(U.PlaywrightPage)
+        page.page = Crashed()
+        with self.assertRaises(U.BrowserError) as raised:
+            page.snapshot()
+        self.assertTrue(str(raised.exception).startswith("the page could not be read:"))
+        self.assertIn("Target crashed", str(raised.exception))
+
+    def test_a_page_read_error_keeps_only_the_first_200_characters(self):
+        class Crashed:
+            def locator(self, selector):
+                raise RuntimeError("x" * 500)
+
+        page = U.PlaywrightPage.__new__(U.PlaywrightPage)
+        page.page = Crashed()
+        with self.assertRaises(U.BrowserError) as raised:
+            page.snapshot()
+        self.assertEqual(str(raised.exception), "the page could not be read: " + "x" * 200)
+
 
 class Model(unittest.TestCase):
     """ChatModel asks the provider entry the session arm uses."""
@@ -1238,20 +1275,43 @@ class Executor(unittest.TestCase):
         self.assertNotIn("shop-user-1/trace.zip", files)
         self.assertIn("shop-user-1/steps.jsonl", files)
 
-    def test_a_browser_that_dies_mid_run_still_writes_steps_jsonl(self):
+    def test_a_browser_that_dies_at_a_screenshot_keeps_every_step(self):
         class Dies(RecordedPage):
             def screenshot(self, path):
                 if os.path.basename(path) == "02.png":
                     raise U.BrowserError("Target page, context or browser has been closed")
                 super().screenshot(path)
-        rc = U.main(ScriptedModel([verdict(), verdict()]), Dies(S.RECORDS_DIR, video=False))
-        self.assertEqual(rc, 1)
-        self.assertEqual(self.done_tag()[1]["kind"], "env")
+        rc = U.main(ScriptedModel([verdict(), verdict(), verdict()]), Dies(S.RECORDS_DIR, video=False))
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.done_tag()[1]["outcome"], "ok")
         files = self.records()
-        self.assertEqual([json.loads(l)["step"] for l in files["shop-user-1/steps.jsonl"].decode().splitlines()], [1])
+        rows = [json.loads(l) for l in files["shop-user-1/steps.jsonl"].decode().splitlines()]
+        self.assertEqual([r["verdict"] for r in rows], ["pass", "pass", "pass"])
+        self.assertTrue(rows[1]["screenshot"].startswith("failed: "))
         self.assertIn("shop-user-1/steps/01.png", files)
+        self.assertNotIn("shop-user-1/steps/02.png", files)
+        self.assertIn("shop-user-1/steps/03.png", files)
         self.assertIn("shop-user-1/trace.zip", files)  # what the browser managed to save before it died
-        self.assertNotIn("shop-user-1/video.webm", files)
+
+    def test_a_page_that_cannot_be_read_ends_env_and_pushes_the_records(self):
+        seen = []
+
+        def records_kw(*a, **kw):
+            seen.append(kw)
+            return {"records": "dark-records/s1/shop-user-1"}
+
+        class Crashed(FakePage):
+            def snapshot(self):
+                raise U.BrowserError("the page could not be read: Target crashed")
+
+        with mock.patch.object(S, "records_kw", records_kw):
+            rc = U.main(ScriptedModel([]), Crashed())
+        self.assertEqual(rc, 1)
+        body, tag = self.done_tag()
+        self.assertEqual(tag["kind"], "env")
+        self.assertIn("the page could not be read", body)
+        self.assertTrue(seen)
+        self.assertEqual([kw.get("timeout") for kw in seen], [U.RECORDS_PUSH_SECONDS])
 
     def test_no_token_appears_in_the_records(self):
         page = FakePage(snapshot=f"- heading \"Shop\"\n- text \"session {TOKEN}\"")
