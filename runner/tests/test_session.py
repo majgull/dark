@@ -508,6 +508,89 @@ class RecordsPushLive(unittest.TestCase):
         self.assertEqual(fakes.branch_files(self.tmp, "empty", "main"),
                          {"run-1/stream.jsonl", "run-1/brief.md", "run-1/task.json"})
 
+    def test_records_kw_does_not_raise_when_the_checksum_fails(self):
+        with mock.patch.object(session, "sha256_file", side_effect=OSError("boom")):
+            kw = session.records_kw()
+        self.assertEqual(kw["records"], "dark-records/s1/run-1")
+        self.assertNotIn("records_sha256", kw)
+
+    def _fail_git(self, subcommand):
+        """A subprocess.run double that fails the given git subcommand (the
+        second argv element) and otherwise runs the real git."""
+        real_run = subprocess.run
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args[1:2] == [subcommand]:
+                return subprocess.CompletedProcess(args, 1, "", f"fake {subcommand} failure\n")
+            return real_run(args, *a, **kw)
+
+        return fake_run
+
+    def test_a_failed_read_tree_is_reported_and_does_not_push(self):
+        bare = os.path.join(self.tmp, "dark-records/s1.git")
+        before = fakes.git("rev-parse", "main", cwd=bare).stdout.strip()
+        with mock.patch.object(session.subprocess, "run", self._fail_git("read-tree")):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertIn("read-tree", info)
+        self.assertEqual(fakes.git("rev-parse", "main", cwd=bare).stdout.strip(), before)
+
+    def test_a_failed_add_is_reported_and_does_not_push(self):
+        bare = os.path.join(self.tmp, "dark-records/s1.git")
+        before = fakes.git("rev-parse", "main", cwd=bare).stdout.strip()
+        with mock.patch.object(session.subprocess, "run", self._fail_git("add")):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertIn("add", info)
+        self.assertEqual(fakes.git("rev-parse", "main", cwd=bare).stdout.strip(), before)
+
+    def test_a_failed_update_ref_is_reported_and_does_not_push(self):
+        bare = os.path.join(self.tmp, "dark-records/s1.git")
+        before = fakes.git("rev-parse", "main", cwd=bare).stdout.strip()
+        with mock.patch.object(session.subprocess, "run", self._fail_git("update-ref")):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertIn("update-ref", info)
+        self.assertEqual(fakes.git("rev-parse", "main", cwd=bare).stdout.strip(), before)
+
+    def test_a_failed_symbolic_ref_is_reported_and_does_not_push(self):
+        bare = os.path.join(self.tmp, "empty.git")
+        fakes.git("init", "-q", "--bare", "-b", "main", bare)
+        session.TASK["git_url"] = f"file://{self.tmp}"
+        session.TASK["records_repo"] = "empty"
+        with mock.patch.object(session.subprocess, "run", self._fail_git("symbolic-ref")):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertIn("symbolic-ref", info)
+        self.assertIsNone(fakes.branch_files(self.tmp, "empty", "main"))
+
+    def test_a_failed_reset_during_a_retry_is_reported_and_does_not_push(self):
+        bare = os.path.join(self.tmp, "dark-records/s1.git")
+        real_run = subprocess.run
+        pushed = []
+
+        def fake_run(args, *a, **kw):
+            if isinstance(args, list) and args[:2] == ["git", "push"] and not pushed:
+                pushed.append(True)  # another run wins the race just before we push
+                other = os.path.join(self.tmp, "other-clone")
+                fakes.git("clone", "-q", bare, other)
+                os.makedirs(os.path.join(other, "run-9"), exist_ok=True)
+                with open(os.path.join(other, "run-9", "stream.jsonl"), "w") as f:
+                    f.write("{}\n")
+                fakes.git("add", "-A", cwd=other)
+                fakes.git("-c", "user.name=o", "-c", "user.email=o@x", "commit", "-qm", "run-9", cwd=other)
+                fakes.git("push", "-q", "origin", "HEAD:main", cwd=other)
+            if isinstance(args, list) and args[1:2] == ["reset"]:
+                return subprocess.CompletedProcess(args, 1, "", "fake reset failure\n")
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(session.subprocess, "run", fake_run):
+            ok, info = session.push_records({})
+        self.assertFalse(ok)
+        self.assertIn("reset", info)
+        files = fakes.branch_files(self.tmp, "dark-records/s1", "main")
+        self.assertNotIn("run-1/stream.jsonl", files)
+
 
 class ReviewMode(unittest.TestCase):
     """No hidden acceptance, just report.md landed

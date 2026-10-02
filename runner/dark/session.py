@@ -245,7 +245,12 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
     blobless. The index comes from that commit, so the run's own files can be
     staged alone, and the commit is written with `write-tree --missing-ok`
     because `git commit` verifies that every referenced blob exists and would
-    fetch every earlier run's files."""
+    fetch every earlier run's files.
+
+    Every git step that changes the index, the ref or the commit is checked:
+    a non-zero exit returns False with the command's name in the reason,
+    instead of risking a push that silently lands the wrong tree or a HEAD
+    that never moved."""
     repo = TASK.get("records_repo")
     if not repo:
         return False, "no records_repo in task.json"
@@ -266,6 +271,9 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
         except subprocess.TimeoutExpired:
             raise _TimedOut from None
 
+    def failed(name, result):
+        return False, f"{name} failed: " + scrub((result.stdout + result.stderr)[-300:])
+
     try:
         shutil.rmtree(RECORDS_WORK, ignore_errors=True)
         r = run_git(["git", "clone", "-q", "--depth", "1", "--filter=blob:none",
@@ -277,25 +285,33 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
             return run_git(["git", *cmd], cwd=RECORDS_WORK)
 
         def commit(parent, message):
+            """(ok, commit-sha-or-reason)."""
             tree = rsh("write-tree", "--missing-ok")
             if tree.returncode != 0:
-                return tree
+                return failed("write-tree", tree)
             cmd = ["commit-tree", tree.stdout.strip()]
             if parent:
                 cmd += ["-p", parent]
             c = rsh(*(cmd + ["-m", message]))
-            if c.returncode == 0:
-                rsh("update-ref", "HEAD", c.stdout.strip())
-            return c
+            if c.returncode != 0:
+                return failed("commit-tree", c)
+            u = rsh("update-ref", "HEAD", c.stdout.strip())
+            if u.returncode != 0:
+                return failed("update-ref", u)
+            return True, c.stdout.strip()
 
         rsh("config", "user.name", "dark-session")
         rsh("config", "user.email", "dark-session@localhost")
         head = rsh("rev-parse", "--verify", "-q", "HEAD")
         if head.returncode == 0:
-            rsh("read-tree", "HEAD")
+            rt = rsh("read-tree", "HEAD")
+            if rt.returncode != 0:
+                return failed("read-tree", rt)
         else:
             # a repository created empty has no commit: only point HEAD at main
-            rsh("symbolic-ref", "HEAD", "refs/heads/main")
+            sr = rsh("symbolic-ref", "HEAD", "refs/heads/main")
+            if sr.returncode != 0:
+                return failed("symbolic-ref", sr)
         run_dir = os.path.join(RECORDS_WORK, RUN_ID)
         os.makedirs(run_dir, exist_ok=True)
         if os.path.exists(STREAM_PATH):
@@ -314,10 +330,12 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
                 shutil.copytree(src, os.path.join(run_dir, name), dirs_exist_ok=True)
             elif os.path.exists(src):
                 shutil.copyfile(src, os.path.join(run_dir, name))
-        rsh("add", "--", RUN_ID)
-        c = commit("HEAD" if head.returncode == 0 else None, f"records: {RUN_ID}")
-        if c.returncode != 0:
-            return False, scrub((c.stdout + c.stderr)[-300:])
+        ad = rsh("add", "--", RUN_ID)
+        if ad.returncode != 0:
+            return failed("add", ad)
+        ok, result = commit("HEAD" if head.returncode == 0 else None, f"records: {RUN_ID}")
+        if not ok:
+            return ok, result
         push = rsh("push", "-q", "origin", "HEAD:main")
         if push.returncode != 0:
             # another run pushed first: fetch the new tip the same way, move the
@@ -326,12 +344,18 @@ def push_records(extra_files=None, extra_paths=None, timeout=None):
             f = rsh("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", "main")
             if f.returncode != 0:
                 return False, scrub(f.stderr[-300:])
-            rsh("reset", "-q", "--soft", "FETCH_HEAD")
-            rsh("read-tree", "FETCH_HEAD")
-            rsh("add", "--", RUN_ID)
-            c = commit("FETCH_HEAD", f"records: {RUN_ID}")
-            if c.returncode != 0:
-                return False, scrub((c.stdout + c.stderr)[-300:])
+            rs = rsh("reset", "-q", "--soft", "FETCH_HEAD")
+            if rs.returncode != 0:
+                return failed("reset --soft", rs)
+            rt = rsh("read-tree", "FETCH_HEAD")
+            if rt.returncode != 0:
+                return failed("read-tree", rt)
+            ad = rsh("add", "--", RUN_ID)
+            if ad.returncode != 0:
+                return failed("add", ad)
+            ok, result = commit("FETCH_HEAD", f"records: {RUN_ID}")
+            if not ok:
+                return ok, result
             push = rsh("push", "-q", "origin", "HEAD:main")
         if push.returncode != 0:
             return False, scrub(push.stderr[-300:])
@@ -349,13 +373,16 @@ def records_kw(extra_files=None, extra_paths=None, timeout=None):
         ok, info = push_records(extra_files, extra_paths, timeout)
     except Exception as e:  # noqa: BLE001 — records must never crash the run
         ok, info = False, f"{type(e).__name__}: {e}"
-    if ok:
+    if not ok:
+        return {"records": f"PUSH FAILED: {info}"}
+    try:
         # a run that failed before pi started has no stream; push_records
         # kept an empty one, so the sum is the empty file's
         sha = (sha256_file(STREAM_PATH) if os.path.exists(STREAM_PATH)
                else hashlib.sha256(b"").hexdigest())
-        return {"records": info, "records_sha256": sha}
-    return {"records": f"PUSH FAILED: {info}"}
+    except Exception:  # noqa: BLE001 — records must never crash the run
+        return {"records": info}
+    return {"records": info, "records_sha256": sha}
 
 
 def crash_text(e):

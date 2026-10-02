@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The user arm starts Chromium with `--disable-dev-shm-usage`, so it writes to a temp directory instead of the sandbox's 64 MB `/dev/shm`: a page of several MB used to kill the renderer as `Target crashed`.
 - The user arm's done tag gets a `recording` field, `incomplete: <what is missing>`, when a step's screenshot failed, closing the page raised, or no trace.zip was saved, so a run that still passed or failed on its steps no longer looks like it has a complete recording when it does not.
 - The user arm's browser page closes what it already started, the browser and Playwright, when opening the page itself then fails, instead of leaving them running; and an exception raised before the browser's own step loop begins still closes the page the run opened.
+- The records push checks every git step (`read-tree`, `add`, `update-ref`, `symbolic-ref`, `reset --soft`) instead of ignoring a failed one, which could land a commit that deletes every earlier run from `main` or report records as pushed when they were not; a checksum failure after a successful push no longer raises, it just leaves `records_sha256` off the result.
 
 ## [0.7.0] - 2026-10-02
 
