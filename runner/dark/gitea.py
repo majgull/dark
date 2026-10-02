@@ -39,6 +39,11 @@ class Gitea:
         self.lan_url = (lan_url or url).rstrip("/")
         self.token = token
         self.timeout = timeout
+        # label ids per org and milestone ids per repo: the first call for an
+        # org or a repo lists what is there once, so a run that adds several
+        # labels or asks for one milestone again makes no second list call
+        self._labels = {}
+        self._milestones = {}
 
     def api(self, path, method="GET", data=None):
         req = urllib.request.Request(
@@ -157,9 +162,48 @@ class Gitea:
             if e.code != 404:
                 raise
 
-    # --- issues and comments ---------------------------------------------------
-    def issue_create(self, full, title, body):
-        return self.api(f"/repos/{full}/issues", "POST", {"title": title, "body": body})["number"]
+    # --- labels, milestones, issues and comments -------------------------------
+    def ensure_label(self, org, name, color, description=""):
+        """The id of the org label `name`, created when it is missing.
+
+        A name with a `/` in it is a scoped label, so the create marks it
+        exclusive: a repository carries at most one label per scope. The
+        first call for an org remembers every label the listing showed, so a
+        second label of the same org is no second list call."""
+        ids = self._labels.get(org)
+        if ids is None:
+            ids = {lab["name"]: lab["id"] for lab in self.api(f"/orgs/{org}/labels?limit=100")}
+            self._labels[org] = ids
+        if name not in ids:
+            data = {"name": name, "color": color, "description": description}
+            if "/" in name:
+                data["exclusive"] = True
+            ids[name] = self.api(f"/orgs/{org}/labels", "POST", data)["id"]
+        return ids[name]
+
+    def ensure_milestone(self, full, title, description=""):
+        """The id of the milestone titled `title` in `full`, open or closed,
+        created when it is missing. One lookup, remembered per repository by
+        title, so a second ask for the same milestone makes no second call."""
+        ids = self._milestones.setdefault(full, {})
+        if title not in ids:
+            q = urllib.parse.quote(title, safe="")
+            found = self.api(f"/repos/{full}/milestones?state=all&name={q}")
+            ids[title] = (found[0]["id"] if found else
+                          self.api(f"/repos/{full}/milestones", "POST",
+                                   {"title": title, "description": description})["id"])
+        return ids[title]
+
+    def issue_add_labels(self, full, n, ids):
+        self.api(f"/repos/{full}/issues/{n}/labels", "POST", {"labels": ids})
+
+    def issue_create(self, full, title, body, labels=None, milestone=None):
+        data = {"title": title, "body": body}
+        if labels:
+            data["labels"] = labels
+        if milestone is not None:
+            data["milestone"] = milestone
+        return self.api(f"/repos/{full}/issues", "POST", data)["number"]
 
     def issue_close(self, full, n, comment=None):
         if comment:

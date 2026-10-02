@@ -228,6 +228,58 @@ class Gitea(unittest.TestCase):
         self.assertEqual(self.g.open_issues("dark/t"), [])
         self.assertEqual(self.fake.issues["dark/t"][1]["state"], "closed")
 
+    def test_ensure_label_created_reused_and_one_list_per_org(self):
+        org = "label-org"
+        lab = self.g.ensure_label(org, "arm/long", "#0969da", "the run's arm")
+        self.assertEqual(lab, self.fake.labels[org][0]["id"])
+        self.assertEqual(self.fake.labels[org][0],
+                         {"id": lab, "name": "arm/long", "color": "#0969da",
+                          "description": "the run's arm", "exclusive": True})
+        # a second label of the same org makes no second list call
+        other = self.g.ensure_label(org, "tier/local-a", "#8250df")
+        self.assertNotEqual(other, lab)
+        self.assertTrue(self.fake.labels[org][1]["exclusive"])  # scoped too
+        self.assertEqual(self.fake.calls.count(("GET", f"/api/v1/orgs/{org}/labels")), 1)
+        # a name with no scope is not exclusive
+        self.g.ensure_label(org, "plain", "#6e7781")
+        self.assertFalse(self.fake.labels[org][2]["exclusive"])
+        # present: reused with its own colour, never a second create
+        self.assertEqual(self.g.ensure_label(org, "arm/long", "#000000"), lab)
+        self.assertEqual(len(self.fake.labels[org]), 3)
+
+    def test_ensure_milestone_created_reused_and_closed_found(self):
+        full = "mil-org/shift"
+        self.fake.repos[full] = {"archived": False, "branches": set()}
+        ms = self.g.ensure_milestone(full, "hello", "the task")
+        self.assertEqual(ms, self.fake.milestones[full][0]["id"])
+        self.assertEqual(self.fake.milestones[full][0]["title"], "hello")
+        # present, open or closed: reused, no create
+        self.fake.milestones[full][0]["state"] = "closed"
+        self.assertEqual(self.g.ensure_milestone(full, "hello"), ms)
+        self.assertEqual(len(self.fake.milestones[full]), 1)
+        # a second title gets its own milestone
+        second = self.g.ensure_milestone(full, "world")
+        self.assertNotEqual(second, ms)
+        self.assertEqual([m["title"] for m in self.fake.milestones[full]], ["hello", "world"])
+
+    def test_issue_labels_and_milestone_at_create_and_beside(self):
+        full = "issue-org/t"
+        self.fake.repos[full] = {"archived": False, "branches": set()}
+        arm = self.g.ensure_label("issue-org", "arm/long", "#0969da")
+        tier = self.g.ensure_label("issue-org", "tier/local-a", "#8250df")
+        ms = self.g.ensure_milestone(full, "hello")
+        n = self.g.issue_create(full, "run r1", "body", labels=[arm, tier], milestone=ms)
+        self.assertEqual(self.fake.issues[full][n]["labels"], [arm, tier])
+        self.assertEqual(self.fake.issues[full][n]["milestone"], ms)
+        # a later label (the outcome) is added to the open issue
+        out = self.g.ensure_label("issue-org", "outcome/pass", "#2da44e")
+        self.g.issue_add_labels(full, n, [out])
+        self.assertEqual(self.fake.issues[full][n]["labels"], [arm, tier, out])
+        # no labels given: the create carries none
+        plain = self.g.issue_create(full, "run r2", "body")
+        self.assertEqual(self.fake.issues[full][plain]["labels"], [])
+        self.assertIsNone(self.fake.issues[full][plain]["milestone"])
+
     def test_parse_time(self):
         self.assertEqual(G.parse_time("1970-01-01T00:00:10Z"), 10.0)
         self.assertEqual(G.parse_time("1970-01-01T01:00:10+01:00"), 10.0)

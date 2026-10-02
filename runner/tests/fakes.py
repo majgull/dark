@@ -35,7 +35,11 @@ class FakeGitea:
         # old full name -> new one: what a transfer leaves behind, and what
         # the API answers on (urllib follows it, as Gitea sends it)
         self.redirects = {}
-        self.issues = {}       # full -> {n: {"title","body","state","comments":[...]}}
+        self.issues = {}       # full -> {n: {"title","body","state","comments","labels","milestone"}}
+        self.labels = {}       # org -> [{"id","name","color","description","exclusive"}]
+        self.milestones = {}   # full -> [{"id","title","description","state"}]
+        self.next_label = 1
+        self.next_milestone = 1
         self.assets = []       # (full, n, filename, size)
         self.next_comment = 1
         self.calls = []        # (method, path)
@@ -83,6 +87,41 @@ class FakeGitea:
                             if t["id"] == tid:
                                 return self._send(200, [{"login": u} for u in t.get("members", [])])
                     return self._send(404, {"message": "no team"})
+                m = re.match(r"^/orgs/([^/]+)/labels$", p)
+                if m and method == "GET":
+                    q = dict(x.split("=") for x in query.split("&") if "=" in x)
+                    limit = int(q.get("limit", 50))
+                    return self._send(200, fake.labels.get(m.group(1), [])[:limit])
+                if m and method == "POST":
+                    d = self._body()
+                    lab = {"id": fake.next_label, "name": d["name"], "color": d.get("color", ""),
+                           "description": d.get("description", ""), "exclusive": bool(d.get("exclusive"))}
+                    fake.next_label += 1
+                    fake.labels.setdefault(m.group(1), []).append(lab)
+                    return self._send(201, lab)
+                m = re.match(r"^/repos/([^/]+/[^/]+)/milestones$", p)
+                if m and method == "GET":
+                    q = dict(x.split("=") for x in query.split("&") if "=" in x)
+                    name = q.get("name")
+                    return self._send(200, [x for x in fake.milestones.get(m.group(1), [])
+                                            if name is None or x["title"] == name])
+                if m and method == "POST":
+                    d = self._body()
+                    ms = {"id": fake.next_milestone, "title": d["title"],
+                          "description": d.get("description", ""), "state": "open"}
+                    fake.next_milestone += 1
+                    fake.milestones.setdefault(m.group(1), []).append(ms)
+                    return self._send(201, ms)
+                m = re.match(r"^/repos/([^/]+/[^/]+)/issues/(\d+)/labels$", p)
+                if m and method == "POST":
+                    full, n = m.group(1), int(m.group(2))
+                    ids = self._body().get("labels") or []
+                    iss = fake.issues.setdefault(full, {}).setdefault(n, {"comments": []})
+                    iss.setdefault("labels", [])
+                    for i in ids:
+                        if i not in iss["labels"]:
+                            iss["labels"].append(i)
+                    return self._send(201, ids)
                 m = re.match(r"^/repos/([^/]+/[^/]+)/issues/(\d+)/comments$", p)
                 if m and method == "POST":
                     full, n = m.group(1), int(m.group(2))
@@ -118,7 +157,8 @@ class FakeGitea:
                     d = self._body()
                     iss = fake.issues.setdefault(full, {})
                     n = max(iss, default=0) + 1
-                    iss[n] = {"title": d["title"], "body": d.get("body", ""), "state": "open", "comments": []}
+                    iss[n] = {"title": d["title"], "body": d.get("body", ""), "state": "open", "comments": [],
+                              "labels": list(d.get("labels") or []), "milestone": d.get("milestone")}
                     return self._send(201, {"number": n})
                 if m and method == "GET":
                     full = m.group(1)
