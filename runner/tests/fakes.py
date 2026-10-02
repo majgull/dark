@@ -91,7 +91,8 @@ class FakeGitea:
                 if m and method == "GET":
                     q = dict(x.split("=") for x in query.split("&") if "=" in x)
                     limit = int(q.get("limit", 50))
-                    return self._send(200, fake.labels.get(m.group(1), [])[:limit])
+                    page = int(q.get("page", 1))
+                    return self._send(200, fake.labels.get(m.group(1), [])[(page - 1) * limit: page * limit])
                 if m and method == "POST":
                     d = self._body()
                     lab = {"id": fake.next_label, "name": d["name"], "color": d.get("color", ""),
@@ -103,8 +104,10 @@ class FakeGitea:
                 if m and method == "GET":
                     q = dict(x.split("=") for x in query.split("&") if "=" in x)
                     name = q.get("name")
+                    # Gitea's name= filter is a case-insensitive substring
+                    # match, not an exact title: a near match is still returned
                     return self._send(200, [x for x in fake.milestones.get(m.group(1), [])
-                                            if name is None or x["title"] == name])
+                                            if name is None or name.lower() in x["title"].lower()])
                 if m and method == "POST":
                     d = self._body()
                     ms = {"id": fake.next_milestone, "title": d["title"],

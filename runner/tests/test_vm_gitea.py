@@ -262,6 +262,33 @@ class Gitea(unittest.TestCase):
         self.assertNotEqual(second, ms)
         self.assertEqual([m["title"] for m in self.fake.milestones[full]], ["hello", "world"])
 
+    def test_ensure_milestone_ignores_a_near_match_by_name(self):
+        # Gitea's name= filter matches any title that contains the text, in
+        # any letter case (it returns 1061-user-dark-records for a lookup of
+        # 1061-user-dark); only the exact title may be taken
+        full = "mil-org/near"
+        self.fake.repos[full] = {"archived": False, "branches": set()}
+        near = {"id": 77, "title": "1061-user-dark-records", "description": "", "state": "open"}
+        self.fake.milestones[full] = [near]
+        got = self.g.ensure_milestone(full, "1061-user-dark")
+        self.assertNotEqual(got, near["id"])
+        self.assertEqual([m["title"] for m in self.fake.milestones[full]],
+                         ["1061-user-dark-records", "1061-user-dark"])
+        # the exact title is still found and reused, closed included
+        self.assertEqual(self.g.ensure_milestone(full, "1061-user-dark-records"), near["id"])
+
+    def test_ensure_label_reads_every_page(self):
+        # 60 labels need two pages (50 + 10); the second page's label is found
+        # and no create call is made
+        org = "page-org"
+        self.fake.labels[org] = [{"id": i, "name": f"l{i:02d}", "color": "", "description": "",
+                                  "exclusive": False} for i in range(1, 61)]
+        got = self.g.ensure_label(org, "l60", "#000000")
+        self.assertEqual(got, 60)
+        self.assertEqual(len(self.fake.labels[org]), 60)
+        self.assertEqual(self.fake.calls.count(("GET", f"/api/v1/orgs/{org}/labels")), 2)
+        self.assertEqual([c for c in self.fake.calls if c == ("POST", f"/api/v1/orgs/{org}/labels")], [])
+
     def test_issue_labels_and_milestone_at_create_and_beside(self):
         full = "issue-org/t"
         self.fake.repos[full] = {"archived": False, "branches": set()}

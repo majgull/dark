@@ -169,10 +169,19 @@ class Gitea:
         A name with a `/` in it is a scoped label, so the create marks it
         exclusive: a repository carries at most one label per scope. The
         first call for an org remembers every label the listing showed, so a
-        second label of the same org is no second list call."""
+        second label of the same org is no second list call. Gitea caps a
+        page of results, so the listing is read page by page until a page
+        comes back shorter than the limit asked for."""
         ids = self._labels.get(org)
         if ids is None:
-            ids = {lab["name"]: lab["id"] for lab in self.api(f"/orgs/{org}/labels?limit=100")}
+            ids = {}
+            page = 1
+            while True:
+                batch = self.api(f"/orgs/{org}/labels?limit=50&page={page}")
+                ids.update({lab["name"]: lab["id"] for lab in batch})
+                if len(batch) < 50:
+                    break
+                page += 1
             self._labels[org] = ids
         if name not in ids:
             data = {"name": name, "color": color, "description": description}
@@ -184,12 +193,16 @@ class Gitea:
     def ensure_milestone(self, full, title, description=""):
         """The id of the milestone titled `title` in `full`, open or closed,
         created when it is missing. One lookup, remembered per repository by
-        title, so a second ask for the same milestone makes no second call."""
+        title, so a second ask for the same milestone makes no second call.
+        Gitea's `name=` filter matches any title that contains the text, in
+        any letter case, so only a result whose title equals `title` counts;
+        a near match (another task's milestone) is never taken."""
         ids = self._milestones.setdefault(full, {})
         if title not in ids:
             q = urllib.parse.quote(title, safe="")
             found = self.api(f"/repos/{full}/milestones?state=all&name={q}")
-            ids[title] = (found[0]["id"] if found else
+            exact = next((m for m in found if m.get("title") == title), None)
+            ids[title] = (exact["id"] if exact else
                           self.api(f"/repos/{full}/milestones", "POST",
                                    {"title": title, "description": description})["id"])
         return ids[title]

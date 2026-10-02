@@ -356,22 +356,24 @@ class Runner:
                     raise
         return full
 
-    def _issue_meta(self, st, full):
+    def _issue_meta(self, st, full, milestone_title=None):
         """(label ids, milestone id) for a new run issue, best effort.
 
         `arm/<arm>` and `tier/<tier>` are made on the org that owns `full` (a
         Gitea label belongs to the org of its repository), the tier taken as
         the ledger records it with a trailing `:latest` dropped; the
-        milestone's title is the task id. A GiteaError from any of the three
-        is logged in one line and drops what is missing: a thinner record is
-        never a changed outcome, and no ledger row changes."""
+        milestone's title is `milestone_title` when one is given (a review
+        that judges a long run belongs to the judged task's milestone), else
+        the run's own task id. A GiteaError from any of the three is logged in
+        one line and drops what is missing: a thinner record is never a
+        changed outcome, and no ledger row changes."""
         labels, milestone = [], None
         tier = st.tier[:-len(":latest")] if st.tier.endswith(":latest") else st.tier
         try:
             org = full.split("/", 1)[0]
             labels.append(self.gitea.ensure_label(org, f"arm/{st.arm}", label_color(f"arm/{st.arm}")))
             labels.append(self.gitea.ensure_label(org, f"tier/{tier}", label_color(f"tier/{tier}")))
-            milestone = self.gitea.ensure_milestone(full, st.task.id)
+            milestone = self.gitea.ensure_milestone(full, milestone_title or st.task.id)
         except G.GiteaError as e:
             self.log(f"issue labels {st.res.run}: {e}")
         return labels, milestone
@@ -658,7 +660,7 @@ class Runner:
 
     # --- review mode: brief and files in, report.md out -------------------------
     def review(self, brief_text, files, tier, arm, shift=None, think=None, env=None, slot=0,
-               review_branches=None):
+               review_branches=None, milestone_title=None, judges=None):
         """A session-arm run whose input is a brief and a set of files to
         read and whose deliverable is report.md; no hidden acceptance, no
         branch, no staging. The records repo is both this run's issue
@@ -669,7 +671,11 @@ class Runner:
         `review_branches` ([{name, url, branch}]) makes the review a judge:
         each branch is cloned into the sandbox before the session starts,
         and the outcome is the verdict on report.md's last line (pass, or
-        fail:capability), or fail:structural "no-verdict" without one."""
+        fail:capability), or fail:structural "no-verdict" without one.
+        `milestone_title` names the task whose milestone the issue joins (a
+        review that judges a long run passes the judged task's id); None
+        keeps the review's own task id. `judges` is the issue number of the
+        run under review, when the caller knows it."""
         t_queued = self.clock()
         shift = shift or self.shift
         run_id = f"review-{arm}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(t_queued))}"
@@ -681,7 +687,8 @@ class Runner:
         st.think = think
         st.meter = self.meter().start()
         try:
-            return self._review(st, task, files, slot, shift, env, list(review_branches or []))
+            return self._review(st, task, files, slot, shift, env, list(review_branches or []),
+                                 milestone_title=milestone_title, judges=judges)
         except L.LedgerError:
             raise  # never a result without its record (as in run())
         except Exception as e:  # noqa: BLE001
@@ -693,11 +700,11 @@ class Runner:
         finally:
             st.reap_all()
 
-    def _review(self, st, task, files, slot, shift, env, review_branches=()):
+    def _review(self, st, task, files, slot, shift, env, review_branches=(), milestone_title=None, judges=None):
         res, model, tier, full = st.res, st.model, st.tier, st.full
         wd = self.budgets.watchdog
         st.go("preflight", "shift start")
-        labels, milestone = self._issue_meta(st, full)
+        labels, milestone = self._issue_meta(st, full, milestone_title)
         try:
             res.issue = self.gitea.issue_create(
                 full, f"review {res.run} [{tier}]",

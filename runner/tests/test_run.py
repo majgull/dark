@@ -416,6 +416,45 @@ class SessionArm(Base):
         titles = {m["id"]: m["title"] for m in self.gitea_fake.milestones[self.full]}
         self.assertEqual(titles.get(ms), "hello")
 
+    def test_a_judging_review_joins_the_long_tasks_milestone(self):
+        # a review that judges a long run is given the judged task's id, so
+        # both issues land in the one milestone; without it the review would
+        # have opened a milestone titled with its own run id
+        import dataclasses
+        r = self.runner([])
+        task = dataclasses.replace(self.task, cls="long")
+        r._ensure_records_repo = lambda shift=None: "dark-records/s1"
+
+        def launch(vmid, name, files, runcmd, **spawn_kw):
+            sent = json.loads(files["/opt/task.json"][0])
+            if sent.get("mode") == "review":
+                fields = {"outcome": "ok", "verdict": "pass", "verdict_reason": "looks right",
+                          "seconds": 3, "calls": 1, "tokens_in": 10, "tokens_out": 5,
+                          "reasoning_chars": 0}
+            else:
+                fields = {"outcome": "ok", "seconds": 3, "calls": 1, "tokens_in": 10,
+                          "tokens_out": 5, "reasoning_chars": 0,
+                          "branches": [{"repo": "hello", "branch": "run/long-1"}]}
+            r.gitea.comment(sent["repo"], sent["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX
+                            + json.dumps({"v": 2, "ev": "done", **fields}))
+        r.launch = launch
+        r.net_ip = lambda vmid: "10.0.0.1"
+
+        long_res = r.long(task, "local-a")
+        self.assertEqual(long_res.outcome, "delivered", long_res.detail)
+        judge = r.review("judge the long run", {}, "local-a", "long", shift="s1",
+                         review_branches=[{"name": "hello", "url": "file:///dev/null",
+                                           "branch": "run/long-1"}],
+                         milestone_title=task.id)
+        self.assertEqual(judge.outcome, "pass", judge.detail)
+        full = "dark-records/s1"
+        titles = {m["id"]: m["title"] for m in self.gitea_fake.milestones[full]}
+        long_ms = self.gitea_fake.issues[full][long_res.issue]["milestone"]
+        judge_ms = self.gitea_fake.issues[full][judge.issue]["milestone"]
+        self.assertEqual(titles[long_ms], "hello")
+        self.assertEqual(titles[judge_ms], "hello")
+        self.assertEqual(judge_ms, long_ms)
+
 
 class ThinkingBudget(Base):
     """The request carries response + thinking budget, and a reply that hit
