@@ -50,13 +50,14 @@ class LongCommand(unittest.TestCase):
     def fake_long(self, runner, task, tier, arm="long", shift=None, think=None, env=None, slot=0):
         self.calls.append({"phase": "long", "task": task, "tier": tier, "arm": arm,
                            "slot": slot, "runner_arm": runner.arm})
-        return R.RunResult(run="rework-long-1", task=task.id, cls=task.cls, tier=tier,
+        return R.RunResult(run="rework-long-1", task=task.id, cls=task.cls, tier=tier, issue=41,
                            outcome="delivered", branch="run/rework-1", branches=list(self.branches))
 
     def fake_review(self, runner, brief_text, files, tier, arm, shift=None, think=None,
-                    env=None, slot=0, review_branches=None):
+                    env=None, slot=0, review_branches=None, milestone_title=None, judges=None):
         self.calls.append({"phase": "judge", "brief": brief_text, "files": files, "tier": tier,
-                           "arm": arm, "slot": slot, "branches": review_branches})
+                           "arm": arm, "slot": slot, "branches": review_branches,
+                           "milestone": milestone_title, "judges": judges})
         return R.RunResult(run="review-long-1", task="review", cls="review", tier=tier,
                            outcome=self.judge_outcome, fail_kind=None if self.judge_outcome == "pass" else "verdict")
 
@@ -78,6 +79,9 @@ class LongCommand(unittest.TestCase):
                          [{"name": "api", "url": "https://git.example.test/dark/api.git", "branch": "run/rework-1"},
                           {"name": "web", "url": "ssh://git@git.example.test/dark/web.git", "branch": "run/rework-1"}])
         self.assertEqual(judge_call["tier"], "cloud-x")  # --judge-tier defaults to --tier
+        # the judge is told which task and which run's issue it judges, so its
+        # own issue joins that task's milestone and names the run
+        self.assertEqual((judge_call["milestone"], judge_call["judges"]), ("rework", 41))
         for needle in ("Move both repositories onto the new schema.", "VERDICT: pass", "VERDICT: fail",
                        "report.md"):
             self.assertIn(needle, judge_call["brief"])
