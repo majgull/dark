@@ -7,7 +7,7 @@ import json
 import os
 import sys
 
-from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, sandbox, spec, tasks
+from . import admission, budget, config, digest, frozen as frozen_mod, notify, preflight, sandbox, spec, status as S, tasks
 from . import version as dark_version
 from . import gitea as G
 from . import ledger as L
@@ -175,17 +175,13 @@ def cmd_admission(args):
 
 
 def cmd_status(args):
-    catalog, budgets, host, ledger, gitea, px = _ctx(args)
-    day = budget.today(ledger)
-    for name, w in budget.windows(budgets, catalog, ledger, day).items():
-        print(f"window {name}: {json.dumps(w.as_dict())}")
-    print(f"watts: {json.dumps(budget.watts(budgets, catalog, ledger, day).as_dict())}")
-    for cls in budgets.classes:
-        env = budget.envelope(budgets, ledger, cls)
-        print(f"envelope {cls}: {json.dumps(env.as_dict())}")
-    last = ledger.last("shift.end")
-    if last:
-        print(f"last shift: {last['shift']} runs={last['runs']} passes={last['passes']}")
+    """python3 -m dark status [--last N] [--json]: the running runs, oldest
+    first, then the last N finished runs, newest first (dark/status.py).
+    Reads the ledger only; no network call."""
+    host = config.load_host(os.path.join(_conf(args), "host.toml"))
+    ledger = L.Ledger(host.ledger_path)
+    rows = S.rows(ledger.events(), last=args.last)
+    print(json.dumps(rows) if args.json else S.table(rows, ledger.clock()))
     return 0
 
 
@@ -708,7 +704,9 @@ def main(argv=None):
     p.add_argument("--no-model", action="store_true",
                    help="skip the model catalog checks and the wake (no endpoint configured)")
     sub.add_parser("admission", help="the admission table derived from the ledger")
-    sub.add_parser("status", help="windows, watts and envelopes today")
+    p = sub.add_parser("status", help="the running runs, then the last N finished, from the ledger alone")
+    p.add_argument("--last", type=int, default=10, help="how many finished runs to show (default 10)")
+    p.add_argument("--json", action="store_true", help="print the rows as a JSON array instead of the table")
     p = sub.add_parser("shift", help="preflight, run every task, digest")
     p.add_argument("--bench", help="bench checkout (default: host.bench_dir)")
     p.add_argument("--tasks", help="comma-separated task ids (default: all)")

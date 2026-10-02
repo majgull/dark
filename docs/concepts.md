@@ -145,6 +145,11 @@ every tier.
 **digest**: the report one shift writes: runs by class and tier, pass rates,
 window and watts used, the admission table, and what was parked or blocked.
 
+**status**: `python3 -m dark status`, the running runs (oldest first) and the
+last `--last` finished ones (newest first), read from the ledger alone with
+no network call. `dark/status.py`'s `rows` pairs each run's `run.start` with
+its `run.end`, if any; `table` renders them as plain text.
+
 **comparison set**: a group of rounds whose counts are meant to be read
 against each other, held to one frozen envelope.
 

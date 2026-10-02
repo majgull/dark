@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - Every run's issue carries `arm/<arm>` and `tier/<tier>` labels and a milestone titled with the task id while it is open, and gets `outcome/<result>` (with `kind/<kind>` after a failure) before it closes, so the issue list can be filtered by kind of run, model and result; labelling is best effort and never changes a run's outcome or ledger rows.
+- `dark status [--last N] [--json]` prints the running runs and the last N finished ones, from the ledger alone, no network call.
 
 ### Changed
 
