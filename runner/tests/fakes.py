@@ -105,10 +105,13 @@ class FakeGitea:
                 if m and method == "GET":
                     q = dict(x.split("=") for x in query.split("&") if "=" in x)
                     name = q.get("name")
+                    limit = int(q.get("limit", 50))
+                    page = int(q.get("page", 1))
                     # Gitea's name= filter is a case-insensitive substring
                     # match, not an exact title: a near match is still returned
-                    return self._send(200, [x for x in fake.milestones.get(m.group(1), [])
-                                            if name is None or name.lower() in x["title"].lower()])
+                    matched = [x for x in fake.milestones.get(m.group(1), [])
+                              if name is None or name.lower() in x["title"].lower()]
+                    return self._send(200, matched[(page - 1) * limit: page * limit])
                 if m and method == "POST":
                     d = self._body()
                     ms = {"id": fake.next_milestone, "title": d["title"],

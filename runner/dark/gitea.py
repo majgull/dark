@@ -197,11 +197,22 @@ class Gitea:
         title, so a second ask for the same milestone makes no second call.
         Gitea's `name=` filter matches any title that contains the text, in
         any letter case, so only a result whose title equals `title` counts;
-        a near match (another task's milestone) is never taken."""
+        a near match (another task's milestone) is never taken. Gitea caps a
+        page of results, so the listing is read page by page until a page
+        comes back shorter than the limit asked for, the same as the label
+        listing: past the default page size the exact title could otherwise
+        sit on a later page and never be found, making a duplicate."""
         ids = self._milestones.setdefault(full, {})
         if title not in ids:
             q = urllib.parse.quote(title, safe="")
-            found = self.api(f"/repos/{full}/milestones?state=all&name={q}")
+            found = []
+            page = 1
+            while True:
+                batch = self.api(f"/repos/{full}/milestones?state=all&name={q}&limit=50&page={page}")
+                found.extend(batch)
+                if len(batch) < 50:
+                    break
+                page += 1
             exact = next((m for m in found if m.get("title") == title), None)
             ids[title] = (exact["id"] if exact else
                           self.api(f"/repos/{full}/milestones", "POST",

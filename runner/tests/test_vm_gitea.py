@@ -289,6 +289,21 @@ class Gitea(unittest.TestCase):
         self.assertEqual(self.fake.calls.count(("GET", f"/api/v1/orgs/{org}/labels")), 2)
         self.assertEqual([c for c in self.fake.calls if c == ("POST", f"/api/v1/orgs/{org}/labels")], [])
 
+    def test_ensure_milestone_reads_every_page(self):
+        # 60 milestones whose titles contain "hello", the exact one last:
+        # two pages (50 + 10), and the exact title is still found on the
+        # second page with no create call
+        full = "mil-org/page"
+        self.fake.repos[full] = {"archived": False, "branches": set()}
+        self.fake.milestones[full] = [{"id": i, "title": f"hello-extra-{i:02d}", "description": "", "state": "open"}
+                                      for i in range(1, 60)]
+        self.fake.milestones[full].append({"id": 60, "title": "hello", "description": "", "state": "open"})
+        got = self.g.ensure_milestone(full, "hello")
+        self.assertEqual(got, 60)
+        self.assertEqual(len(self.fake.milestones[full]), 60)
+        self.assertEqual(self.fake.calls.count(("GET", f"/api/v1/repos/{full}/milestones")), 2)
+        self.assertEqual([c for c in self.fake.calls if c == ("POST", f"/api/v1/repos/{full}/milestones")], [])
+
     def test_issue_labels_and_milestone_at_create_and_beside(self):
         full = "issue-org/t"
         self.fake.repos[full] = {"archived": False, "branches": set()}

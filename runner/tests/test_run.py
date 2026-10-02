@@ -345,6 +345,29 @@ class Outcomes(Base):
         self.assertEqual(rec["outcome"], "fail:structural")
         self.assertEqual(rec["reason"], spec.STRUCTURAL_REASONS["gitea"])
 
+    def test_the_records_link_follows_records_not_the_issues_own_repo(self):
+        # a session executor's issue sits in the work repo (self.full) but
+        # its records push lands in the shift's records repo, a different
+        # one; the closing comment's link must follow res.records
+        import dataclasses
+        r = self.runner([{"content": FILE_HELLO}])
+        r.executor = "session"
+
+        def launch(vmid, name, files, runcmd, **spawn_kw):
+            task = json.loads(files["/opt/task.json"][0])
+            r.gitea.comment(task["repo"], task["issue"], "AGENT-DONE\n" + spec.TAG_PREFIX +
+                            json.dumps({"v": 2, "ev": "done", "outcome": "ok", "seconds": 1,
+                                       "calls": 1, "tokens_in": 1, "tokens_out": 1, "reasoning_chars": 0,
+                                       "branch": task["branch"], "branches": [],
+                                       "records": "dark-records/s1/myrun-1"}))
+        r.launch = launch
+        r.net_ip = lambda vmid: "10.0.0.1"
+        task = dataclasses.replace(self.task, cls="long")
+        res = r.run(task, "local-a", self.env())
+        self.assertEqual(res.outcome, "delivered", res.detail)
+        comment = self.gitea_fake.bodies(self.full, res.issue)[-1]
+        self.assertIn(f"records: [{res.run}](/dark-records/s1/src/branch/main/myrun-1)", comment)
+
 
 class Board(Base):
     """The pinned Now issue: one board per repository, rewritten after a
@@ -680,6 +703,8 @@ class UserArm(Base):
         return self.user_runner(done_fields, head).user(self.task, "cloud-x")
 
     def test_a_user_run_that_pushed_records_ends_with_a_link_to_them(self):
+        # the link is built from where res.records says the push landed, not
+        # from the run's own id: here they differ on purpose
         res = self.run_user({"outcome": "ok", "steps_ok": 2, "steps_total": 2,
                              "records": "dark-records/s1/whatever", "records_sha256": "abc"},
                             "AGENT-DONE ok: 2/2 steps pass")
@@ -687,8 +712,7 @@ class UserArm(Base):
         full = f"{self.host.records_org}/s1"
         comment = self.gitea_fake.bodies(full, res.issue)[-1]
         self.assertIn(f"records: [{res.run}]", comment)
-        self.assertIn(res.run, comment)
-        self.assertIn(f"/{full}/src/branch/main/{res.run}", comment)
+        self.assertIn(f"/{full}/src/branch/main/whatever", comment)
 
     def test_a_user_run_issue_folds_the_steps_and_names_the_url(self):
         res = self.run_user({"outcome": "ok", "steps_ok": 2, "steps_total": 2},

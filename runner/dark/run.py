@@ -266,7 +266,8 @@ class _Run:
                 comment = (f"RUN-END {to}" + (f" ({kind})" if kind else "") + f"\n{res.detail}"
                            + "\n" + _wall_line(res))
                 if res.records and not str(res.records).startswith("PUSH FAILED"):
-                    comment += f"\nrecords: [{res.run}](/{self.full}/src/branch/main/{res.run})"
+                    repo, _, run_id = str(res.records).rpartition("/")
+                    comment += f"\nrecords: [{res.run}](/{repo}/src/branch/main/{run_id})"
                 self.r.gitea.issue_close(self.full, res.issue, comment)
         except G.GiteaError as e:
             self.r.log(f"issue close failed: {e}")
