@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The records push fetches only the newest commit and its directory listings (`--depth 1 --filter=blob:none --no-checkout`) and stages only the run's own directory, so it no longer downloads every earlier run's files and does not get slower with every run.
+
 ## [0.7.0] - 2026-10-02
 
 ### Added

@@ -236,12 +236,20 @@ def push_records(extra_files=None, extra_paths=None):
     in review mode, report.md) under RUN_ID/, commit and push. Never force:
     other runs of the same shift have their own RUN_ID directory in the same
     repo. `extra_paths` is {name: local file or directory} copied as it is
-    (the user arm's steps.jsonl and screenshots). (ok, path-or-error)."""
+    (the user arm's steps.jsonl and screenshots). (ok, path-or-error).
+
+    Only the newest commit and its trees are fetched, never the blobs of the
+    earlier runs, and nothing is checked out: the clone is shallow and
+    blobless. The index comes from that commit, so the run's own files can be
+    staged alone, and the commit is written with `write-tree --missing-ok`
+    because `git commit` verifies that every referenced blob exists and would
+    fetch every earlier run's files."""
     repo = TASK.get("records_repo")
     if not repo:
         return False, "no records_repo in task.json"
     shutil.rmtree(RECORDS_WORK, ignore_errors=True)
-    r = subprocess.run(["git", "clone", "-q", clone_url(repo), RECORDS_WORK],
+    r = subprocess.run(["git", "clone", "-q", "--depth", "1", "--filter=blob:none",
+                        "--no-checkout", clone_url(repo), RECORDS_WORK],
                        capture_output=True, text=True)
     if r.returncode != 0:
         return False, scrub(r.stderr[-300:])
@@ -249,9 +257,26 @@ def push_records(extra_files=None, extra_paths=None):
     def rsh(*cmd):
         return subprocess.run(["git", *cmd], cwd=RECORDS_WORK, capture_output=True, text=True)
 
+    def commit(parent, message):
+        tree = rsh("write-tree", "--missing-ok")
+        if tree.returncode != 0:
+            return tree
+        cmd = ["commit-tree", tree.stdout.strip()]
+        if parent:
+            cmd += ["-p", parent]
+        c = rsh(*(cmd + ["-m", message]))
+        if c.returncode == 0:
+            rsh("update-ref", "HEAD", c.stdout.strip())
+        return c
+
     rsh("config", "user.name", "dark-session")
     rsh("config", "user.email", "dark-session@localhost")
-    rsh("checkout", "-q", "-B", "main")  # a repo created empty has no branch to land on yet
+    head = rsh("rev-parse", "--verify", "-q", "HEAD")
+    if head.returncode == 0:
+        rsh("read-tree", "HEAD")
+    else:
+        # a repository created empty has no commit: only point HEAD at main
+        rsh("symbolic-ref", "HEAD", "refs/heads/main")
     run_dir = os.path.join(RECORDS_WORK, RUN_ID)
     os.makedirs(run_dir, exist_ok=True)
     if os.path.exists(STREAM_PATH):
@@ -270,13 +295,24 @@ def push_records(extra_files=None, extra_paths=None):
             shutil.copytree(src, os.path.join(run_dir, name), dirs_exist_ok=True)
         elif os.path.exists(src):
             shutil.copyfile(src, os.path.join(run_dir, name))
-    rsh("add", "-A")
-    c = rsh("commit", "-qm", f"records: {RUN_ID}")
-    if c.returncode != 0 and "nothing to commit" not in (c.stdout + c.stderr):
+    rsh("add", "--", RUN_ID)
+    c = commit("HEAD" if head.returncode == 0 else None, f"records: {RUN_ID}")
+    if c.returncode != 0:
         return False, scrub((c.stdout + c.stderr)[-300:])
     push = rsh("push", "-q", "origin", "HEAD:main")
     if push.returncode != 0:
-        rsh("pull", "-q", "--rebase", "origin", "main")
+        # another run pushed first: fetch the new tip the same way, move the
+        # branch to it without touching files, and push again. No pull
+        # --rebase: there is no checked-out tree to rebase.
+        f = rsh("fetch", "-q", "--depth", "1", "--filter=blob:none", "origin", "main")
+        if f.returncode != 0:
+            return False, scrub(f.stderr[-300:])
+        rsh("reset", "-q", "--soft", "FETCH_HEAD")
+        rsh("read-tree", "FETCH_HEAD")
+        rsh("add", "--", RUN_ID)
+        c = commit("FETCH_HEAD", f"records: {RUN_ID}")
+        if c.returncode != 0:
+            return False, scrub((c.stdout + c.stderr)[-300:])
         push = rsh("push", "-q", "origin", "HEAD:main")
     if push.returncode != 0:
         return False, scrub(push.stderr[-300:])

@@ -12,6 +12,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -375,6 +376,10 @@ class RecordsPushLive(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.base = fakes.make_origin(self.tmp, "dark-records/s1", {"README.md": "seed\n"})
+        # a file:// clone honours --filter=blob:none only when the origin
+        # allows it; without this the clone silently downloads every blob
+        fakes.git("config", "uploadpack.allowFilter", "true",
+                  cwd=os.path.join(self.tmp, "dark-records/s1.git"))
         session.TASK.clear()
         session.TASK.update({"git_url": self.base, "records_repo": "dark-records/s1",
                              "token": "tok", "spec": "brief text", "run": "run-1"})
@@ -421,6 +426,68 @@ class RecordsPushLive(unittest.TestCase):
         self.assertTrue(ok, path)
         files = fakes.branch_files(self.tmp, "dark-records/s1", "main")
         self.assertTrue({"run-1/stream.jsonl", "run-2/stream.jsonl"} <= files)
+
+    def test_a_new_run_does_not_download_the_earlier_runs_files(self):
+        # the origin already holds a run with a large file; the new push must
+        # list it but never fetch its blob (a full clone would)
+        bare = os.path.join(self.tmp, "dark-records/s1.git")
+        seed = os.path.join(self.tmp, "seed-live")
+        fakes.git("clone", "-q", bare, seed)
+        os.makedirs(os.path.join(seed, "run-0"))
+        with open(os.path.join(seed, "run-0", "video.webm"), "wb") as f:
+            f.write(bytes(range(256)) * 782)
+        fakes.git("add", "-A", cwd=seed)
+        fakes.git("-c", "user.name=seed", "-c", "user.email=seed@x", "commit", "-qm", "run-0", cwd=seed)
+        fakes.git("push", "-q", "origin", "HEAD:main", cwd=seed)
+        blob = fakes.git("rev-parse", "main:run-0/video.webm", cwd=bare).stdout.strip()
+        ok, path = session.push_records({})
+        self.assertTrue(ok, path)
+        files = fakes.branch_files(self.tmp, "dark-records/s1", "main")
+        self.assertIn("run-0/video.webm", files)
+        self.assertIn("run-1/stream.jsonl", files)
+        self.assertFalse(os.path.exists(os.path.join(session.RECORDS_WORK, "run-0", "video.webm")))
+        # GIT_NO_LAZY_FETCH: cat-file would otherwise fetch the missing blob
+        # from the promisor remote, which is exactly what this forbids
+        r = subprocess.run(["git", "-C", session.RECORDS_WORK, "cat-file", "-e", blob],
+                           capture_output=True, text=True,
+                           env=dict(os.environ, GIT_NO_LAZY_FETCH="1"))
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_a_push_refused_once_lands_both_runs_on_main(self):
+        bare = os.path.join(self.tmp, "dark-records/s1.git")
+        real_run = subprocess.run
+        pushed = []
+
+        def wrap(args, *a, **kw):
+            if isinstance(args, list) and args[:2] == ["git", "push"] and not pushed:
+                pushed.append(True)  # another run wins the race just before we push
+                other = os.path.join(self.tmp, "other-clone")
+                fakes.git("clone", "-q", bare, other)
+                os.makedirs(os.path.join(other, "run-9"), exist_ok=True)
+                with open(os.path.join(other, "run-9", "stream.jsonl"), "w") as f:
+                    f.write("{}\n")
+                fakes.git("add", "-A", cwd=other)
+                fakes.git("-c", "user.name=o", "-c", "user.email=o@x", "commit", "-qm", "run-9", cwd=other)
+                fakes.git("push", "-q", "origin", "HEAD:main", cwd=other)
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(session.subprocess, "run", wrap):
+            ok, path = session.push_records({})
+        self.assertTrue(ok, path)
+        files = fakes.branch_files(self.tmp, "dark-records/s1", "main")
+        self.assertIn("run-9/stream.jsonl", files)
+        self.assertIn("run-1/stream.jsonl", files)
+
+    def test_an_empty_records_repository_gets_its_first_run(self):
+        bare = os.path.join(self.tmp, "empty.git")
+        fakes.git("init", "-q", "--bare", "-b", "main", bare)
+        session.TASK["git_url"] = f"file://{self.tmp}"
+        session.TASK["records_repo"] = "empty"
+        ok, path = session.push_records({})
+        self.assertTrue(ok, path)
+        self.assertEqual(path, "empty/run-1")
+        self.assertEqual(fakes.branch_files(self.tmp, "empty", "main"),
+                         {"run-1/stream.jsonl", "run-1/brief.md", "run-1/task.json"})
 
 
 class ReviewMode(unittest.TestCase):
