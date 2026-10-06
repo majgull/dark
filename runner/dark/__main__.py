@@ -528,11 +528,33 @@ def cmd_desktop(args):
     return 0 if res.outcome == "pass" else 1
 
 
+def cmd_critic(args):
+    """python3 -m dark critic <records>: check a run's records before a person
+    sees its demo (dark/critic.py). One line per finding, exit 1 on any, 0 on
+    none."""
+    from . import critic
+    findings = critic.check(args.records)
+    for f in findings:
+        print(f"critic: {critic.line(f)}")
+    return 1 if critic.blocking(findings) else 0
+
+
 def cmd_demo(args):
     """Cut a user-arm run's records into <records>/demo.mp4: a title card, the
     run with each step, action and click captioned and each verdict's frame
-    held, an end card with every verdict (dark/demo.py)."""
-    from . import demo
+    held, an end card with every verdict (dark/demo.py). The critic runs first
+    and a records directory it finds a problem in is not cut; --no-critic says
+    so on standard error and cuts anyway."""
+    from . import critic, demo
+    findings = [] if args.no_critic else critic.check(args.records)
+    if args.no_critic:
+        print("demo: --no-critic: the critic is skipped", file=sys.stderr)
+    for f in findings:
+        print(f"critic: {critic.line(f)}")
+    stops = critic.blocking(findings)
+    if stops:
+        print(f"demo: refused: {len(stops)} critic finding(s); --no-critic cuts anyway", file=sys.stderr)
+        return 1
     try:
         path, total, exact = demo.render(args.records, args.out, args.voice, args.piper, args.keep)
     except demo.DemoError as e:
@@ -928,6 +950,10 @@ def main(argv=None):
     p.add_argument("--voice", help="a piper .onnx voice: the task, each verdict and the outcome are spoken")
     p.add_argument("--piper", default=os.environ.get("PIPER", "piper"), help="the piper binary (default $PIPER, else piper)")
     p.add_argument("--keep", action="store_true", help="keep the subtitle and audio work files")
+    p.add_argument("--no-critic", action="store_true",
+                   help="cut even when the critic finds a problem in the records (the critic runs first by default)")
+    p = sub.add_parser("critic", help="check a run's records before a person sees its demo: one line per finding, exit 1 on any")
+    p.add_argument("records", help="the run's records directory (task.json, steps.jsonl, steps/<NN>.png, README.md)")
     p = sub.add_parser("ledger-tail", help="the last rows of the ledger, oldest first, one JSON object per line")
     p.add_argument("--lines", type=int, default=20, help="how many rows to print (default 20)")
     p.add_argument("--kind", help="keep only rows whose event kind is this")
@@ -944,6 +970,7 @@ def main(argv=None):
                 "status": cmd_status, "now": cmd_now, "shift": cmd_shift, "stage": cmd_stage, "digest": cmd_digest, "power": cmd_power, "archive-work": cmd_archive_work,
                 "materialize": cmd_materialize, "spec-review": cmd_spec_review, "review": cmd_review,
                 "user": cmd_user, "desktop": cmd_desktop, "long": cmd_long, "demo": cmd_demo,
+                "critic": cmd_critic,
                 "done": cmd_done, "envelope": cmd_envelope, "bench": cmd_bench,
                 "export-harbor": cmd_export_harbor, "mcp": cmd_mcp, "ledger-tail": cmd_ledger_tail,
                 "void": cmd_void, "abort": cmd_abort}[args.cmd](args)
