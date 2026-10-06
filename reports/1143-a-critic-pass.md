@@ -2,7 +2,7 @@
 
 Date: 2026-10-06.
 
-Branch: `wt/dark-code-writer-t1143-a-critic-pass`, two commits, one per item, on top of `9945408 feat(desktop): add the desktop arm`.
+Branch: `wt/dark-code-writer-t1143-a-critic-pass`, two commits, one per item, then one small fix commit and this report, on top of `9945408 feat(desktop): add the desktop arm`.
 
 ## Terms, once
 
@@ -20,7 +20,7 @@ Commit `735325b feat(critic): check a run's records before its demo`.
 
 Files changed:
 
-- `runner/dark/critic.py` (new, 300 lines): `check(records_dir) -> list[Finding]`, `line(finding)` for the one-line form, `verdict_outcome(verdicts)`, `claimed_outcome(records_dir)`, and `png_is_flat(path)` — a stdlib PNG reader (IHDR/IDAT, filters 0–4, colour types 0/2/3/4/6, 8-bit, non-interlaced) that says whether every pixel is one colour. The four rules, in the order the findings come back:
+- `runner/dark/critic.py` (new, ~300 lines): `check(records_dir) -> list[Finding]`, `line(finding)` for the one-line form, `verdict_outcome(verdicts)`, `claimed_outcome(records_dir)`, and `png_is_flat(path)` — a stdlib PNG reader (IHDR/IDAT, filters 0–4, colour types 0/2/3/4/6, 8-bit, non-interlaced) that says whether every pixel is one colour. The `steps` rule treats a verdict whose `step` is not a number in range as its own finding, so a corrupt `steps.jsonl` never raises. The four rules, in the order the findings come back:
   1. `steps`: every numbered step in `task.json` has exactly one verdict in `steps.jsonl`, and every verdict belongs to a numbered step.
   2. `screenshot`: every verdict has its `steps/<NN>.png`, and that PNG has more than one colour.
   3. `note`: `pass` against the fail words `fail`, `failed`, `fails`, `failure`, `broken`; `fail` against the pass words `pass`, `passed`, `passes`, `works`, `worked`, `success`; whole words only, so `Password` is not a `pass`.
@@ -60,14 +60,29 @@ $ python3 -m pytest -q runner/tests/test_critic.py runner/tests/test_demo.py
 32 passed in 8.39s
 ```
 
+## The fix commit
+
+Commit `fix(critic): a corrupt step is a finding, not a crash`, after the report was first written: a verdict whose `step` is a JSON list or object (a corrupt `steps.jsonl`) made `check` raise `TypeError: unhashable type: 'list'`, because the step value was used as a dict key. The spec's "never an exception" is about exactly this, so `_check_steps` now separates the verdicts whose step is a number in range from every other one and reports the latter as a `steps` finding. `runner/tests/test_critic.py` gained `test_a_step_that_is_not_a_number_is_a_finding_not_a_crash`, and `CHANGELOG.md`'s critic line now says a records directory the rules cannot read returns the finding, never an exception.
+
+Reruns after the fix, from the worktree root:
+
+```
+$ python3 -m pytest -q runner/tests/test_critic.py
+.........................                                                [100%]
+25 passed in 0.14s
+$ python3 -m pytest -q runner/tests/test_critic.py runner/tests/test_demo.py
+.................................                                        [100%]
+33 passed in 8.27s
+```
+
 ## The full suite, before and after
 
 Both runs were `python3 -m pytest -q runner/tests` on the same machine.
 
 - Before (base `9945408`, clean tree): `905 passed, 2 skipped, 207 subtests passed in 268.24s`.
-- After (`3301c9d`): `929 passed, 2 skipped, 207 subtests passed in 237.33s`.
+- After (the fix commit): `930 passed, 2 skipped, 207 subtests passed in 234.79s`.
 
-24 tests were added (19 for item 1, 5 for item 2); no test that passed at the base fails now. The 2 skips are the same at the base and after: both are `runner/tests/test_user_target.py` skipping because Playwright is not installed, unrelated to this work. The render tests, which are the ones that need ffmpeg with libass and libx264, ran here (the machine has both).
+25 tests were added (20 for the checks, 5 for the command); no test that passed at the base fails now. The 2 skips are the same at the base and after: both are `runner/tests/test_user_target.py` skipping because Playwright is not installed, unrelated to this work. The render tests, which are the ones that need ffmpeg with libass and libx264, ran here (the machine has both).
 
 The one gate, `cd runner && bash verify.sh`, prints its last line:
 
@@ -76,7 +91,7 @@ The one gate, `cd runner && bash verify.sh`, prints its last line:
 verify OK
 ```
 
-with `Ran 930 tests in 236.481s / OK (skipped=2)` above it. unittest counts 930 tests to pytest's 931 collected (929 passed + 2 skipped) for one reason: `runner/tests/test_repo_hygiene.py` has a module-level `def test_no_tracked_file_is_evidence()`, which pytest collects and unittest does not. Both runners agree there are no failures. `config OK`, `release pressure` quiet, `no-binaries OK`, `no-private OK`, `leaks OK`.
+with `Ran 931 tests in 234.288s / OK (skipped=2)` above it. unittest counts 931 tests to pytest's 932 collected (930 passed + 2 skipped) for one reason: `runner/tests/test_repo_hygiene.py` has a module-level `def test_no_tracked_file_is_evidence()`, which pytest collects and unittest does not. Both runners agree there are no failures. `config OK`, `release pressure` quiet, `no-binaries OK`, `no-private OK`, `leaks OK`.
 
 ## Out of scope, reported not fixed
 

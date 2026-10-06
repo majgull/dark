@@ -127,19 +127,24 @@ def _check_steps(findings, task, steps, verdicts):
     if not steps:
         findings.append(Finding("steps", None, "task.json names no numbered steps"))
         return
-    by_step = {}
+    by_step, extras = {}, []
     for v in verdicts:
-        by_step.setdefault(v.get("step"), []).append(v)
+        n = v.get("step")
+        if isinstance(n, int) and not isinstance(n, bool) and 1 <= n <= len(steps):
+            by_step.setdefault(n, []).append(v)
+        else:
+            # a malformed or unknown step value is a finding below; it is never
+            # a dict key, because a JSON list or object is not hashable
+            extras.append(v)
     for n in range(1, len(steps) + 1):
         got = by_step.get(n, [])
         if len(got) != 1:
             findings.append(Finding("steps", n,
                                     f"step {n} has {len(got)} verdicts in steps.jsonl, expected exactly one"))
-    known = set(range(1, len(steps) + 1))
-    for n in by_step:
-        if n not in known:
-            findings.append(Finding("steps", n if isinstance(n, int) else None,
-                                    f"steps.jsonl has a verdict for step {n!r}, which task.json does not number"))
+    for v in extras:
+        n = v.get("step")
+        findings.append(Finding("steps", n if isinstance(n, int) and not isinstance(n, bool) else None,
+                                f"steps.jsonl has a verdict for step {n!r}, which task.json does not number"))
 
 
 def _check_screenshots(findings, records_dir, verdicts):

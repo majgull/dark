@@ -138,6 +138,11 @@ class Checks(unittest.TestCase):
         os.makedirs(self.d, exist_ok=True)
         self.assertOnly(critic.check(self.d), "steps", None)
 
+    def test_a_step_that_is_not_a_number_is_a_finding_not_a_crash(self):
+        write_records(self.d, passes("ok") + [{"step": [1], "verdict": "pass", "note": "x"}],
+                      steps=STEPS[:1], readme="pass")
+        self.assertOnly(critic.check(self.d), "steps", None)
+
     def test_findings_read_as_dicts_and_attributes(self):
         write_records(self.d, passes("a") + [{"step": 2, "verdict": "pass", "note": "b"},
                                              {"step": 3, "verdict": "pass", "note": "broken"}],
