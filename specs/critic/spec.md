@@ -23,6 +23,10 @@ Each rule is one sentence, checked by `critic.check(records_dir)`, and named by 
 
 A clean records directory returns no findings. A records directory the rules cannot read at all — no `task.json`, no `steps.jsonl` — returns the finding that says so, never an exception.
 
+## The command
+
+`dark critic <records>` prints one line per finding and exits 1 when there is any, 0 when there is none. `dark demo` runs the critic first and, on a finding, prints the same lines and refuses to cut, so no `demo.mp4` is written; `--no-critic` names itself on standard error and cuts anyway, for the operator who has read the findings and wants the video of a run that will not be shown as it is. The critic reads no `video.webm` and no `trace.zip`, so `dark critic` answers on a run whose recording is incomplete, which is exactly when a person most needs the answer.
+
 ## Out of scope
 
 - A model judge: the critic never asks a model whether a verdict is right, and never judges the page, the screenshot's content, or the run's quality. Its rules are about the records being internally consistent, so a run that is wrong but honestly recorded passes the critic.

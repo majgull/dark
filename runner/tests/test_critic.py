@@ -5,13 +5,18 @@ finding. The fixtures are written into a temp directory: the screenshots are
 built by `tests/pngfix.py`, because the tree keeps no binary fixture.
 """
 
+import io
 import json
 import os
 import shutil
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
+from dark import __main__ as M
 from dark import critic
+from dark import demo as demo_mod
 from tests import pngfix
 
 STEPS = ["Open the start page.", "Open the printers.", "Say what is odd."]
@@ -186,6 +191,65 @@ class Png(unittest.TestCase):
     def test_a_file_that_is_not_a_png_is_a_value_error(self):
         with self.assertRaises(ValueError):
             critic.png_is_flat(self.path(b"not a png"))
+
+
+class Command(unittest.TestCase):
+    """`dark critic` and the critic gate on `dark demo`."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d)
+
+    def main(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = M.main(list(argv))
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_critic_on_a_clean_run_prints_nothing_and_exits_0(self):
+        write_records(self.d, passes("a", "b", "c"), readme="pass")
+        rc, out, err = self.main("critic", self.d)
+        self.assertEqual((rc, out), (0, ""))
+
+    def test_critic_prints_one_line_per_finding_and_exits_1(self):
+        write_records(self.d, passes("a") + [{"step": 2, "verdict": "pass", "note": "broken"},
+                                             {"step": 3, "verdict": "pass", "note": "c"}],
+                      readme="pass", shots={1, 3})
+        rc, out, err = self.main("critic", self.d)
+        self.assertEqual(rc, 1)
+        lines = out.splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(all(line.startswith("critic: ") for line in lines))
+        self.assertIn("critic: note: step 2", out)
+        self.assertIn("critic: screenshot: step 2", out)
+
+    def test_demo_refuses_to_cut_on_a_finding(self):
+        write_records(self.d, passes("a") + [{"step": 2, "verdict": "pass", "note": "broken"},
+                                             {"step": 3, "verdict": "pass", "note": "c"}],
+                      readme="pass")
+        with mock.patch.object(demo_mod, "render") as render:
+            rc, out, err = self.main("demo", self.d)
+        self.assertEqual(rc, 1)
+        render.assert_not_called()
+        self.assertIn("critic: note: step 2", out)
+        self.assertIn("refused", err)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "demo.mp4")))
+
+    def test_demo_cuts_a_clean_run(self):
+        write_records(self.d, passes("a", "b", "c"), readme="pass")
+        with mock.patch.object(demo_mod, "render", return_value=("/x/demo.mp4", 12.0, True)) as render:
+            rc, out, err = self.main("demo", self.d)
+        self.assertEqual(rc, 0)
+        render.assert_called_once()
+        self.assertIn('"demo": "/x/demo.mp4"', out)
+
+    def test_demo_no_critic_cuts_anyway_and_names_the_flag_on_stderr(self):
+        write_records(self.d, passes("a", "b", "c"), readme="pass", shots={1, 2})
+        with mock.patch.object(demo_mod, "render", return_value=("/x/demo.mp4", 12.0, True)) as render:
+            rc, out, err = self.main("demo", self.d, "--no-critic")
+        self.assertEqual(rc, 0)
+        render.assert_called_once()
+        self.assertIn("--no-critic", err)
 
 
 if __name__ == "__main__":

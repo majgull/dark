@@ -21,6 +21,7 @@ from contextlib import redirect_stdout
 
 from dark import __main__ as M
 from dark import demo
+from tests import pngfix
 
 TASK = {"task": "t-demo", "spec": "Find the {printers}.", "url": "http://x:631/", "llm_model": "m1",
         "steps": ["Open the start page.", "Open the printers.", "Say what is odd."]}
@@ -64,6 +65,13 @@ def write_records(d, trace=True):
     for name, rows in (("stream.jsonl", STREAM), ("steps.jsonl", VERDICTS)):
         with open(os.path.join(d, name), "w") as f:
             f.write("".join(json.dumps(r) + "\n" for r in rows))
+    # the user arm leaves one screenshot per verdict; the critic reads them
+    # before the cut, so a fixture without them is not a run's records
+    sdir = os.path.join(d, "steps")
+    os.makedirs(sdir, exist_ok=True)
+    for n in (1, 2, 3):
+        with open(os.path.join(sdir, f"{n:02d}.png"), "wb") as f:
+            f.write(pngfix.png(6, 4, lambda x, y, n=n: (x * 40 + n, y * 50, 200)))
     if trace:
         with zipfile.ZipFile(os.path.join(d, "trace.zip"), "w") as z:
             z.writestr("trace.trace", "".join(json.dumps(e) + "\n" for e in trace_events()))
