@@ -536,7 +536,7 @@ def cmd_critic(args):
     findings = critic.check(args.records)
     for f in findings:
         print(f"critic: {critic.line(f)}")
-    return 1 if findings else 0
+    return 1 if critic.blocking(findings) else 0
 
 
 def cmd_demo(args):
@@ -549,10 +549,11 @@ def cmd_demo(args):
     findings = [] if args.no_critic else critic.check(args.records)
     if args.no_critic:
         print("demo: --no-critic: the critic is skipped", file=sys.stderr)
-    if findings:
-        for f in findings:
-            print(f"critic: {critic.line(f)}")
-        print(f"demo: refused: {len(findings)} critic finding(s); --no-critic cuts anyway", file=sys.stderr)
+    for f in findings:
+        print(f"critic: {critic.line(f)}")
+    stops = critic.blocking(findings)
+    if stops:
+        print(f"demo: refused: {len(stops)} critic finding(s); --no-critic cuts anyway", file=sys.stderr)
         return 1
     try:
         path, total, exact = demo.render(args.records, args.out, args.voice, args.piper, args.keep)

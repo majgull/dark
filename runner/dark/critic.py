@@ -70,10 +70,22 @@ class Finding(dict):
         return self["detail"]
 
 
+# Rules whose findings are printed but never block: a note's words are the
+# model's prose about the page, and a correct pass can say "9 failed" when the
+# page it checked shows nine failed jobs (seen on real user-arm runs).
+ADVISORY = frozenset({"note"})
+
+
+def blocking(findings):
+    """The findings that stop `dark critic` (exit 1) and `dark demo` (no cut)."""
+    return [f for f in findings if f["rule"] not in ADVISORY]
+
+
 def line(finding):
     """One finding as the one line `dark critic` prints."""
     where = f"step {finding['step']}: " if finding["step"] is not None else ""
-    return f"{finding['rule']}: {where}{finding['detail']}"
+    tail = " (warning, does not block)" if finding["rule"] in ADVISORY else ""
+    return f"{finding['rule']}: {where}{finding['detail']}{tail}"
 
 
 def _read_json(path):

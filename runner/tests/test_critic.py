@@ -229,16 +229,28 @@ class Command(unittest.TestCase):
         self.assertIn("critic: screenshot: step 2", out)
 
     def test_demo_refuses_to_cut_on_a_finding(self):
-        write_records(self.d, passes("a") + [{"step": 2, "verdict": "pass", "note": "broken"},
-                                             {"step": 3, "verdict": "pass", "note": "c"}],
-                      readme="pass")
+        write_records(self.d, passes("a", "b", "c"), readme="pass", shots={1, 3})
         with mock.patch.object(demo_mod, "render") as render:
             rc, out, err = self.main("demo", self.d)
         self.assertEqual(rc, 1)
         render.assert_not_called()
-        self.assertIn("critic: note: step 2", out)
+        self.assertIn("critic: screenshot: step 2", out)
         self.assertIn("refused", err)
         self.assertFalse(os.path.exists(os.path.join(self.d, "demo.mp4")))
+
+    def test_a_note_finding_warns_and_does_not_block(self):
+        # a real user-arm pass: the page it checked lists a failed save
+        write_records(self.d, passes("a") + [
+            {"step": 2, "verdict": "pass", "note": "The most recent failed save is shown first"},
+            {"step": 3, "verdict": "pass", "note": "c"}], readme="pass")
+        rc, out, err = self.main("critic", self.d)
+        self.assertEqual(rc, 0)
+        self.assertIn("critic: note: step 2", out)
+        self.assertIn("(warning, does not block)", out)
+        with mock.patch.object(demo_mod, "render", return_value=("/x/demo.mp4", 12.0, True)) as render:
+            rc, out, err = self.main("demo", self.d)
+        self.assertEqual(rc, 0)
+        render.assert_called_once()
 
     def test_demo_cuts_a_clean_run(self):
         write_records(self.d, passes("a", "b", "c"), readme="pass")

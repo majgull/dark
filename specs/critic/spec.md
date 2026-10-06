@@ -16,20 +16,20 @@ This is the spec for one feature. A spec says what to build and why; its plan, `
 
 Each rule is one sentence, checked by `critic.check(records_dir)`, and named by the `rule` field of a finding.
 
-1. **`steps`** — every numbered step in `task.json` has exactly one verdict in `steps.jsonl`, and every verdict in `steps.jsonl` belongs to a numbered step.
-2. **`screenshot`** — every verdict has its `steps/<NN>.png`, and that PNG is an image with more than one colour in it.
-3. **`note`** — a step whose verdict is `pass` has no note saying it failed, and a step whose verdict is `fail` has no note saying it passed; the whole word list is `fail`, `failed`, `fails`, `failure`, `broken` against a pass, and `pass`, `passed`, `passes`, `works`, `worked`, `success` against a fail, whole words only.
-4. **`outcome`** — the outcome the records claim, the badge word (`PASS`, `FAIL` or `INCONCLUSIVE`) in `README.md`, is the one the verdicts imply: `pass` only when every step passed, `fail` when a step failed, and `inconclusive` otherwise; a records directory with no `README.md`, or one whose badge cannot be read, makes no claim and the rule does not apply.
+1. **`steps`**, every numbered step in `task.json` has exactly one verdict in `steps.jsonl`, and every verdict in `steps.jsonl` belongs to a numbered step.
+2. **`screenshot`**, every verdict has its `steps/<NN>.png`, and that PNG is an image with more than one colour in it.
+3. **`note`** (a warning: printed, never blocking) - a step whose verdict is `pass` has no note saying it failed, and a step whose verdict is `fail` has no note saying it passed; the whole word list is `fail`, `failed`, `fails`, `failure`, `broken` against a pass, and `pass`, `passed`, `passes`, `works`, `worked`, `success` against a fail, whole words only. A correct pass can quote the page ("9 failed" in a jobs list), so this rule warns and never stops `dark critic` or `dark demo`.
+4. **`outcome`**, the outcome the records claim, the badge word (`PASS`, `FAIL` or `INCONCLUSIVE`) in `README.md`, is the one the verdicts imply: `pass` only when every step passed, `fail` when a step failed, and `inconclusive` otherwise; a records directory with no `README.md`, or one whose badge cannot be read, makes no claim and the rule does not apply.
 
-A clean records directory returns no findings. A records directory the rules cannot read at all — no `task.json`, no `steps.jsonl` — returns the finding that says so, never an exception.
+A clean records directory returns no findings. A records directory the rules cannot read at all, no `task.json`, no `steps.jsonl`, returns the finding that says so, never an exception.
 
 ## The command
 
-`dark critic <records>` prints one line per finding and exits 1 when there is any, 0 when there is none. `dark demo` runs the critic first and, on a finding, prints the same lines and refuses to cut, so no `demo.mp4` is written; `--no-critic` names itself on standard error and cuts anyway, for the operator who has read the findings and wants the video of a run that will not be shown as it is. The critic reads no `video.webm` and no `trace.zip`, so `dark critic` answers on a run whose recording is incomplete, which is exactly when a person most needs the answer.
+`dark critic <records>` prints one line per finding and exits 1 when there is any blocking finding (every rule but `note`), 0 otherwise. `dark demo` runs the critic first, prints the same lines and, on a blocking finding, refuses to cut, so no `demo.mp4` is written; `--no-critic` names itself on standard error and cuts anyway, for the operator who has read the findings and wants the video of a run that will not be shown as it is. The critic reads no `video.webm` and no `trace.zip`, so `dark critic` answers on a run whose recording is incomplete, which is exactly when a person most needs the answer.
 
 ## Out of scope
 
-- A model judge: the critic never asks a model whether a verdict is right, and never judges the page, the screenshot's content, or the run's quality. Its rules are about the records being internally consistent, so a run that is wrong but honestly recorded passes the critic.
+- A model judge: the critic never asks a model whether a verdict is right, and never judges the page, the screenshot's content, or the run's quality. Its rules are about the records being internally consistent, so a run that is wrong but consistently recorded passes the critic.
 - Re-running a step, re-taking a screenshot, or editing any record: the critic reads and reports; the arm and the runner own the records.
 - A missing or malformed `stream.jsonl`, `trace.zip` or `video.webm`: the demo already reports those when it cannot cut.
 - The desktop arm's `checks.jsonl`: the rules read the steps every arm keeps, and the hidden checks are the runner's verdict, not the critic's.
